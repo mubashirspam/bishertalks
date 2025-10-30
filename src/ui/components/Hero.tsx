@@ -21,20 +21,41 @@ const Hero: React.FC<HeroSectionProps> = () => {
         <div className="relative z-10 text-center max-w-4xl mx-auto px-6">
           <h1 className="text-5xl md:text-7xl font-bold mb-6">
             <span className="bg-gradient-to-r from-cyan-400 via-purple-400 to-pink-400 bg-clip-text text-transparent animate-pulse">
-              Life Coach Bisher KC
+              Bisher KC
             </span>
           </h1>
           
-          <div className="text-xl md:text-2xl text-gray-300 mb-8 space-y-2">
+          <div className="text-xl md:text-2xl text-gray-300 mb-4">
             <p className="border border-cyan-400/30 rounded-lg px-6 py-3 backdrop-blur-sm bg-cyan-400/5 shadow-[0_0_30px_rgba(0,255,255,0.1)]">
-              Corporate Trainer & CEO of Skillage
+              @bisher_talks
             </p>
           </div>
           
-          <p className="text-lg md:text-xl text-gray-400 mb-12 max-w-2xl mx-auto leading-relaxed">
-            Helping you grow <span className="text-cyan-400 font-semibold">personally</span> and{' '}
-            <span className="text-purple-400 font-semibold">professionally</span>.
+          <p className="text-lg text-gray-400 mb-4">
+            International Trainer • Life Coach • Entrepreneur
           </p>
+          
+          <p className="text-base md:text-lg text-gray-400 mb-8 max-w-2xl mx-auto leading-relaxed">
+            Focusing on <span className="text-cyan-400 font-semibold">Overcoming Public Speaking Fear</span>,{' '}
+            <span className="text-purple-400 font-semibold">Personality Development</span>,{' '}
+            <span className="text-pink-400 font-semibold">Career Growth</span> & Life Transformation
+          </p>
+          
+          {/* Social Proof */}
+          <div className="flex flex-wrap justify-center gap-4 mb-12">
+            <div className="px-4 py-2 bg-gradient-to-r from-pink-900/30 to-pink-800/30 border border-pink-400/30 rounded-lg backdrop-blur-sm">
+              <span className="text-pink-400 font-bold">83K+</span>
+              <span className="text-gray-400 text-sm ml-2">Instagram</span>
+            </div>
+            <div className="px-4 py-2 bg-gradient-to-r from-red-900/30 to-red-800/30 border border-red-400/30 rounded-lg backdrop-blur-sm">
+              <span className="text-red-400 font-bold">61K+</span>
+              <span className="text-gray-400 text-sm ml-2">YouTube</span>
+            </div>
+            <div className="px-4 py-2 bg-gradient-to-r from-cyan-900/30 to-cyan-800/30 border border-cyan-400/30 rounded-lg backdrop-blur-sm">
+              <span className="text-cyan-400 font-bold">CEO</span>
+              <span className="text-gray-400 text-sm ml-2">Skillage Academy</span>
+            </div>
+          </div>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <button className="px-8 py-4 bg-gradient-to-r from-cyan-500 to-purple-600 text-white font-semibold rounded-lg hover:from-cyan-400 hover:to-purple-500 transform hover:scale-105 transition-all duration-300 shadow-[0_0_30px_rgba(0,255,255,0.3)] hover:shadow-[0_0_40px_rgba(0,255,255,0.5)]">

@@ -9,28 +9,25 @@ const Footer: React.FC<FooterSectionProps> = () => {
 
   const socialLinks = [
     {
-      name: 'LinkedIn',
-      href: '#',
-      icon: '💼',
-      color: 'hover:text-blue-400'
-    },
-    {
       name: 'Instagram',
-      href: '#',
+      href: 'https://www.instagram.com/bisher_talks',
       icon: '📸',
-      color: 'hover:text-pink-400'
+      color: 'hover:text-pink-400',
+      followers: '83K+'
     },
     {
       name: 'YouTube',
-      href: '#',
+      href: 'https://www.youtube.com/@MindMatters',
       icon: '📺',
-      color: 'hover:text-red-400'
+      color: 'hover:text-red-400',
+      followers: '61K+'
     },
     {
       name: 'Facebook',
-      href: '#',
+      href: 'https://www.facebook.com/BisherTalks',
       icon: '👤',
-      color: 'hover:text-blue-500'
+      color: 'hover:text-blue-500',
+      followers: '550+'
     }
   ]
 
@@ -131,10 +128,15 @@ const Footer: React.FC<FooterSectionProps> = () => {
                   <a
                     key={social.name}
                     href={social.href}
-                    className={`text-2xl transition-all duration-300 transform hover:scale-125 hover:drop-shadow-lg ${social.color}`}
-                    title={social.name}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`text-2xl transition-all duration-300 transform hover:scale-125 hover:drop-shadow-lg ${social.color} group relative`}
+                    title={`${social.name} - ${social.followers} followers`}
                   >
                     {social.icon}
+                    <span className="absolute -bottom-6 left-1/2 transform -translate-x-1/2 text-xs text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+                      {social.followers}
+                    </span>
                   </a>
                 ))}
               </div>

@@ -1,0 +1,15 @@
+# robots.txt for Bisher Talks
+# Allow all search engines to crawl the site
+
+User-agent: *
+Allow: /
+
+# Sitemap location
+Sitemap: https://bishertalks.com/sitemap.xml
+
+# Crawl-delay for polite crawling
+Crawl-delay: 1
+
+# Block specific paths if needed (currently none)
+# Disallow: /admin/
+# Disallow: /private/

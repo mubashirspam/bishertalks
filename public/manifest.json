@@ -1,0 +1,44 @@
+{
+  "name": "Bisher KC - Bisher Talks",
+  "short_name": "Bisher Talks",
+  "description": "International Trainer, Life Coach & Entrepreneur. Focusing on overcoming public speaking fear, personality development, career growth & life transformation.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#000000",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["education", "lifestyle", "productivity"],
+  "lang": "en-US",
+  "dir": "ltr",
+  "scope": "/",
+  "shortcuts": [
+    {
+      "name": "About Bisher KC",
+      "short_name": "About",
+      "description": "Learn about Bisher KC's journey",
+      "url": "/#about",
+      "icons": [{ "src": "/icon-192x192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Services",
+      "short_name": "Services",
+      "description": "Explore coaching services",
+      "url": "/#what-i-do",
+      "icons": [{ "src": "/icon-192x192.png", "sizes": "192x192" }]
+    }
+  ]
+}
