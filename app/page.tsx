@@ -3,6 +3,8 @@ import Hero from "@/components/sections/Hero";
 import About from "@/components/sections/About";
 import WhatIDo from "@/components/sections/WhatIDo";
 import Book from "@/components/sections/Book";
+import CourseCTA from "@/components/sections/CourseCTA";
+import Gallery from "@/components/sections/Gallery";
 import CoreValues from "@/components/sections/CoreValues";
 import VisionMission from "@/components/sections/VisionMission";
 import Transformation from "@/components/sections/Transformation";
@@ -17,6 +19,8 @@ export default function Home() {
       <About />
       <WhatIDo />
       <Book />
+      <CourseCTA />
+      <Gallery />
       <CoreValues />
       <VisionMission />
       <Transformation />
