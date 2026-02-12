@@ -54,6 +54,18 @@ export const metadata: Metadata = {
     "life transformation",
     "rewrite your story",
     "lead with clarity",
+    "NLP course free",
+    "neuro linguistic programming course",
+    "free NLP training online",
+    "NLP course India",
+    "NLP video lessons free",
+    "learn NLP free",
+    "NLP for beginners",
+    "NLP techniques",
+    "NLP anchoring",
+    "NLP reframing",
+    "NLP modalities",
+    "NLP belief system",
   ],
   authors: [{ name: "Bisher KC", url: "https://bishertalks.com" }],
   creator: "Bisher KC",
@@ -226,6 +238,29 @@ const jsonLd = {
       },
       description:
         "Leadership training, team building, corporate outbound training, and professional development programs",
+    },
+    {
+      "@type": "Course",
+      name: "Neuro Linguistic Programming (NLP) Mastery",
+      description:
+        "Free NLP course with 13+ modules, 40+ video lessons, and 18 downloadable worksheets. Learn NLP filters, anchoring, modalities, reframing, belief systems, and more.",
+      url: "https://bishertalks.com/courses/nlp",
+      provider: {
+        "@id": "https://bishertalks.com/#person",
+      },
+      instructor: {
+        "@type": "Person",
+        name: "Bisher KC",
+      },
+      isAccessibleForFree: true,
+      inLanguage: "en",
+      courseMode: "online",
+      offers: {
+        "@type": "Offer",
+        price: "0",
+        priceCurrency: "INR",
+        availability: "https://schema.org/InStock",
+      },
     },
   ],
 };
