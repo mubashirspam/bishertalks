@@ -38,12 +38,12 @@ export default function Hero() {
           {/* Center — Hero Image */}
           <div className="relative z-10 flex-shrink-0 mx-auto mt-auto">
             <div className="relative w-[280px] h-[360px] sm:w-[340px] sm:h-[440px] md:w-[400px] md:h-[520px] lg:w-[460px] lg:h-[580px] xl:w-[500px] xl:h-[640px]">
-              {/* Blue glow behind image */}
+              {/* Orange glow behind image */}
               <div
                 className="absolute inset-0 -inset-x-8 -bottom-4 rounded-full blur-3xl opacity-30"
                 style={{
                   background:
-                    "radial-gradient(ellipse at 50% 70%, #00d4ff 0%, transparent 70%)",
+                    "radial-gradient(ellipse at 50% 70%, #f97316 0%, transparent 70%)",
                 }}
               />
               <Image

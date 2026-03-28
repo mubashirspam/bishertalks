@@ -64,7 +64,7 @@ export default function Header() {
           <a
             href="#contact"
             onClick={() => setActiveItem("Contact")}
-            className="ml-1 px-6 py-2.5 rounded-full font-medium text-sm bg-[#00d4ff] text-neutral-900 hover:bg-[#00a8e8] transition-all duration-300"
+            className="ml-1 px-6 py-2.5 rounded-full font-medium text-sm bg-[#fb923c] text-neutral-900 hover:bg-[#f97316] transition-all duration-300"
           >
             Book a Call
           </a>
@@ -117,7 +117,7 @@ export default function Header() {
                 setActiveItem("Contact");
                 setIsMenuOpen(false);
               }}
-              className="px-4 py-3 rounded-xl font-medium text-sm bg-[#00d4ff] text-neutral-900 text-center"
+              className="px-4 py-3 rounded-xl font-medium text-sm bg-[#fb923c] text-neutral-900 text-center"
             >
               Book a Call
             </a>
