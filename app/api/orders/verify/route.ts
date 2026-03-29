@@ -13,12 +13,20 @@ export async function POST(request: NextRequest) {
       order_number,
     } = await request.json();
 
+    console.log("[Verify] Payment verification request:", {
+      order_number,
+      razorpay_order_id,
+      razorpay_payment_id,
+      has_signature: !!razorpay_signature,
+    });
+
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
       !razorpay_signature ||
       !order_number
     ) {
+      console.error("[Verify] Missing required fields");
       return NextResponse.json(
         { success: false, error: "Missing fields" },
         { status: 400 }
@@ -31,6 +39,12 @@ export async function POST(request: NextRequest) {
       .digest("hex");
 
     if (expectedSignature !== razorpay_signature) {
+      console.error("[Verify] Signature mismatch:", {
+        expected: expectedSignature,
+        received: razorpay_signature,
+        order_number,
+      });
+      
       await supabaseAdmin
         .from("orders")
         .update({ payment_status: "failed" })
@@ -41,6 +55,8 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    console.log("[Verify] Signature verified successfully for order:", order_number);
 
     await supabaseAdmin
       .from("orders")

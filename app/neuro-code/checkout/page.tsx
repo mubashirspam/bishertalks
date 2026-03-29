@@ -81,27 +81,76 @@ export default function CheckoutPage() {
         order_id: razorpay_order_id,
         name: "Neuro Code",
         description: "Book by Bisher KC",
-        prefill: { name: form.name, email: form.email, contact: `+91${form.phone}` },
-        theme: { color: "#f97316" },
+        image: "/images/book_front.png",
+        prefill: { 
+          name: form.name, 
+          email: form.email, 
+          contact: form.phone 
+        },
+        theme: { 
+          color: "#f97316",
+          backdrop_color: "#171717"
+        },
+        method: {
+          upi: true,
+          card: true,
+          netbanking: true,
+          wallet: true,
+          paylater: true,
+          cardless_emi: true,
+        },
+        config: {
+          display: {
+            blocks: {
+              banks: {
+                name: "All payment methods",
+                instruments: [
+                  { method: "upi" },
+                  { method: "card" },
+                  { method: "netbanking" },
+                  { method: "wallet" },
+                ],
+              },
+            },
+            sequence: ["block.banks"],
+            preferences: {
+              show_default_blocks: true,
+            },
+          },
+        },
         handler: async (response: {
           razorpay_payment_id: string;
           razorpay_order_id: string;
           razorpay_signature: string;
         }) => {
-          const verifyRes = await fetch("/api/orders/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...response, order_number }),
-          });
-          const { success } = await verifyRes.json();
-          if (success) {
-            router.push(`/neuro-code/thank-you?id=${order_number}`);
-          } else {
+          try {
+            const verifyRes = await fetch("/api/orders/verify", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ...response, order_number }),
+            });
+            const { success } = await verifyRes.json();
+            if (success) {
+              router.push(`/neuro-code/thank-you?id=${order_number}`);
+            } else {
+              alert("Payment verification failed. Please contact support with your order number: " + order_number);
+              setLoading(false);
+            }
+          } catch (error) {
+            console.error("Verification error:", error);
             alert("Payment verification failed. Please contact support with your order number: " + order_number);
             setLoading(false);
           }
         },
-        modal: { ondismiss: () => setLoading(false) },
+        modal: { 
+          ondismiss: () => {
+            console.log("Payment cancelled by user");
+            setLoading(false);
+          },
+          escape: true,
+          animation: true,
+          confirm_close: true,
+        },
       });
       rzp.open();
     } catch (err) {
