@@ -88,35 +88,7 @@ export default function CheckoutPage() {
           contact: form.phone 
         },
         theme: { 
-          color: "#f97316",
-          backdrop_color: "#171717"
-        },
-        method: {
-          upi: true,
-          card: true,
-          netbanking: true,
-          wallet: true,
-          paylater: true,
-          cardless_emi: true,
-        },
-        config: {
-          display: {
-            blocks: {
-              banks: {
-                name: "All payment methods",
-                instruments: [
-                  { method: "upi" },
-                  { method: "card" },
-                  { method: "netbanking" },
-                  { method: "wallet" },
-                ],
-              },
-            },
-            sequence: ["block.banks"],
-            preferences: {
-              show_default_blocks: true,
-            },
-          },
+          color: "#f97316"
         },
         handler: async (response: {
           razorpay_payment_id: string;
