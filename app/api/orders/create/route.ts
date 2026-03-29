@@ -1,5 +1,7 @@
+export const dynamic = "force-dynamic";
+
 import { NextRequest, NextResponse } from "next/server";
-import { razorpay } from "@/lib/razorpay";
+import { getRazorpay } from "@/lib/razorpay";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
 function generateOrderNumber(): string {
@@ -36,7 +38,7 @@ export async function POST(request: NextRequest) {
     const amountPaise = parseInt(process.env.BOOK_PRICE_PAISE || "49900");
     const orderNumber = generateOrderNumber();
 
-    const razorpayOrder = await razorpay.orders.create({
+    const razorpayOrder = await getRazorpay().orders.create({
       amount: amountPaise,
       currency: "INR",
       receipt: orderNumber,
