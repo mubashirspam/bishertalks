@@ -112,7 +112,7 @@ export default function NeuroCodePage() {
           <span className="text-primary-400 font-bold text-lg tracking-tight">Code</span>
         </div>
         <a
-          href="#get-book"
+          href="/neuro-code/checkout"
           className="px-5 py-2 rounded-full bg-primary-500 hover:bg-primary-400 text-white text-sm font-semibold transition-all"
         >
           Get the Book
@@ -157,7 +157,7 @@ export default function NeuroCodePage() {
 
             <div className="flex flex-wrap gap-4">
               <a
-                href="#get-book"
+                href="/neuro-code/checkout"
                 className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-primary-500 hover:bg-primary-400 text-white font-bold text-sm transition-all shadow-lg shadow-primary-500/20"
               >
                 <ShoppingCart className="w-4 h-4" />
@@ -498,14 +498,14 @@ export default function NeuroCodePage() {
 
             <div className="flex flex-col sm:flex-row gap-4">
               <a
-                href="#"
+                href="/neuro-code/checkout"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-primary-500 hover:bg-primary-400 text-white font-bold transition-all shadow-lg shadow-primary-500/20"
               >
                 <ShoppingCart className="w-5 h-5" />
                 Buy Now
               </a>
               <a
-                href="#"
+                href="/neuro-code/checkout"
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-medium transition-all"
               >
                 Order Signed Copy
@@ -529,9 +529,18 @@ export default function NeuroCodePage() {
             <span className="text-neutral-600 mx-2">·</span>
             <span className="text-neutral-400 text-sm">by Bisher KC</span>
           </div>
-          <Link href="/" className="text-neutral-400 hover:text-white text-sm transition-colors">
-            ← Back to bishertalks.com
-          </Link>
+          <div className="flex items-center gap-4">
+            <Link href="/" className="text-neutral-400 hover:text-white text-sm transition-colors">
+              ← Back to bishertalks.com
+            </Link>
+            <span className="text-neutral-700">·</span>
+            <Link href="/privacy-policy" className="text-neutral-500 hover:text-white text-xs transition-colors">
+              Privacy Policy
+            </Link>
+            <Link href="/terms" className="text-neutral-500 hover:text-white text-xs transition-colors">
+              Terms & Refund
+            </Link>
+          </div>
         </div>
       </footer>
     </div>

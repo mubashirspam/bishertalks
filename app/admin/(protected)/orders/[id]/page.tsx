@@ -1,0 +1,273 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard } from "lucide-react";
+import {
+  STATUS_LABELS,
+  STATUS_STEPS,
+  STATUS_BADGE,
+  type Order,
+  type OrderStatus,
+} from "@/lib/types/order";
+
+const ALL_STATUSES: OrderStatus[] = [
+  "confirmed", "processing", "shipped", "out_for_delivery", "delivered", "cancelled",
+];
+
+export default function AdminOrderDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const router = useRouter();
+  const [order, setOrder] = useState<Order | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const [form, setForm] = useState({
+    status: "" as OrderStatus,
+    tracking_number: "",
+    courier_name: "",
+    expected_delivery: "",
+    notes: "",
+  });
+
+  useEffect(() => {
+    fetch(`/api/orders/${id}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Not found");
+        return r.json();
+      })
+      .then((data: Order) => {
+        setOrder(data);
+        setForm({
+          status: data.status,
+          tracking_number: data.tracking_number ?? "",
+          courier_name: data.courier_name ?? "",
+          expected_delivery: data.expected_delivery ?? "",
+          notes: data.notes ?? "",
+        });
+      })
+      .catch(() => router.push("/admin/orders"))
+      .finally(() => setLoading(false));
+  }, [id, router]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    const res = await fetch("/api/orders/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_number: id, ...form }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setOrder(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
+    setSaving(false);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64 text-neutral-500">
+        Loading…
+      </div>
+    );
+  }
+
+  if (!order) return null;
+
+  const set = (field: keyof typeof form) =>
+    (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((prev) => ({ ...prev, [field]: e.target.value }));
+
+  const inputCls =
+    "w-full bg-neutral-800 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-primary-500 transition-colors";
+
+  const date = new Date(order.created_at).toLocaleDateString("en-IN", {
+    day: "numeric", month: "long", year: "numeric",
+  });
+
+  const currentStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
+
+  return (
+    <div>
+      <div className="flex items-center gap-4 mb-6">
+        <Link href="/admin/orders" className="flex items-center gap-2 text-neutral-400 hover:text-white text-sm transition-colors">
+          <ArrowLeft className="w-4 h-4" /> Orders
+        </Link>
+        <span className="text-neutral-600">/</span>
+        <span className="font-mono text-primary-400 text-sm">{id}</span>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left col */}
+        <div className="space-y-5">
+          {/* Status stepper */}
+          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
+            <h2 className="font-semibold text-sm text-neutral-300 mb-5 flex items-center gap-2">
+              <Package className="w-4 h-4 text-primary-400" /> Order Progress
+            </h2>
+            <div className="flex gap-1 flex-wrap mb-4">
+              {STATUS_STEPS.map((step, i) => (
+                <div
+                  key={step}
+                  className={`h-1.5 flex-1 rounded-full transition-all ${
+                    i <= currentStep ? "bg-primary-500" : "bg-neutral-800"
+                  }`}
+                />
+              ))}
+            </div>
+            <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_BADGE[order.status as OrderStatus]}`}>
+              {STATUS_LABELS[order.status as OrderStatus]}
+            </span>
+          </div>
+
+          {/* Buyer info */}
+          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
+            <h2 className="font-semibold text-sm text-neutral-300 mb-4 flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-primary-400" /> Buyer & Address
+            </h2>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Name</span>
+                <span className="text-white font-medium">{order.buyer_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Phone</span>
+                <a
+                  href={`https://wa.me/91${order.buyer_phone}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-green-400 hover:text-green-300"
+                >
+                  +91 {order.buyer_phone}
+                </a>
+              </div>
+              {order.buyer_email && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Email</span>
+                  <span className="text-white">{order.buyer_email}</span>
+                </div>
+              )}
+              <div className="pt-2 border-t border-white/8 text-neutral-400 leading-relaxed">
+                {order.address_line1}
+                {order.address_line2 && <>, {order.address_line2}</>}
+                <br />
+                {order.city}, {order.state} — {order.pincode}
+              </div>
+            </div>
+          </div>
+
+          {/* Payment */}
+          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
+            <h2 className="font-semibold text-sm text-neutral-300 mb-4 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-primary-400" /> Payment
+            </h2>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Amount</span>
+                <span className="text-primary-400 font-bold">₹{Math.round(order.amount_paise / 100)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Status</span>
+                <span className={order.payment_status === "paid" ? "text-green-400" : "text-amber-400"}>
+                  {order.payment_status.charAt(0).toUpperCase() + order.payment_status.slice(1)}
+                </span>
+              </div>
+              {order.razorpay_payment_id && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Payment ID</span>
+                  <span className="text-white font-mono text-xs">{order.razorpay_payment_id}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-neutral-500">Date</span>
+                <span className="text-white">{date}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right col — Update form */}
+        <div className="space-y-5">
+          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
+            <h2 className="font-semibold text-sm text-neutral-300 mb-5 flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary-400" /> Update Order
+            </h2>
+
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-neutral-500 uppercase tracking-wider font-semibold block mb-1.5">Status</label>
+                <select className={`${inputCls} appearance-none cursor-pointer`} value={form.status} onChange={set("status")}>
+                  {ALL_STATUSES.map((s) => (
+                    <option key={s} value={s}>{STATUS_LABELS[s]}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs text-neutral-500 uppercase tracking-wider font-semibold block mb-1.5">Courier Name</label>
+                <input className={inputCls} placeholder="e.g. Delhivery, Blue Dart" value={form.courier_name} onChange={set("courier_name")} />
+              </div>
+
+              <div>
+                <label className="text-xs text-neutral-500 uppercase tracking-wider font-semibold block mb-1.5">Tracking Number</label>
+                <input className={inputCls} placeholder="Courier tracking ID" value={form.tracking_number} onChange={set("tracking_number")} />
+              </div>
+
+              <div>
+                <label className="text-xs text-neutral-500 uppercase tracking-wider font-semibold block mb-1.5">Expected Delivery</label>
+                <input className={inputCls} type="date" value={form.expected_delivery} onChange={set("expected_delivery")} />
+              </div>
+
+              <div>
+                <label className="text-xs text-neutral-500 uppercase tracking-wider font-semibold block mb-1.5">Internal Notes</label>
+                <textarea
+                  className={`${inputCls} resize-none`}
+                  rows={3}
+                  placeholder="Notes visible only to you…"
+                  value={form.notes}
+                  onChange={set("notes")}
+                />
+              </div>
+
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className={`w-full py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all
+                  ${saved
+                    ? "bg-green-500 text-white"
+                    : "bg-primary-500 hover:bg-primary-400 text-white disabled:opacity-60"
+                  }`}
+              >
+                <Save className="w-4 h-4" />
+                {saving ? "Saving…" : saved ? "Saved ✓" : "Update Order"}
+              </button>
+              <p className="text-neutral-600 text-xs text-center">
+                WhatsApp notification auto-sent on Shipped & Delivered updates
+              </p>
+            </div>
+          </div>
+
+          {/* Tracking link */}
+          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-4 flex items-center justify-between">
+            <span className="text-sm text-neutral-400">Customer tracking link</span>
+            <button
+              onClick={() =>
+                navigator.clipboard?.writeText(
+                  `${window.location.origin}/neuro-code/track?id=${id}`
+                )
+              }
+              className="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+            >
+              Copy Link
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
