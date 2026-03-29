@@ -63,17 +63,17 @@ const values = [
 
 export default function CoreValues() {
   return (
-    <section id="values" className="py-20 bg-white">
+    <section id="values" className="py-20 bg-white dark:bg-neutral-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-16">
-          <span className="inline-block px-4 py-1.5 bg-neutral-100 rounded-full text-sm font-medium text-neutral-600 mb-4">
+          <span className="inline-block px-4 py-1.5 bg-neutral-100 dark:bg-neutral-800 rounded-full text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-4">
             Our Process
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900 mb-2">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900 dark:text-white mb-2">
             Core <span className="italic text-primary-500">Values</span>
           </h2>
-          <p className="text-lg text-neutral-600 max-w-xl mx-auto">
+          <p className="text-lg text-neutral-600 dark:text-neutral-400 max-w-xl mx-auto">
             These values are the foundation of everything I teach
           </p>
         </div>
@@ -88,26 +88,26 @@ export default function CoreValues() {
                 key={index}
                 className={`rounded-2xl p-6 md:p-8 transition-all duration-300 hover:shadow-lg ${
                   isEven
-                    ? "bg-neutral-50 hover:bg-white"
-                    : "bg-white border border-neutral-100"
+                    ? "bg-neutral-50 dark:bg-neutral-800 hover:bg-white dark:hover:bg-neutral-750"
+                    : "bg-white dark:bg-neutral-800/50 border border-neutral-100 dark:border-neutral-700"
                 }`}
               >
                 <div className="flex items-start gap-4 md:gap-6">
                   <div className="flex-shrink-0">
-                    <div className="w-12 h-12 md:w-14 md:h-14 bg-white border border-neutral-200 rounded-xl flex items-center justify-center">
-                      <Icon className="w-6 h-6 md:w-7 md:h-7 text-neutral-700" />
+                    <div className="w-12 h-12 md:w-14 md:h-14 bg-white dark:bg-neutral-700 border border-neutral-200 dark:border-neutral-600 rounded-xl flex items-center justify-center">
+                      <Icon className="w-6 h-6 md:w-7 md:h-7 text-neutral-700 dark:text-neutral-300" />
                     </div>
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="text-lg md:text-xl font-bold text-neutral-900">
+                      <h3 className="text-lg md:text-xl font-bold text-neutral-900 dark:text-white">
                         {value.title}
                       </h3>
-                      <span className="w-10 h-10 bg-neutral-900 text-white rounded-full flex items-center justify-center text-sm font-semibold">
+                      <span className="w-10 h-10 bg-neutral-900 dark:bg-neutral-700 text-white rounded-full flex items-center justify-center text-sm font-semibold">
                         {value.number}
                       </span>
                     </div>
-                    <p className="text-neutral-600 leading-relaxed">
+                    <p className="text-neutral-600 dark:text-neutral-400 leading-relaxed">
                       {value.description}
                     </p>
                   </div>

@@ -10,7 +10,7 @@ import {
 
 export default function CTA() {
   return (
-    <section id="contact" className="py-20 bg-white">
+    <section id="contact" className="py-20 bg-white dark:bg-neutral-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Main CTA Card */}
         <div className="relative overflow-hidden rounded-3xl bg-neutral-900 p-8 md:p-12 lg:p-16">
@@ -127,17 +127,17 @@ export default function CTA() {
         </div>
 
         {/* Skillage Banner */}
-        <div className="mt-8 bg-primary-100 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-4">
+        <div className="mt-8 bg-primary-100 dark:bg-primary-900/30 rounded-2xl p-6 md:p-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm">
+            <div className="w-12 h-12 bg-white dark:bg-neutral-800 rounded-xl flex items-center justify-center shadow-sm">
               <span className="text-2xl font-bold text-primary-600">S</span>
             </div>
             <div>
-              <p className="text-sm text-primary-700">CEO of</p>
-              <h3 className="text-xl font-bold text-neutral-900">Skillage</h3>
+              <p className="text-sm text-primary-700 dark:text-primary-400">CEO of</p>
+              <h3 className="text-xl font-bold text-neutral-900 dark:text-white">Skillage</h3>
             </div>
           </div>
-          <p className="text-neutral-700 text-center md:text-left">
+          <p className="text-neutral-700 dark:text-neutral-300 text-center md:text-left">
             Empowering individuals and organizations through transformative
             learning
           </p>

@@ -63,7 +63,7 @@ export default function Gallery() {
   };
 
   return (
-    <section className="py-20 bg-neutral-50 relative overflow-hidden">
+    <section className="py-20 bg-neutral-50 dark:bg-neutral-950 relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-primary-100/20 rounded-full blur-3xl" />
       <div className="absolute bottom-0 left-0 w-72 h-72 bg-primary-200/20 rounded-full blur-3xl" />
@@ -71,14 +71,14 @@ export default function Gallery() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Header */}
         <div className="text-center mb-12">
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-white border border-neutral-200 rounded-full text-sm font-medium text-neutral-600 mb-4">
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-4">
             <Camera className="w-4 h-4 text-primary-500" />
             Moments of Impact
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900 mb-4">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900 dark:text-white mb-4">
             Stories in <span className="text-primary-500">Frames</span>
           </h2>
-          <p className="text-neutral-600 max-w-2xl mx-auto">
+          <p className="text-neutral-600 dark:text-neutral-400 max-w-2xl mx-auto">
             Every image holds a story of transformation, courage, and breakthrough moments.
           </p>
         </div>

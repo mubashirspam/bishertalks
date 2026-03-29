@@ -67,7 +67,7 @@ export default function WhatIDo() {
   return (
     <section
       id="services"
-      className="py-20 bg-neutral-50 relative overflow-hidden"
+      className="py-20 bg-neutral-50 dark:bg-neutral-950 relative overflow-hidden"
     >
       {/* Background decoration */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-primary-200/20 rounded-full blur-3xl" />
@@ -76,13 +76,13 @@ export default function WhatIDo() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Header */}
         <div className="text-center mb-16">
-          <span className="inline-block px-4 py-1.5 bg-white border border-neutral-200 rounded-full text-sm font-medium text-neutral-600 mb-4">
+          <span className="inline-block px-4 py-1.5 bg-white dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-full text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-4">
             Services
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900 mb-4">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900 dark:text-white mb-4">
             What I <span className="text-primary-500">Do</span>
           </h2>
-          <p className="text-lg text-neutral-600 max-w-2xl mx-auto">
+          <p className="text-lg text-neutral-600 dark:text-neutral-400 max-w-2xl mx-auto">
             I design and deliver result-driven experiences that help you move
             from where you are to where you want to be.
           </p>
@@ -97,7 +97,7 @@ export default function WhatIDo() {
               return (
                 <div
                   key={index}
-                  className="bg-white rounded-2xl p-5 border border-neutral-100 hover:border-primary-200 hover:shadow-lg transition-all duration-300 group cursor-pointer"
+                  className="bg-white dark:bg-neutral-800 rounded-2xl p-5 border border-neutral-100 dark:border-neutral-700 hover:border-primary-200 hover:shadow-lg transition-all duration-300 group cursor-pointer"
                 >
                   <div className="flex items-start gap-4">
                     <div
@@ -107,12 +107,12 @@ export default function WhatIDo() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-neutral-900">
+                        <h3 className="font-semibold text-neutral-900 dark:text-white">
                           {service.title}
                         </h3>
                         <ArrowUpRight className="w-4 h-4 text-neutral-400 group-hover:text-primary-500 transition-colors" />
                       </div>
-                      <p className="text-sm text-neutral-600 leading-relaxed">
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
                         {service.description}
                       </p>
                     </div>
@@ -147,7 +147,7 @@ export default function WhatIDo() {
               return (
                 <div
                   key={index}
-                  className="bg-white rounded-2xl p-5 border border-neutral-100 hover:border-primary-200 hover:shadow-lg transition-all duration-300 group cursor-pointer"
+                  className="bg-white dark:bg-neutral-800 rounded-2xl p-5 border border-neutral-100 dark:border-neutral-700 hover:border-primary-200 hover:shadow-lg transition-all duration-300 group cursor-pointer"
                 >
                   <div className="flex items-start gap-4">
                     <div
@@ -157,12 +157,12 @@ export default function WhatIDo() {
                     </div>
                     <div className="flex-1">
                       <div className="flex items-center justify-between mb-2">
-                        <h3 className="font-semibold text-neutral-900">
+                        <h3 className="font-semibold text-neutral-900 dark:text-white">
                           {service.title}
                         </h3>
                         <ArrowUpRight className="w-4 h-4 text-neutral-400 group-hover:text-primary-500 transition-colors" />
                       </div>
-                      <p className="text-sm text-neutral-600 leading-relaxed">
+                      <p className="text-sm text-neutral-600 dark:text-neutral-400 leading-relaxed">
                         {service.description}
                       </p>
                     </div>
@@ -177,7 +177,7 @@ export default function WhatIDo() {
         <div className="mt-12 text-center">
           <a
             href="#contact"
-            className="inline-flex items-center gap-2 px-8 py-4 bg-neutral-900 text-white rounded-full font-medium hover:bg-neutral-800 transition-colors"
+            className="inline-flex items-center gap-2 px-8 py-4 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-full font-medium hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors"
           >
             Book a Session
             <ArrowUpRight className="w-5 h-5" />

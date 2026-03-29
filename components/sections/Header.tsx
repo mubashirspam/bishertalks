@@ -1,19 +1,27 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Sun, Moon } from "lucide-react";
+import { useTheme } from "next-themes";
 
 const navigation = [
   { name: "Home", href: "#home" },
   { name: "About", href: "#about" },
   { name: "Services", href: "#services" },
   { name: "Courses", href: "/courses" },
+  { name: "Book", href: "/neuro-code" },
   { name: "Values", href: "#values" },
 ];
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [activeItem, setActiveItem] = useState("Home");
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -68,12 +76,36 @@ export default function Header() {
           >
             Book a Call
           </a>
+
+          <button
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="ml-1 p-2.5 rounded-full text-neutral-300 hover:text-white hover:bg-neutral-700 transition-all duration-300"
+            aria-label="Toggle theme"
+          >
+            {mounted && theme === "dark" ? (
+              <Sun className="w-4 h-4" />
+            ) : (
+              <Moon className="w-4 h-4" />
+            )}
+          </button>
         </div>
 
         <div className="md:hidden flex items-center justify-between w-full">
           <a href="#home" className="text-2xl font-bold text-white">
             Bisher KC
           </a>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className="p-2 rounded-full bg-neutral-900 text-white"
+              aria-label="Toggle theme"
+            >
+              {mounted && theme === "dark" ? (
+                <Sun className="w-5 h-5" />
+              ) : (
+                <Moon className="w-5 h-5" />
+              )}
+            </button>
           <button
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             className="p-2 rounded-full bg-neutral-900 text-white"
@@ -85,6 +117,7 @@ export default function Header() {
               <Menu className="w-6 h-6" />
             )}
           </button>
+          </div>
         </div>
       </nav>
 

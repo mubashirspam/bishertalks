@@ -101,13 +101,13 @@ const coursesJsonLd = {
 
 export default function CoursesPage() {
   return (
-    <main className="min-h-screen bg-white">
+    <main className="min-h-screen bg-white dark:bg-neutral-900">
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(coursesJsonLd) }}
       />
       {/* Header */}
-      <section className="bg-neutral-900 relative overflow-hidden">
+      <section className="bg-neutral-900 dark:bg-neutral-950 relative overflow-hidden">
         <div className="absolute inset-0 opacity-5">
           <svg width="100%" height="100%">
             <defs>
@@ -165,7 +165,7 @@ export default function CoursesPage() {
                 href={`/courses/${course.slug}`}
                 className="group block"
               >
-                <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden hover:shadow-xl hover:border-primary-200 transition-all duration-300">
+                <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden hover:shadow-xl hover:border-primary-200 transition-all duration-300">
                   {/* Thumbnail */}
                   <div className="aspect-video bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 relative overflow-hidden">
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -180,28 +180,28 @@ export default function CoursesPage() {
                   {/* Content */}
                   <div className="p-6">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="px-2.5 py-0.5 bg-primary-100 text-primary-700 text-xs font-medium rounded-full">
+                      <span className="px-2.5 py-0.5 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 text-xs font-medium rounded-full">
                         Free
                       </span>
-                      <span className="px-2.5 py-0.5 bg-neutral-100 text-neutral-600 text-xs font-medium rounded-full">
+                      <span className="px-2.5 py-0.5 bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-400 text-xs font-medium rounded-full">
                         {course.modules.length} Modules
                       </span>
                     </div>
 
-                    <h3 className="text-xl font-bold text-neutral-900 mb-2 group-hover:text-primary-600 transition-colors">
+                    <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2 group-hover:text-primary-600 transition-colors">
                       {course.title}
                     </h3>
-                    <p className="text-neutral-600 text-sm leading-relaxed mb-4 line-clamp-2">
+                    <p className="text-neutral-600 dark:text-neutral-400 text-sm leading-relaxed mb-4 line-clamp-2">
                       {course.description}
                     </p>
 
                     {/* Stats */}
-                    <div className="flex items-center gap-4 pt-4 border-t border-neutral-100">
-                      <div className="flex items-center gap-1.5 text-sm text-neutral-500">
+                    <div className="flex items-center gap-4 pt-4 border-t border-neutral-100 dark:border-neutral-700">
+                      <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
                         <Play className="w-4 h-4" />
                         {totalVideos} Videos
                       </div>
-                      <div className="flex items-center gap-1.5 text-sm text-neutral-500">
+                      <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
                         <FileText className="w-4 h-4" />
                         {totalPdfs} PDFs
                       </div>

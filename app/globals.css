@@ -14,7 +14,7 @@
   }
 
   body {
-    @apply bg-white text-neutral-800;
+    @apply bg-white text-neutral-800 dark:bg-neutral-900 dark:text-neutral-200;
   }
 
   h1,
@@ -37,7 +37,7 @@
   }
 
   .gradient-bg {
-    @apply bg-white;
+    @apply bg-white dark:bg-neutral-900;
   }
 
   .gradient-text {
@@ -49,11 +49,11 @@
   }
 
   .btn-primary {
-    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg bg-primary-600 text-white font-medium transition-all duration-300 hover:bg-primary-700 hover:shadow-md active:scale-95;
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg bg-primary-600 text-white font-medium transition-all duration-300 hover:bg-primary-700 hover:shadow-md active:scale-95 dark:bg-primary-500 dark:hover:bg-primary-600;
   }
 
   .btn-secondary {
-    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg border-2 border-primary-600 text-primary-600 font-medium transition-all duration-300 hover:bg-primary-50 active:scale-95;
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-lg border-2 border-primary-600 text-primary-600 font-medium transition-all duration-300 hover:bg-primary-50 active:scale-95 dark:border-primary-400 dark:text-primary-400 dark:hover:bg-primary-900/30;
   }
 }
 

@@ -17,7 +17,7 @@ const bookHighlights = [
 
 export default function Book() {
   return (
-    <section className="py-20 bg-white relative overflow-hidden">
+    <section className="py-20 bg-white dark:bg-neutral-900 relative overflow-hidden">
       {/* Background decorations */}
       <div className="absolute top-20 left-0 w-72 h-72 bg-primary-100/30 rounded-full blur-3xl" />
       <div className="absolute bottom-0 right-0 w-96 h-96 bg-primary-200/20 rounded-full blur-3xl" />
@@ -25,11 +25,11 @@ export default function Book() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
         {/* Header */}
         <div className="text-center mb-12">
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-primary-100 rounded-full text-sm font-medium text-primary-700 mb-4">
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 bg-primary-100 dark:bg-primary-900/30 rounded-full text-sm font-medium text-primary-700 dark:text-primary-400 mb-4">
             <BookOpen className="w-4 h-4" />
             Featured Book
           </span>
-          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900">
+          <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-neutral-900 dark:text-white">
             The <span className="text-primary-500">Neuro Code</span>
           </h2>
         </div>
@@ -42,7 +42,7 @@ export default function Book() {
             <div className="absolute inset-4 bg-gradient-to-br from-primary-200 to-primary-100 rounded-3xl transform rotate-3" />
 
             {/* Book container */}
-            <div className="relative bg-white rounded-3xl p-0 shadow-2xl">
+            <div className="relative bg-white dark:bg-neutral-800 rounded-3xl p-0 shadow-2xl">
               {/* Book mockup */}
               <div className="relative w-64 md:w-72 mx-auto">
                 <div className="aspect-[3/4] bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 rounded-lg shadow-2xl overflow-hidden relative">
@@ -74,10 +74,10 @@ export default function Book() {
 
           {/* Content Side */}
           <div className="lg:pl-8">
-            <h3 className="text-2xl md:text-3xl font-bold text-neutral-900 mb-4">
+            <h3 className="text-2xl md:text-3xl font-bold text-neutral-900 dark:text-white mb-4">
               Rewrite Your Internal Programming
             </h3>
-            <p className="text-lg text-neutral-600 mb-6 leading-relaxed">
+            <p className="text-lg text-neutral-600 dark:text-neutral-300 mb-6 leading-relaxed">
               Discover the hidden codes that drive your thoughts, behaviors, and
               life outcomes. Learn how to reprogram your mind for success,
               clarity, and lasting transformation.
@@ -87,7 +87,7 @@ export default function Book() {
             <div className="space-y-3 mb-8">
               {bookHighlights.map((highlight, index) => (
                 <div key={index} className="flex items-center gap-3">
-                  <div className="w-6 h-6 bg-primary-100 rounded-full flex items-center justify-center flex-shrink-0">
+                  <div className="w-6 h-6 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center flex-shrink-0">
                     <svg
                       className="w-3.5 h-3.5 text-primary-600"
                       fill="none"
@@ -102,7 +102,7 @@ export default function Book() {
                       />
                     </svg>
                   </div>
-                  <span className="text-neutral-700">{highlight}</span>
+                  <span className="text-neutral-700 dark:text-neutral-300">{highlight}</span>
                 </div>
               ))}
             </div>
@@ -110,27 +110,27 @@ export default function Book() {
             {/* CTA Buttons */}
             <div className="flex flex-wrap gap-4">
               <a
-                href="#"
-                className="inline-flex items-center gap-2 px-8 py-4 bg-neutral-900 text-white rounded-full font-semibold hover:bg-neutral-800 transition-colors shadow-lg"
+                href="/neuro-code"
+                className="inline-flex items-center gap-2 px-8 py-4 bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 rounded-full font-semibold hover:bg-neutral-800 dark:hover:bg-neutral-100 transition-colors shadow-lg"
               >
                 <ShoppingCart className="w-5 h-5" />
                 Buy Now
               </a>
               <a
-                href="#"
-                className="inline-flex items-center gap-2 px-8 py-4 border-2 border-neutral-200 text-neutral-700 rounded-full font-medium hover:bg-neutral-50 transition-colors"
+                href="/neuro-code"
+                className="inline-flex items-center gap-2 px-8 py-4 border-2 border-neutral-200 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300 rounded-full font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
-                Learn More
+                Full Book Page
                 <ArrowUpRight className="w-5 h-5" />
               </a>
             </div>
 
             {/* Quote */}
-            <div className="mt-8 p-4 bg-neutral-50 rounded-2xl border border-neutral-100">
-              <p className="text-neutral-600 italic">
+            <div className="mt-8 p-4 bg-neutral-50 dark:bg-neutral-800 rounded-2xl border border-neutral-100 dark:border-neutral-700">
+              <p className="text-neutral-600 dark:text-neutral-300 italic">
                 "This book changed how I think about myself and my potential."
               </p>
-              <p className="text-sm text-neutral-500 mt-2">— Reader Review</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">— Reader Review</p>
             </div>
           </div>
         </div>

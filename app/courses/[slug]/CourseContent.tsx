@@ -52,9 +52,9 @@ export default function CourseContent({ course }: CourseContentProps) {
   const youtubeId = currentLesson?.type === 'video' ? getYouTubeId(currentLesson.url) : null;
 
   return (
-    <main className="min-h-screen bg-neutral-50">
+    <main className="min-h-screen bg-neutral-50 dark:bg-neutral-900">
       {/* Top Bar */}
-      <div className="bg-neutral-900 border-b border-neutral-800 sticky top-0 z-40">
+      <div className="bg-neutral-900 dark:bg-neutral-950 border-b border-neutral-800 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link
@@ -85,11 +85,11 @@ export default function CourseContent({ course }: CourseContentProps) {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Sidebar - Module List */}
           <div className="lg:col-span-4 xl:col-span-3 order-2 lg:order-1">
-            <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden sticky top-24">
+            <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden sticky top-24">
               {/* Course Info */}
-              <div className="p-5 border-b border-neutral-100 bg-gradient-to-r from-primary-50 to-white">
-                <h2 className="font-bold text-neutral-900 mb-2">{course.subtitle}</h2>
-                <div className="flex items-center gap-3 text-sm text-neutral-500">
+              <div className="p-5 border-b border-neutral-100 dark:border-neutral-700 bg-gradient-to-r from-primary-50 dark:from-primary-900/20 to-white dark:to-neutral-800">
+                <h2 className="font-bold text-neutral-900 dark:text-white mb-2">{course.subtitle}</h2>
+                <div className="flex items-center gap-3 text-sm text-neutral-500 dark:text-neutral-400">
                   <span className="flex items-center gap-1">
                     <Play className="w-3.5 h-3.5" />
                     {totalVideos}
@@ -108,17 +108,17 @@ export default function CourseContent({ course }: CourseContentProps) {
               {/* Module Accordion */}
               <div className="max-h-[60vh] overflow-y-auto">
                 {course.modules.map((module) => (
-                  <div key={module.id} className="border-b border-neutral-100 last:border-0">
+                  <div key={module.id} className="border-b border-neutral-100 dark:border-neutral-700 last:border-0">
                     {/* Module Header */}
                     <button
                       onClick={() => toggleModule(module.id)}
-                      className="w-full flex items-center justify-between p-4 hover:bg-neutral-50 transition-colors text-left"
+                      className="w-full flex items-center justify-between p-4 hover:bg-neutral-50 dark:hover:bg-neutral-700/50 transition-colors text-left"
                     >
                       <div className="flex items-center gap-3">
-                        <span className="w-7 h-7 bg-primary-100 text-primary-700 rounded-lg text-xs font-bold flex items-center justify-center flex-shrink-0">
+                        <span className="w-7 h-7 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 rounded-lg text-xs font-bold flex items-center justify-center flex-shrink-0">
                           {module.id === 0 ? '★' : module.id}
                         </span>
-                        <span className="text-sm font-semibold text-neutral-800 leading-tight">
+                        <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200 leading-tight">
                           {module.title}
                         </span>
                       </div>
@@ -148,8 +148,8 @@ export default function CourseContent({ course }: CourseContentProps) {
                               }
                               className={`w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors ${
                                 isActive
-                                  ? 'bg-primary-50 border-r-2 border-primary-500'
-                                  : 'hover:bg-neutral-50'
+                                  ? 'bg-primary-50 dark:bg-primary-900/20 border-r-2 border-primary-500'
+                                  : 'hover:bg-neutral-50 dark:hover:bg-neutral-700/50'
                               }`}
                             >
                               <div className="flex-shrink-0">
@@ -214,16 +214,16 @@ export default function CourseContent({ course }: CourseContentProps) {
                     </div>
                   </div>
                 ) : currentLesson.type === 'pdf' ? (
-                  <div className="bg-white rounded-2xl border border-neutral-200 overflow-hidden shadow-sm mb-6">
-                    <div className="aspect-video flex items-center justify-center bg-orange-50">
+                  <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden shadow-sm mb-6">
+                    <div className="aspect-video flex items-center justify-center bg-orange-50 dark:bg-orange-900/20">
                       <div className="text-center p-8">
-                        <div className="w-20 h-20 bg-orange-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                        <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
                           <FileText className="w-10 h-10 text-orange-500" />
                         </div>
-                        <h3 className="text-xl font-bold text-neutral-900 mb-2">
+                        <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">
                           {currentLesson.title}
                         </h3>
-                        <p className="text-neutral-600 mb-6">
+                        <p className="text-neutral-600 dark:text-neutral-400 mb-6">
                           Download or view the PDF resource
                         </p>
                         <a
@@ -242,12 +242,12 @@ export default function CourseContent({ course }: CourseContentProps) {
                 ) : null}
 
                 {/* Lesson Info */}
-                <div className="bg-white rounded-2xl border border-neutral-200 p-6">
+                <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 p-6">
                   <div className="flex items-center gap-3 mb-3">
-                    <span className="px-3 py-1 bg-primary-100 text-primary-700 text-xs font-medium rounded-full">
+                    <span className="px-3 py-1 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 text-xs font-medium rounded-full">
                       Module {currentModule?.id === 0 ? 'Intro' : currentModule?.id}
                     </span>
-                    <span className="px-3 py-1 bg-neutral-100 text-neutral-600 text-xs font-medium rounded-full flex items-center gap-1">
+                    <span className="px-3 py-1 bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-400 text-xs font-medium rounded-full flex items-center gap-1">
                       {currentLesson.type === 'video' ? (
                         <Play className="w-3 h-3" />
                       ) : (
@@ -256,10 +256,10 @@ export default function CourseContent({ course }: CourseContentProps) {
                       {currentLesson.type === 'video' ? 'Video Lesson' : 'PDF Resource'}
                     </span>
                   </div>
-                  <h2 className="text-2xl font-bold text-neutral-900 mb-2">
+                  <h2 className="text-2xl font-bold text-neutral-900 dark:text-white mb-2">
                     {currentLesson.title}
                   </h2>
-                  <p className="text-neutral-600">
+                  <p className="text-neutral-600 dark:text-neutral-400">
                     {currentModule?.title} — {course.title}
                   </p>
 
@@ -344,17 +344,17 @@ export default function CourseContent({ course }: CourseContentProps) {
                           });
                         }
                       }}
-                      className="bg-white rounded-2xl p-5 border border-neutral-200 hover:border-primary-200 hover:shadow-md transition-all text-left group"
+                      className="bg-white dark:bg-neutral-800 rounded-2xl p-5 border border-neutral-200 dark:border-neutral-700 hover:border-primary-200 hover:shadow-md transition-all text-left group"
                     >
                       <div className="flex items-start gap-4">
-                        <span className="w-10 h-10 bg-primary-100 text-primary-700 rounded-xl text-sm font-bold flex items-center justify-center flex-shrink-0 group-hover:bg-primary-200 transition-colors">
+                        <span className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 rounded-xl text-sm font-bold flex items-center justify-center flex-shrink-0 group-hover:bg-primary-200 dark:group-hover:bg-primary-900/50 transition-colors">
                           {module.id === 0 ? '★' : module.id}
                         </span>
                         <div className="min-w-0">
-                          <h3 className="font-semibold text-neutral-900 mb-1 group-hover:text-primary-600 transition-colors">
+                          <h3 className="font-semibold text-neutral-900 dark:text-white mb-1 group-hover:text-primary-600 transition-colors">
                             {module.title}
                           </h3>
-                          <div className="flex items-center gap-3 text-xs text-neutral-500">
+                          <div className="flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                             <span className="flex items-center gap-1">
                               <Play className="w-3 h-3" />
                               {module.lessons.filter((l) => l.type === 'video').length} videos

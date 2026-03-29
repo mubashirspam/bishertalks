@@ -10,7 +10,7 @@ export default function Card({ children, className = '', hover = true }: CardPro
   return (
     <div 
       className={`
-        bg-white rounded-xl p-6 md:p-8 shadow-sm border border-neutral-100
+        bg-white dark:bg-neutral-800 rounded-xl p-6 md:p-8 shadow-sm border border-neutral-100 dark:border-neutral-700
         ${hover ? 'card-hover' : ''}
         ${className}
       `}

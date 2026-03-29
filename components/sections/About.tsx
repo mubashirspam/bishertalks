@@ -27,12 +27,12 @@ const highlights = [
 
 export default function About() {
   return (
-    <section id="about" className="py-20 bg-white">
+    <section id="about" className="py-20 bg-white dark:bg-neutral-900">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Bento Grid Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6">
           {/* Large Image Card - Top Left */}
-          <div className="lg:col-span-5 lg:row-span-2 bg-neutral-100 rounded-3xl overflow-hidden relative group">
+          <div className="lg:col-span-5 lg:row-span-2 bg-neutral-100 dark:bg-neutral-800 rounded-3xl overflow-hidden relative group">
             <div className="absolute inset-0 bg-gradient-to-t from-neutral-900/80 via-neutral-900/20 to-transparent z-10" />
 
             <img
@@ -51,7 +51,7 @@ export default function About() {
           </div>
 
           {/* Title Card - Top Right */}
-          <div className="lg:col-span-7 bg-neutral-900 rounded-3xl p-6 md:p-8 flex flex-col justify-center">
+          <div className="lg:col-span-7 bg-neutral-900 dark:bg-neutral-800 rounded-3xl p-6 md:p-8 flex flex-col justify-center">
             <h3 className="text-2xl md:text-3xl lg:text-4xl font-bold text-white mb-4">
               From a Classroom Teacher to{" "}
               <span className="text-primary-400">CEO of Skillage</span>
@@ -65,13 +65,13 @@ export default function About() {
           </div>
 
           {/* Story Card */}
-          <div className="lg:col-span-4 bg-neutral-50 rounded-3xl p-6 md:p-8 border border-neutral-100">
-            <p className="text-neutral-700 leading-relaxed mb-4">
+          <div className="lg:col-span-4 bg-neutral-50 dark:bg-neutral-800 rounded-3xl p-6 md:p-8 border border-neutral-100 dark:border-neutral-700">
+            <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed mb-4">
               After years as a Higher Secondary Economics teacher, I realized my
               mission was larger: to bridge the gap between potential and
               performance.
             </p>
-            <p className="text-neutral-700 leading-relaxed">
+            <p className="text-neutral-700 dark:text-neutral-300 leading-relaxed">
               Today, through Skillage, I have reached{" "}
               <span className="font-semibold text-primary-600">
                 lakhs of people
@@ -112,7 +112,7 @@ export default function About() {
             return (
               <div
                 key={index}
-                className="bg-neutral-50 rounded-2xl p-5 md:p-6 border border-neutral-100 hover:border-primary-200 hover:bg-white transition-all duration-300 group relative overflow-hidden"
+                className="bg-neutral-50 dark:bg-neutral-800 rounded-2xl p-5 md:p-6 border border-neutral-100 dark:border-neutral-700 hover:border-primary-200 hover:bg-white dark:hover:bg-neutral-750 transition-all duration-300 group relative overflow-hidden"
               >
                 {/* Background Pattern */}
                 <div className="absolute inset-0 opacity-5 group-hover:opacity-10 transition-opacity">
@@ -164,13 +164,13 @@ export default function About() {
 
                 {/* Content */}
                 <div className="relative z-10">
-                  <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center mb-3 group-hover:bg-primary-100 transition-colors shadow-sm">
+                  <div className="w-10 h-10 bg-white dark:bg-neutral-700 rounded-xl flex items-center justify-center mb-3 group-hover:bg-primary-100 dark:group-hover:bg-primary-900/30 transition-colors shadow-sm">
                     <Icon className="w-5 h-5 text-primary-600" />
                   </div>
-                  <h3 className="text-sm md:text-base font-semibold text-neutral-900 mb-1">
+                  <h3 className="text-sm md:text-base font-semibold text-neutral-900 dark:text-white mb-1">
                     {item.title}
                   </h3>
-                  <p className="text-neutral-500 text-xs md:text-sm leading-relaxed">
+                  <p className="text-neutral-500 dark:text-neutral-400 text-xs md:text-sm leading-relaxed">
                     {item.description}
                   </p>
                 </div>

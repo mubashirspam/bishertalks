@@ -59,7 +59,7 @@ export default function Footer() {
   const currentYear = new Date().getFullYear();
 
   return (
-    <footer className="bg-neutral-900 text-neutral-300 relative overflow-hidden">
+    <footer className="bg-neutral-900 dark:bg-neutral-950 text-neutral-300 relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-primary-500/5 rounded-full blur-3xl" />
 
