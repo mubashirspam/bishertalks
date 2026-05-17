@@ -1,10 +1,11 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   ArrowRight,
   Play,
+  Pause,
   FileText,
   ChevronDown,
   ExternalLink,
@@ -12,9 +13,223 @@ import {
   Brain,
   Download,
   CheckCircle2,
+  Maximize,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Course, Module, Lesson, getTotalLessons, getTotalVideos, getTotalPdfs } from '@/lib/courses-data';
 import { getYouTubeId } from '@/lib/utils';
+
+declare global {
+  interface Window {
+    YT: any;
+    onYouTubeIframeAPIReady: () => void;
+  }
+}
+
+let ytApiPromise: Promise<void> | null = null;
+function loadYouTubeAPI(): Promise<void> {
+  if (ytApiPromise) return ytApiPromise;
+  ytApiPromise = new Promise((resolve) => {
+    if (typeof window === 'undefined') return;
+    if (window.YT && window.YT.Player) {
+      resolve();
+      return;
+    }
+    const prev = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (prev) prev();
+      resolve();
+    };
+    if (!document.querySelector('script[src*="youtube.com/iframe_api"]')) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.body.appendChild(tag);
+    }
+  });
+  return ytApiPromise;
+}
+
+function CustomYouTubePlayer({ videoId, title }: { videoId: string; title: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [playerState, setPlayerState] = useState<number>(-1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [showControls, setShowControls] = useState(true);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    loadYouTubeAPI().then(() => {
+      if (cancelled || !containerRef.current) return;
+      playerRef.current = new window.YT.Player(containerRef.current, {
+        videoId,
+        playerVars: {
+          autoplay: 1,
+          controls: 0,
+          modestbranding: 1,
+          rel: 0,
+          showinfo: 0,
+          iv_load_policy: 3,
+          disablekb: 1,
+          playsinline: 1,
+          fs: 0,
+          cc_load_policy: 0,
+        },
+        events: {
+          onReady: (e: any) => {
+            setDuration(e.target.getDuration());
+            try { e.target.playVideo(); } catch {}
+          },
+          onStateChange: (e: any) => {
+            const YTState = window.YT.PlayerState;
+            setPlayerState(e.data);
+            setIsPlaying(e.data === YTState.PLAYING);
+            if (e.data === YTState.PLAYING) {
+              setDuration(e.target.getDuration());
+            }
+          },
+        },
+      });
+    });
+
+    pollInterval = setInterval(() => {
+      const p = playerRef.current;
+      if (p && p.getCurrentTime && p.getDuration) {
+        const cur = p.getCurrentTime();
+        const dur = p.getDuration();
+        setCurrentTime(cur);
+        setDuration(dur);
+        setProgress(dur > 0 ? (cur / dur) * 100 : 0);
+      }
+    }, 500);
+
+    return () => {
+      cancelled = true;
+      if (pollInterval) clearInterval(pollInterval);
+      if (playerRef.current && playerRef.current.destroy) {
+        try { playerRef.current.destroy(); } catch {}
+      }
+    };
+  }, [videoId]);
+
+  const togglePlay = () => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (isPlaying) p.pauseVideo();
+    else p.playVideo();
+  };
+
+  const toggleMute = () => {
+    const p = playerRef.current;
+    if (!p) return;
+    if (isMuted) { p.unMute(); setIsMuted(false); }
+    else { p.mute(); setIsMuted(true); }
+  };
+
+  const toggleFullscreen = () => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    if (document.fullscreenElement) document.exitFullscreen();
+    else el.requestFullscreen?.();
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    const p = playerRef.current;
+    if (!p || !duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct = (e.clientX - rect.left) / rect.width;
+    p.seekTo(pct * duration, true);
+  };
+
+  const fmt = (s: number) => {
+    if (!isFinite(s)) return '0:00';
+    const m = Math.floor(s / 60);
+    const sec = Math.floor(s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
+  };
+
+  const revealControls = () => {
+    setShowControls(true);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => {
+      if (isPlaying) setShowControls(false);
+    }, 2500);
+  };
+
+  return (
+    <div
+      ref={wrapperRef}
+      className="relative w-full h-full bg-black select-none"
+      onContextMenu={(e) => e.preventDefault()}
+      onMouseMove={revealControls}
+      onMouseLeave={() => isPlaying && setShowControls(false)}
+    >
+      <div ref={containerRef} className="w-full h-full pointer-events-none" />
+
+      {/* Click-to-toggle overlay (also blocks any iframe pointer events) */}
+      <div
+        className="absolute inset-0 cursor-pointer"
+        onClick={togglePlay}
+        onContextMenu={(e) => e.preventDefault()}
+        aria-label={title}
+      />
+
+      {/* Full-cover overlay when unstarted, paused, or ended — hides YouTube's pause UI (channel avatar, share, related videos). Not shown during buffering. */}
+      {(playerState === -1 || playerState === 0 || playerState === 2 || playerState === 5) && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black pointer-events-none">
+          <div className="w-20 h-20 rounded-full bg-white/10 backdrop-blur flex items-center justify-center">
+            <Play className="w-10 h-10 text-white ml-1" fill="white" />
+          </div>
+        </div>
+      )}
+
+      {/* Custom controls bar */}
+      <div
+        className={`absolute bottom-0 left-0 right-0 px-4 pb-3 pt-8 bg-gradient-to-t from-black/80 to-transparent transition-opacity ${
+          showControls ? 'opacity-100' : 'opacity-0'
+        }`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Progress */}
+        <div
+          className="w-full h-1.5 bg-white/30 rounded-full cursor-pointer mb-2 group"
+          onClick={handleSeek}
+        >
+          <div
+            className="h-full bg-primary-400 rounded-full relative"
+            style={{ width: `${progress}%` }}
+          >
+            <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-primary-400 rounded-full opacity-0 group-hover:opacity-100" />
+          </div>
+        </div>
+        <div className="flex items-center gap-3 text-white">
+          <button onClick={togglePlay} className="hover:text-primary-400 transition-colors">
+            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+          </button>
+          <button onClick={toggleMute} className="hover:text-primary-400 transition-colors">
+            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </button>
+          <span className="text-xs tabular-nums">
+            {fmt(currentTime)} / {fmt(duration)}
+          </span>
+          <div className="ml-auto">
+            <button onClick={toggleFullscreen} className="hover:text-primary-400 transition-colors">
+              <Maximize className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface CourseContentProps {
   course: Course;
@@ -194,14 +409,8 @@ export default function CourseContent({ course }: CourseContentProps) {
                 {/* Video Player or PDF Viewer */}
                 {currentLesson.type === 'video' && youtubeId ? (
                   <div className="bg-neutral-900 rounded-2xl overflow-hidden shadow-xl mb-6">
-                    <div className="aspect-video">
-                      <iframe
-                        src={`https://www.youtube.com/embed/${youtubeId}?rel=0`}
-                        title={currentLesson.title}
-                        className="w-full h-full"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
+                    <div className="aspect-video relative">
+                      <CustomYouTubePlayer key={youtubeId} videoId={youtubeId} title={currentLesson.title} />
                     </div>
                   </div>
                 ) : currentLesson.type === 'video' && !currentLesson.url ? (
@@ -262,19 +471,6 @@ export default function CourseContent({ course }: CourseContentProps) {
                   <p className="text-neutral-600 dark:text-neutral-400">
                     {currentModule?.title} — {course.title}
                   </p>
-
-                  {/* External link */}
-                  {currentLesson.url && currentLesson.type === 'video' && (
-                    <a
-                      href={currentLesson.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 mt-4 text-sm text-primary-600 hover:text-primary-700 transition-colors"
-                    >
-                      Watch on YouTube
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  )}
                 </div>
               </>
             ) : (

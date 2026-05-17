@@ -40,7 +40,7 @@ export const courses: Course[] = [
             slug: 'why-this-course',
             title: 'Why This Course?',
             type: 'video',
-            url: '',
+            url: 'https://youtu.be/uPzbJmG_5yo',
           },
           {
             slug: 'define-your-goal',
@@ -64,7 +64,7 @@ export const courses: Course[] = [
             slug: 'what-is-nlp',
             title: 'What is NLP?',
             type: 'video',
-            url: '',
+            url: 'https://youtu.be/re9iNAtwGUQ',
           },
           {
             slug: 'how-nlp-works',
