@@ -1,13 +1,9 @@
-import React from "react";
 import Link from "next/link";
-import { BookOpen, ArrowRight, Play, FileText, Brain } from "lucide-react";
-import {
-  courses,
-  getTotalLessons,
-  getTotalVideos,
-  getTotalPdfs,
-} from "@/lib/courses-data";
+import { BookOpen, ArrowRight, Play, FileText, Brain, Lock } from "lucide-react";
+import { getCoursesForListing } from "@/lib/db/courses";
 import type { Metadata } from "next";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Free NLP & Personal Development Courses by Bisher KC",
@@ -65,41 +61,43 @@ export const metadata: Metadata = {
   },
 };
 
-const coursesJsonLd = {
-  "@context": "https://schema.org",
-  "@type": "CollectionPage",
-  name: "Free Courses by Bisher KC",
-  description:
-    "Free NLP and personal development courses with video lessons and worksheets.",
-  url: "https://bishertalks.com/courses",
-  mainEntity: {
-    "@type": "ItemList",
-    itemListElement: courses.map((course, index) => ({
-      "@type": "ListItem",
-      position: index + 1,
-      item: {
-        "@type": "Course",
-        name: course.title,
-        description: course.description,
-        url: `https://bishertalks.com/courses/${course.slug}`,
-        provider: {
-          "@type": "Person",
-          name: "Bisher KC",
-          url: "https://bishertalks.com",
-        },
-        isAccessibleForFree: true,
-        offers: {
-          "@type": "Offer",
-          price: "0",
-          priceCurrency: "INR",
-          availability: "https://schema.org/InStock",
-        },
-      },
-    })),
-  },
-};
+export default async function CoursesPage() {
+  const courses = await getCoursesForListing();
 
-export default function CoursesPage() {
+  const coursesJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "CollectionPage",
+    name: "Free Courses by Bisher KC",
+    description:
+      "Free NLP and personal development courses with video lessons and worksheets.",
+    url: "https://bishertalks.com/courses",
+    mainEntity: {
+      "@type": "ItemList",
+      itemListElement: courses.map((course, index) => ({
+        "@type": "ListItem",
+        position: index + 1,
+        item: {
+          "@type": "Course",
+          name: course.title,
+          description: course.description,
+          url: `https://bishertalks.com/courses/${course.slug}`,
+          provider: {
+            "@type": "Person",
+            name: "Bisher KC",
+            url: "https://bishertalks.com",
+          },
+          isAccessibleForFree: true,
+          offers: {
+            "@type": "Offer",
+            price: "0",
+            priceCurrency: "INR",
+            availability: "https://schema.org/InStock",
+          },
+        },
+      })),
+    },
+  };
+
   return (
     <main className="min-h-screen bg-white dark:bg-neutral-900">
       <script
@@ -155,10 +153,6 @@ export default function CoursesPage() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
           {courses.map((course) => {
-            const totalLessons = getTotalLessons(course);
-            const totalVideos = getTotalVideos(course);
-            const totalPdfs = getTotalPdfs(course);
-
             return (
               <Link
                 key={course.slug}
@@ -168,11 +162,24 @@ export default function CoursesPage() {
                 <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden hover:shadow-xl hover:border-primary-200 transition-all duration-300">
                   {/* Thumbnail */}
                   <div className="aspect-video bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 relative overflow-hidden">
-                    <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <Brain className="w-16 h-16 text-primary-400 mb-3" />
-                      <h3 className="text-xl font-bold text-white">
-                        {course.subtitle}
-                      </h3>
+                    {course.thumbnail ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={course.thumbnail}
+                        alt={course.title}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                    ) : (
+                      <div className="absolute inset-0 flex flex-col items-center justify-center">
+                        <Brain className="w-16 h-16 text-primary-400 mb-3" />
+                        <h3 className="text-xl font-bold text-white">
+                          {course.subtitle}
+                        </h3>
+                      </div>
+                    )}
+                    {/* Locked badge */}
+                    <div className="absolute top-3 right-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/50 backdrop-blur-sm text-white text-xs font-semibold">
+                      <Lock className="w-3 h-3" /> Locked
                     </div>
                     <div className="absolute inset-0 bg-primary-500/0 group-hover:bg-primary-500/10 transition-colors" />
                   </div>
@@ -180,11 +187,11 @@ export default function CoursesPage() {
                   {/* Content */}
                   <div className="p-6">
                     <div className="flex items-center gap-2 mb-3">
-                      <span className="px-2.5 py-0.5 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 text-xs font-medium rounded-full">
-                        Free
+                      <span className="px-2.5 py-0.5 bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-400 text-xs font-medium rounded-full inline-flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Book / Approval
                       </span>
                       <span className="px-2.5 py-0.5 bg-neutral-100 dark:bg-neutral-700 text-neutral-600 dark:text-neutral-400 text-xs font-medium rounded-full">
-                        {course.modules.length} Modules
+                        {course.moduleCount} Modules
                       </span>
                     </div>
 
@@ -199,14 +206,14 @@ export default function CoursesPage() {
                     <div className="flex items-center gap-4 pt-4 border-t border-neutral-100 dark:border-neutral-700">
                       <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
                         <Play className="w-4 h-4" />
-                        {totalVideos} Videos
+                        {course.videoCount} Videos
                       </div>
                       <div className="flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
                         <FileText className="w-4 h-4" />
-                        {totalPdfs} PDFs
+                        {course.pdfCount} PDFs
                       </div>
                       <div className="ml-auto text-sm font-medium text-primary-600 flex items-center gap-1 group-hover:gap-2 transition-all">
-                        Start
+                        Unlock
                         <ArrowRight className="w-4 h-4" />
                       </div>
                     </div>
@@ -216,6 +223,12 @@ export default function CoursesPage() {
             );
           })}
         </div>
+
+        {!courses.length && (
+          <div className="text-center text-neutral-500 dark:text-neutral-400 py-20">
+            Courses are being set up. Please check back soon.
+          </div>
+        )}
       </section>
     </main>
   );

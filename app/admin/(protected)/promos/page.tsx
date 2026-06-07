@@ -1,0 +1,51 @@
+import { listPromoCodes } from "@/lib/db/promo";
+import AddPromoForm from "./AddPromoForm";
+import PromoRow from "./PromoRow";
+
+export const dynamic = "force-dynamic";
+
+export default async function AdminPromosPage() {
+  const promos = await listPromoCodes();
+
+  return (
+    <div>
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-black text-neutral-900">Promo Codes</h1>
+          <p className="text-neutral-500 text-sm mt-1">
+            {promos.length} code{promos.length === 1 ? "" : "s"} · applied at checkout
+          </p>
+        </div>
+        <AddPromoForm />
+      </div>
+
+      {!promos.length ? (
+        <div className="bg-white border border-neutral-200 rounded-2xl p-12 text-center text-neutral-500 shadow-sm">
+          No promo codes yet. Create one to offer a discount at checkout.
+        </div>
+      ) : (
+        <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-neutral-200 text-left bg-neutral-50">
+                  <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Code</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Discount</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider hidden md:table-cell">Used</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider hidden lg:table-cell">Expires</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Status</th>
+                  <th className="px-4 py-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {promos.map((p) => (
+                  <PromoRow key={p.id} promo={p} />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

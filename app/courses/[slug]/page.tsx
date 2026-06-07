@@ -1,18 +1,18 @@
 import { notFound } from "next/navigation";
+import { cookies } from "next/headers";
 import type { Metadata } from "next";
 import {
-  courses,
-  getCourse,
+  type Course,
   getTotalVideos,
   getTotalPdfs,
 } from "@/lib/courses-data";
 import CourseContent from "./CourseContent";
+import CourseGate from "./CourseGate";
+import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access-cookie";
+import { hasCourseAccessByPhone } from "@/lib/db/access";
+import { getCourseWithContent, getCourseMeta } from "@/lib/db/courses";
 
-export async function generateStaticParams() {
-  return courses.map((course) => ({
-    slug: course.slug,
-  }));
-}
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({
   params,
@@ -20,7 +20,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const course = getCourse(slug);
+  const course = await getCourseWithContent(slug);
   if (!course) return { title: "Course Not Found" };
 
   const totalVideos = getTotalVideos(course);
@@ -94,8 +94,7 @@ export async function generateMetadata({
   };
 }
 
-function getCourseJsonLd(slug: string) {
-  const course = getCourse(slug);
+function getCourseJsonLd(course: Course | null) {
   if (!course) return null;
 
   const totalVideos = getTotalVideos(course);
@@ -231,13 +230,58 @@ export default async function CoursePage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const course = getCourse(slug);
+
+  // Course content + presentation come entirely from the DB.
+  const dbCourse = await getCourseWithContent(slug);
+  const meta = await getCourseMeta(slug);
+  const course = dbCourse;
 
   if (!course) {
     notFound();
   }
 
-  const jsonLd = getCourseJsonLd(slug);
+  const jsonLd = getCourseJsonLd(course);
+
+  // ── Access check (no user login): signed cookie holds a verified phone,
+  // re-checked against the DB every load so admin revoke is immediate. ──
+  const cookieStore = await cookies();
+  const phone = verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+  const hasAccess = phone
+    ? await hasCourseAccessByPhone(phone, slug)
+    : false;
+
+  if (!hasAccess) {
+    const outline = course.modules.map((m) => ({
+      title: m.title,
+      videos: m.lessons.filter((l) => l.type === "video").length,
+      pdfs: m.lessons.filter((l) => l.type === "pdf").length,
+    }));
+    return (
+      <>
+        {jsonLd && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+          />
+        )}
+        <CourseGate
+          slug={course.slug}
+          title={meta?.title ?? course.title}
+          subtitle={meta?.subtitle ?? course.subtitle}
+          description={meta?.description ?? course.description}
+          outline={outline}
+          totalVideos={getTotalVideos(course)}
+          totalPdfs={getTotalPdfs(course)}
+          price={meta?.price ?? null}
+          offerPrice={meta?.offer_price ?? null}
+        />
+      </>
+    );
+  }
+
+  // Approved — serve content from the DB, falling back to static data.
+  const courseForRender =
+    dbCourse && dbCourse.modules.length ? dbCourse : course;
 
   return (
     <>
@@ -247,7 +291,7 @@ export default async function CoursePage({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       )}
-      <CourseContent course={course} />
+      <CourseContent course={courseForRender} />
     </>
   );
 }

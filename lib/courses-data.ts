@@ -118,7 +118,7 @@ export const courses: Course[] = [
             slug: 'prs-intro',
             title: 'Preferred Representational System',
             type: 'video',
-            url: 'https://youtu.be/s2iHNuW06uI',
+            url: 'https://youtu.be/zC9IHYpk6qBY0AVz',
           },
           {
             slug: 'prs-pdf',

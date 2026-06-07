@@ -40,14 +40,14 @@ export default async function AdminOrdersPage({
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-black">Orders</h1>
+          <h1 className="text-2xl font-black text-neutral-900">Orders</h1>
           <p className="text-neutral-500 text-sm mt-1">{count ?? 0} total orders</p>
         </div>
       </div>
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 mb-5">
-        <div className="flex gap-1 bg-neutral-900 border border-white/8 rounded-xl p-1">
+        <div className="flex gap-1 bg-white border border-neutral-200 rounded-xl p-1 shadow-sm">
           {statusFilters.map((f) => (
             <Link
               key={f.value}
@@ -55,7 +55,7 @@ export default async function AdminOrdersPage({
               className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all
                 ${(status ?? "all") === f.value
                   ? "bg-primary-500 text-white"
-                  : "text-neutral-400 hover:text-white"
+                  : "text-neutral-500 hover:text-neutral-900"
                 }`}
             >
               {f.label}
@@ -68,22 +68,22 @@ export default async function AdminOrdersPage({
             name="q"
             defaultValue={q}
             placeholder="Search by name, phone, order #…"
-            className="w-full bg-neutral-900 border border-white/8 rounded-xl px-4 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-primary-500 transition-colors"
+            className="w-full bg-white border border-neutral-300 rounded-xl px-4 py-2 text-sm text-neutral-900 placeholder-neutral-400 focus:outline-none focus:border-primary-500 transition-colors"
           />
         </form>
       </div>
 
       {/* Table */}
       {!orders?.length ? (
-        <div className="bg-neutral-900 border border-white/8 rounded-2xl p-12 text-center text-neutral-500">
+        <div className="bg-white border border-neutral-200 rounded-2xl p-12 text-center text-neutral-500 shadow-sm">
           No orders found
         </div>
       ) : (
-        <div className="bg-neutral-900 border border-white/8 rounded-2xl overflow-hidden">
+        <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-white/8 text-left">
+                <tr className="border-b border-neutral-200 text-left bg-neutral-50">
                   <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Order</th>
                   <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Buyer</th>
                   <th className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider hidden md:table-cell">Phone</th>
@@ -93,21 +93,21 @@ export default async function AdminOrdersPage({
                 </tr>
               </thead>
               <tbody>
-                {(orders as Order[]).map((order, i) => (
+                {(orders as Order[]).map((order) => (
                   <tr
                     key={order.id}
-                    className={`border-b border-white/5 hover:bg-white/3 transition-colors ${i === (orders?.length ?? 0) - 1 ? "border-0" : ""}`}
+                    className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50 transition-colors"
                   >
                     <td className="px-4 py-3">
                       <Link
                         href={`/admin/orders/${order.order_number}`}
-                        className="font-mono text-primary-400 hover:text-primary-300 text-xs font-medium"
+                        className="font-mono text-primary-600 hover:text-primary-700 text-xs font-medium"
                       >
                         {order.order_number}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-white font-medium">{order.buyer_name}</td>
-                    <td className="px-4 py-3 text-neutral-400 hidden md:table-cell">{order.buyer_phone}</td>
+                    <td className="px-4 py-3 text-neutral-900 font-medium">{order.buyer_name}</td>
+                    <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{order.buyer_phone}</td>
                     <td className="px-4 py-3">
                       <span
                         className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border ${STATUS_BADGE[order.status as OrderStatus]}`}
@@ -115,7 +115,7 @@ export default async function AdminOrdersPage({
                         {STATUS_LABELS[order.status as OrderStatus]}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-white hidden md:table-cell">
+                    <td className="px-4 py-3 text-neutral-900 hidden md:table-cell">
                       ₹{Math.round(order.amount_paise / 100)}
                     </td>
                     <td className="px-4 py-3 text-neutral-500 text-xs hidden lg:table-cell">
@@ -141,7 +141,7 @@ export default async function AdminOrdersPage({
             {pageNum > 0 && (
               <Link
                 href={`/admin/orders?page=${pageNum}&status=${status ?? "all"}${q ? `&q=${q}` : ""}`}
-                className="px-3 py-1.5 rounded-lg bg-neutral-900 border border-white/8 text-sm hover:border-white/20 transition-all"
+                className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm text-neutral-700 hover:border-neutral-300 transition-all"
               >
                 ← Prev
               </Link>
@@ -149,7 +149,7 @@ export default async function AdminOrdersPage({
             {pageNum + 1 < totalPages && (
               <Link
                 href={`/admin/orders?page=${pageNum + 2}&status=${status ?? "all"}${q ? `&q=${q}` : ""}`}
-                className="px-3 py-1.5 rounded-lg bg-neutral-900 border border-white/8 text-sm hover:border-white/20 transition-all"
+                className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm text-neutral-700 hover:border-neutral-300 transition-all"
               >
                 Next →
               </Link>

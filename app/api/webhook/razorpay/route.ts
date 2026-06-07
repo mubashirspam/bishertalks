@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 
 // Add RAZORPAY_WEBHOOK_SECRET to your .env.local
 // Get it from: Razorpay Dashboard → Settings → Webhooks → your webhook → secret
@@ -46,6 +47,13 @@ export async function POST(request: NextRequest) {
           razorpay_payment_id: payment.id,
         })
         .eq("razorpay_order_id", razorpayOrderId);
+
+      // Auto-grant the bonus NLP course to the buyer's phone.
+      try {
+        await grantBookBonusForOrderNumber(order.order_number);
+      } catch (e) {
+        console.error("[Webhook] Failed to grant course access:", e);
+      }
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
       fetch(`${appUrl}/api/whatsapp/send`, {

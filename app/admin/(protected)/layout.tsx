@@ -16,25 +16,26 @@ export default async function AdminLayout({
   if (!user) redirect("/admin/login");
   if (user.email !== process.env.ADMIN_EMAIL) redirect("/");
 
+  const navLink =
+    "px-3 py-1.5 rounded-lg text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100 text-sm transition-all";
+
   return (
-    <div className="min-h-screen bg-neutral-950 text-white">
-      <header className="border-b border-white/8 px-6 py-3 flex items-center justify-between sticky top-0 bg-neutral-950/95 backdrop-blur-sm z-50">
+    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+      <header className="border-b border-neutral-200 px-6 py-3 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-sm z-50">
         <div className="flex items-center gap-6">
-          <Link href="/admin/orders" className="font-bold text-sm">
-            Neuro <span className="text-primary-400">Code</span>{" "}
-            <span className="text-neutral-500 font-normal">Admin</span>
+          <Link href="/admin/orders" className="font-bold text-sm text-neutral-900">
+            Neuro <span className="text-primary-500">Code</span>{" "}
+            <span className="text-neutral-400 font-normal">Admin</span>
           </Link>
           <nav className="flex gap-1">
-            <Link
-              href="/admin/orders"
-              className="px-3 py-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-white/5 text-sm transition-all"
-            >
-              Orders
-            </Link>
+            <Link href="/admin/orders" className={navLink}>Orders</Link>
+            <Link href="/admin/users" className={navLink}>Users</Link>
+            <Link href="/admin/courses" className={navLink}>Courses</Link>
+            <Link href="/admin/promos" className={navLink}>Promos</Link>
           </nav>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-neutral-600 text-xs hidden md:block">{user.email}</span>
+          <span className="text-neutral-400 text-xs hidden md:block">{user.email}</span>
           <LogoutButton />
         </div>
       </header>

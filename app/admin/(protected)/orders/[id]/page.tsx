@@ -84,7 +84,7 @@ export default function AdminOrderDetailPage() {
       setForm((prev) => ({ ...prev, [field]: e.target.value }));
 
   const inputCls =
-    "w-full bg-neutral-800 border border-white/10 rounded-xl px-4 py-2.5 text-white text-sm focus:outline-none focus:border-primary-500 transition-colors";
+    "w-full bg-white border border-neutral-300 rounded-xl px-4 py-2.5 text-neutral-900 placeholder-neutral-400 text-sm focus:outline-none focus:border-primary-500 transition-colors";
 
   const date = new Date(order.created_at).toLocaleDateString("en-IN", {
     day: "numeric", month: "long", year: "numeric",
@@ -95,27 +95,27 @@ export default function AdminOrderDetailPage() {
   return (
     <div>
       <div className="flex items-center gap-4 mb-6">
-        <Link href="/admin/orders" className="flex items-center gap-2 text-neutral-400 hover:text-white text-sm transition-colors">
+        <Link href="/admin/orders" className="flex items-center gap-2 text-neutral-500 hover:text-neutral-900 text-sm transition-colors">
           <ArrowLeft className="w-4 h-4" /> Orders
         </Link>
-        <span className="text-neutral-600">/</span>
-        <span className="font-mono text-primary-400 text-sm">{id}</span>
+        <span className="text-neutral-300">/</span>
+        <span className="font-mono text-primary-600 text-sm">{id}</span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left col */}
         <div className="space-y-5">
           {/* Status stepper */}
-          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
-            <h2 className="font-semibold text-sm text-neutral-300 mb-5 flex items-center gap-2">
-              <Package className="w-4 h-4 text-primary-400" /> Order Progress
+          <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
+            <h2 className="font-semibold text-sm text-neutral-700 mb-5 flex items-center gap-2">
+              <Package className="w-4 h-4 text-primary-500" /> Order Progress
             </h2>
             <div className="flex gap-1 flex-wrap mb-4">
               {STATUS_STEPS.map((step, i) => (
                 <div
                   key={step}
                   className={`h-1.5 flex-1 rounded-full transition-all ${
-                    i <= currentStep ? "bg-primary-500" : "bg-neutral-800"
+                    i <= currentStep ? "bg-primary-500" : "bg-neutral-200"
                   }`}
                 />
               ))}
@@ -126,14 +126,14 @@ export default function AdminOrderDetailPage() {
           </div>
 
           {/* Buyer info */}
-          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
-            <h2 className="font-semibold text-sm text-neutral-300 mb-4 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-primary-400" /> Buyer & Address
+          <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
+            <h2 className="font-semibold text-sm text-neutral-700 mb-4 flex items-center gap-2">
+              <MapPin className="w-4 h-4 text-primary-500" /> Buyer & Address
             </h2>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-neutral-500">Name</span>
-                <span className="text-white font-medium">{order.buyer_name}</span>
+                <span className="text-neutral-900 font-medium">{order.buyer_name}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral-500">Phone</span>
@@ -141,7 +141,7 @@ export default function AdminOrderDetailPage() {
                   href={`https://wa.me/91${order.buyer_phone}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-green-400 hover:text-green-300"
+                  className="text-green-600 hover:text-green-700"
                 >
                   +91 {order.buyer_phone}
                 </a>
@@ -149,10 +149,10 @@ export default function AdminOrderDetailPage() {
               {order.buyer_email && (
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Email</span>
-                  <span className="text-white">{order.buyer_email}</span>
+                  <span className="text-neutral-900">{order.buyer_email}</span>
                 </div>
               )}
-              <div className="pt-2 border-t border-white/8 text-neutral-400 leading-relaxed">
+              <div className="pt-2 border-t border-neutral-200 text-neutral-600 leading-relaxed">
                 {order.address_line1}
                 {order.address_line2 && <>, {order.address_line2}</>}
                 <br />
@@ -162,30 +162,38 @@ export default function AdminOrderDetailPage() {
           </div>
 
           {/* Payment */}
-          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
-            <h2 className="font-semibold text-sm text-neutral-300 mb-4 flex items-center gap-2">
-              <CreditCard className="w-4 h-4 text-primary-400" /> Payment
+          <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
+            <h2 className="font-semibold text-sm text-neutral-700 mb-4 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-primary-500" /> Payment
             </h2>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-neutral-500">Amount</span>
-                <span className="text-primary-400 font-bold">₹{Math.round(order.amount_paise / 100)}</span>
+                <span className="text-primary-600 font-bold">₹{Math.round(order.amount_paise / 100)}</span>
               </div>
+              {order.discount_paise > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Promo</span>
+                  <span className="text-green-600">
+                    {order.promo_code} (−₹{Math.round(order.discount_paise / 100)})
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-neutral-500">Status</span>
-                <span className={order.payment_status === "paid" ? "text-green-400" : "text-amber-400"}>
+                <span className={order.payment_status === "paid" ? "text-green-600" : "text-amber-600"}>
                   {order.payment_status.charAt(0).toUpperCase() + order.payment_status.slice(1)}
                 </span>
               </div>
               {order.razorpay_payment_id && (
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Payment ID</span>
-                  <span className="text-white font-mono text-xs">{order.razorpay_payment_id}</span>
+                  <span className="text-neutral-900 font-mono text-xs">{order.razorpay_payment_id}</span>
                 </div>
               )}
               <div className="flex justify-between">
                 <span className="text-neutral-500">Date</span>
-                <span className="text-white">{date}</span>
+                <span className="text-neutral-900">{date}</span>
               </div>
             </div>
           </div>
@@ -193,9 +201,9 @@ export default function AdminOrderDetailPage() {
 
         {/* Right col — Update form */}
         <div className="space-y-5">
-          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6">
-            <h2 className="font-semibold text-sm text-neutral-300 mb-5 flex items-center gap-2">
-              <Truck className="w-4 h-4 text-primary-400" /> Update Order
+          <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
+            <h2 className="font-semibold text-sm text-neutral-700 mb-5 flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary-500" /> Update Order
             </h2>
 
             <div className="space-y-4">
@@ -240,28 +248,28 @@ export default function AdminOrderDetailPage() {
                 className={`w-full py-3 rounded-full font-bold text-sm flex items-center justify-center gap-2 transition-all
                   ${saved
                     ? "bg-green-500 text-white"
-                    : "bg-primary-500 hover:bg-primary-400 text-white disabled:opacity-60"
+                    : "bg-primary-500 hover:bg-primary-600 text-white disabled:opacity-60"
                   }`}
               >
                 <Save className="w-4 h-4" />
                 {saving ? "Saving…" : saved ? "Saved ✓" : "Update Order"}
               </button>
-              <p className="text-neutral-600 text-xs text-center">
-                WhatsApp notification auto-sent on Shipped & Delivered updates
+              <p className="text-neutral-400 text-xs text-center">
+                WhatsApp notification auto-sent on Shipped &amp; Delivered updates
               </p>
             </div>
           </div>
 
           {/* Tracking link */}
-          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-4 flex items-center justify-between">
-            <span className="text-sm text-neutral-400">Customer tracking link</span>
+          <div className="bg-white border border-neutral-200 rounded-2xl p-4 flex items-center justify-between shadow-sm">
+            <span className="text-sm text-neutral-500">Customer tracking link</span>
             <button
               onClick={() =>
                 navigator.clipboard?.writeText(
                   `${window.location.origin}/neuro-code/track?id=${id}`
                 )
               }
-              className="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+              className="text-xs text-primary-600 hover:text-primary-700 transition-colors"
             >
               Copy Link
             </button>

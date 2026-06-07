@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 
 export async function POST(request: NextRequest) {
   try {
@@ -67,6 +68,13 @@ export async function POST(request: NextRequest) {
         razorpay_signature,
       })
       .eq("order_number", order_number);
+
+    // Auto-grant the bonus NLP course to the buyer's phone.
+    try {
+      await grantBookBonusForOrderNumber(order_number);
+    } catch (e) {
+      console.error("[Verify] Failed to grant course access:", e);
+    }
 
     // Fire-and-forget WhatsApp notification
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
