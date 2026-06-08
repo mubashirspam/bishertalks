@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { User } from "@/lib/types/db";
+import { getCourseList } from "@/lib/db/courses";
 import AddUserForm from "./AddUserForm";
+import ImportUsersForm from "./ImportUsersForm";
 
 const PER_PAGE = 20;
 
@@ -26,14 +28,20 @@ export default async function AdminUsersPage({
   const { data: users, count } = await query;
   const totalPages = Math.ceil((count || 0) / PER_PAGE);
 
+  const courses = await getCourseList();
+  const courseOptions = courses.map((c) => ({ slug: c.slug, title: c.title }));
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-6 gap-4">
+      <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-black text-neutral-900">Users</h1>
           <p className="text-neutral-500 text-sm mt-1">{count ?? 0} total users</p>
         </div>
-        <AddUserForm />
+        <div className="flex flex-wrap items-start justify-end gap-2 flex-1 min-w-[260px]">
+          <ImportUsersForm courses={courseOptions} />
+          <AddUserForm />
+        </div>
       </div>
 
       {/* Search */}
