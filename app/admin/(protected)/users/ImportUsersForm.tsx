@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, X, FileSpreadsheet, CheckCircle2, AlertTriangle } from "lucide-react";
+import { Upload, X, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 
 interface ParsedRow {
   name: string;
@@ -22,6 +22,16 @@ interface ImportSummary {
   skipped: number;
   granted: number;
 }
+
+interface RowResult {
+  row: number;
+  phone: string;
+  name: string;
+  status: "created" | "updated" | "skipped";
+  reason?: string;
+}
+
+const BATCH_SIZE = 15;
 
 /** Minimal RFC-4180-ish CSV parser: handles quoted fields, commas and newlines. */
 function parseCsv(text: string): string[][] {
@@ -83,12 +93,16 @@ export default function ImportUsersForm({ courses }: { courses: CourseOption[] }
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [summary, setSummary] = useState<ImportSummary | null>(null);
+  const [done, setDone] = useState(0);
+  const [live, setLive] = useState<RowResult[]>([]);
 
   const reset = () => {
     setRows([]);
     setFileName("");
     setError("");
     setSummary(null);
+    setDone(0);
+    setLive([]);
     if (fileInput.current) fileInput.current.value = "";
   };
 
@@ -136,21 +150,50 @@ export default function ImportUsersForm({ courses }: { courses: CourseOption[] }
     setLoading(true);
     setError("");
     setSummary(null);
+    setDone(0);
+    setLive([]);
+
+    // Send in small batches so the admin sees live progress instead of one
+    // long blocking wait. Totals are accumulated across batches.
+    const agg: ImportSummary = {
+      total: rows.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      granted: 0,
+    };
+
     try {
-      const res = await fetch("/api/admin/users/import", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows, courseSlug: courseSlug || undefined }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSummary(data.summary as ImportSummary);
-        router.refresh();
-      } else {
-        setError(data.error || "Import failed.");
+      for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const chunk = rows.slice(i, i + BATCH_SIZE);
+        const res = await fetch("/api/admin/users/import", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rows: chunk, courseSlug: courseSlug || undefined }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+          setError(data.error || "Import failed.");
+          setLoading(false);
+          return;
+        }
+        agg.created += data.summary.created;
+        agg.updated += data.summary.updated;
+        agg.skipped += data.summary.skipped;
+        agg.granted += data.summary.granted;
+
+        // Re-number rows so the live log reflects the whole file, not the chunk.
+        const chunkResults = (data.results as RowResult[]).map((r) => ({
+          ...r,
+          row: i + r.row,
+        }));
+        setLive((prev) => [...prev, ...chunkResults]);
+        setDone(i + chunk.length);
       }
+      setSummary(agg);
+      router.refresh();
     } catch {
-      setError("Something went wrong.");
+      setError("Something went wrong. Some users may already be imported.");
     } finally {
       setLoading(false);
     }
@@ -169,6 +212,38 @@ export default function ImportUsersForm({ courses }: { courses: CourseOption[] }
 
   const valid = rows.filter((r) => /^[6-9]\d{9}$/.test(r.phone.replace(/\D/g, ""))).length;
   const invalid = rows.length - valid;
+  const pending = rows.length - done;
+  const pct = rows.length ? Math.round((done / rows.length) * 100) : 0;
+
+  // Live, scrollable log of each processed row (newest first).
+  const liveLog = live.length > 0 && (
+    <div className="border border-neutral-200 rounded-xl divide-y divide-neutral-100 max-h-48 overflow-y-auto text-xs">
+      {[...live].reverse().map((r) => (
+        <div key={r.row} className="flex items-center justify-between gap-3 px-3 py-1.5">
+          <span className="truncate text-neutral-700">
+            <span className="text-neutral-400 mr-1.5">#{r.row}</span>
+            {r.name || "—"}{" "}
+            <span className="text-neutral-400 font-mono">{r.phone}</span>
+          </span>
+          <span
+            className={`shrink-0 font-medium ${
+              r.status === "created"
+                ? "text-green-600"
+                : r.status === "updated"
+                ? "text-blue-600"
+                : "text-amber-600"
+            }`}
+          >
+            {r.status === "created"
+              ? "Added"
+              : r.status === "updated"
+              ? "Updated"
+              : r.reason || "Skipped"}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="bg-white border border-neutral-200 rounded-2xl p-5 w-full shadow-sm">
@@ -199,6 +274,7 @@ export default function ImportUsersForm({ courses }: { courses: CourseOption[] }
               <li className="text-amber-600">{summary.skipped} row{summary.skipped !== 1 ? "s" : ""} skipped (invalid phone)</li>
             )}
           </ul>
+          {liveLog}
           <div className="flex gap-2 pt-1">
             <button
               onClick={reset}
@@ -216,6 +292,40 @@ export default function ImportUsersForm({ courses }: { courses: CourseOption[] }
               Done
             </button>
           </div>
+        </div>
+      ) : loading ? (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 text-neutral-900">
+            <Loader2 className="w-4 h-4 animate-spin text-primary-500" />
+            <span className="font-semibold text-sm">
+              Importing… {done} of {rows.length}
+            </span>
+          </div>
+
+          {/* Progress bar */}
+          <div className="h-2 w-full rounded-full bg-neutral-100 overflow-hidden">
+            <div
+              className="h-full bg-primary-500 transition-all duration-300"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            <span className="text-neutral-500">{pct}% done</span>
+            <span className="text-amber-600">{pending} pending</span>
+            <span className="text-green-600">{live.filter((r) => r.status === "created").length} added</span>
+            <span className="text-blue-600">{live.filter((r) => r.status === "updated").length} updated</span>
+            {live.some((r) => r.status === "skipped") && (
+              <span className="text-amber-600">
+                {live.filter((r) => r.status === "skipped").length} skipped
+              </span>
+            )}
+          </div>
+
+          {liveLog}
+          <p className="text-[11px] text-neutral-400">
+            Keep this open until it finishes — don&apos;t close the tab.
+          </p>
         </div>
       ) : (
         <div className="space-y-3">
