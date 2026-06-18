@@ -423,31 +423,57 @@ export default function CourseContent({ course }: CourseContentProps) {
                     </div>
                   </div>
                 ) : currentLesson.type === 'pdf' ? (
-                  <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden shadow-sm mb-6">
-                    <div className="aspect-video flex items-center justify-center bg-orange-50 dark:bg-orange-900/20">
-                      <div className="text-center p-8">
-                        <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                          <FileText className="w-10 h-10 text-orange-500" />
-                        </div>
-                        <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">
+                  /\.pdf($|\?)/i.test(currentLesson.url || '') ? (
+                    <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden shadow-sm mb-6">
+                      {/* Inline PDF preview — reliable across devices/browsers */}
+                      <iframe
+                        src={currentLesson.url}
+                        title={currentLesson.title}
+                        className="w-full h-[70vh] min-h-[480px] bg-neutral-100 dark:bg-neutral-900"
+                      />
+                      <div className="flex items-center justify-between gap-3 p-4 border-t border-neutral-200 dark:border-neutral-700">
+                        <p className="text-sm text-neutral-600 dark:text-neutral-400 truncate">
                           {currentLesson.title}
-                        </h3>
-                        <p className="text-neutral-600 dark:text-neutral-400 mb-6">
-                          Download or view the PDF resource
                         </p>
                         <a
                           href={currentLesson.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-2 px-6 py-3 bg-neutral-900 text-white rounded-full font-semibold hover:bg-neutral-800 transition-colors"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-neutral-900 text-white rounded-full text-sm font-semibold hover:bg-neutral-800 transition-colors shrink-0"
                         >
-                          <Download className="w-5 h-5" />
-                          Open PDF
+                          <Download className="w-4 h-4" />
+                          Download
                           <ExternalLink className="w-4 h-4" />
                         </a>
                       </div>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="bg-white dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 overflow-hidden shadow-sm mb-6">
+                      <div className="aspect-video flex items-center justify-center bg-orange-50 dark:bg-orange-900/20">
+                        <div className="text-center p-8">
+                          <div className="w-20 h-20 bg-orange-100 dark:bg-orange-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <FileText className="w-10 h-10 text-orange-500" />
+                          </div>
+                          <h3 className="text-xl font-bold text-neutral-900 dark:text-white mb-2">
+                            {currentLesson.title}
+                          </h3>
+                          <p className="text-neutral-600 dark:text-neutral-400 mb-6">
+                            Download the document resource
+                          </p>
+                          <a
+                            href={currentLesson.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-6 py-3 bg-neutral-900 text-white rounded-full font-semibold hover:bg-neutral-800 transition-colors"
+                          >
+                            <Download className="w-5 h-5" />
+                            Download
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  )
                 ) : null}
 
                 {/* Lesson Info */}
