@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
   Lock,
   ArrowLeft,
@@ -40,10 +39,23 @@ export default function CourseGate({
   price?: number | null;
   offerPrice?: number | null;
 }) {
-  const router = useRouter();
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Safety net: after a verified unlock we reload with ?unlocked=1. If the gate
+  // still renders (cookie blocked, in-app browser, Incognito), surface a clear
+  // fix instead of looping silently on "Checking…".
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (new URLSearchParams(window.location.search).get("unlocked") === "1") {
+      setError(
+        "We verified your number but couldn't save it on this browser. Open this " +
+          "page directly in Chrome (not inside another app), turn off Incognito, " +
+          "allow cookies, then try again."
+      );
+    }
+  }, []);
 
   const handleUnlock = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,11 +73,16 @@ export default function CourseGate({
       });
       const data = await res.json();
       if (data.success) {
-        router.refresh();
-      } else {
-        setError(data.error || "No access found for this number.");
-        setLoading(false);
+        // The API has set an httpOnly access cookie. A full reload forces the
+        // browser to send that cookie back so the server renders the course.
+        // router.refresh() didn't reliably re-send a just-set cookie on some
+        // mobile / in-app browsers, leaving the button stuck on "Checking…".
+        // ?unlocked=1 lets us detect (above) if the cookie never stuck.
+        window.location.assign(`${window.location.pathname}?unlocked=1`);
+        return;
       }
+      setError(data.error || "No access found for this number.");
+      setLoading(false);
     } catch {
       setError("Something went wrong. Please try again.");
       setLoading(false);
