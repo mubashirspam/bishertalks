@@ -1,3 +1,4 @@
+import Image from "next/image";
 import Link from "next/link";
 import { ShoppingCart, Star, Zap, BookOpen } from "lucide-react";
 
@@ -23,10 +24,12 @@ export default function BookCTA() {
             {/* Rotated card behind book */}
             <div className="absolute inset-0 scale-105 -rotate-3 rounded-2xl bg-gradient-to-br from-primary-400 to-primary-600 opacity-30 blur-sm" />
             <div className="relative w-44 md:w-52 aspect-[3/4] rounded-2xl overflow-hidden shadow-2xl ring-1 ring-neutral-900/10 dark:ring-white/10">
-              <img
+              <Image
                 src="/images/book_front.png"
                 alt="Neuro Code Book"
-                className="w-full h-full object-cover"
+                fill
+                sizes="(max-width: 768px) 176px, 208px"
+                className="object-cover"
               />
             </div>
             {/* Rating badge */}

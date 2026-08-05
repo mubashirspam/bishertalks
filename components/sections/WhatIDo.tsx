@@ -1,4 +1,5 @@
 import React from "react";
+import Image from "next/image";
 import {
   Brain,
   Users,
@@ -125,12 +126,14 @@ export default function WhatIDo() {
           {/* Center Image */}
           <div className="hidden lg:flex items-center justify-center">
             <div className="relative">
-              <div className="w-72 h-96 bg-gradient-to-br from-primary-200 to-primary-100 rounded-3xl overflow-hidden shadow-2xl flex items-center justify-center">
+              <div className="relative w-72 h-96 bg-gradient-to-br from-primary-200 to-primary-100 rounded-3xl overflow-hidden shadow-2xl flex items-center justify-center">
                 {/* Replace with actual image */}
-                <img
+                <Image
                   src="/images/services.jpg"
                   alt="Services"
-                  className="w-full h-full object-cover"
+                  fill
+                  sizes="288px"
+                  className="object-cover"
                 />
               </div>
               {/* Floating badge */}

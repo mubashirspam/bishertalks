@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === "grant") {
-      await grantCourseAccess({ userId, courseId, grantedVia: "admin" });
+      await grantCourseAccess({ userId, courseId, grantedVia: "admin", notify: true });
     } else {
       await revokeCourseAccess({ userId, courseId });
     }

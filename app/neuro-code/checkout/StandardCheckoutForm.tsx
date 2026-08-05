@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -31,7 +32,7 @@ declare global {
 
 const rupees = (paise: number) => Math.round(paise / 100);
 
-export default function CheckoutForm({ pricing }: { pricing: ProductPricing }) {
+export default function StandardCheckoutForm({ pricing }: { pricing: ProductPricing }) {
   const router = useRouter();
   const [form, setForm] = useState<FormData>({
     name: "", phone: "", email: "", address1: "",
@@ -269,9 +270,8 @@ export default function CheckoutForm({ pricing }: { pricing: ProductPricing }) {
               <ShoppingBag className="w-4 h-4 text-primary-500 dark:text-primary-400" /> Order Summary
             </h2>
             <div className="flex gap-4 mb-5 pb-5 border-b border-neutral-200 dark:border-white/8">
-              <div className="w-14 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-100 dark:bg-neutral-800">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/images/book_front.png" alt="Neuro Code" className="w-full h-full object-cover" />
+              <div className="relative w-14 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-100 dark:bg-neutral-800">
+                <Image src="/images/book_front.png" alt="Neuro Code" fill sizes="56px" className="object-cover" />
               </div>
               <div>
                 <p className="font-semibold text-neutral-900 dark:text-white">Neuro Code</p>

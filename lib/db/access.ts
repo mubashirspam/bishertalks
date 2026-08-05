@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { GrantedVia } from "@/lib/types/db";
 import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
 import { normalizePhone, upsertUserByPhone } from "@/lib/db/users";
+import { notifyCourseAccess } from "@/lib/notify";
 
 /**
  * Does the given phone number have ACTIVE access to the given course?
@@ -14,36 +15,32 @@ export async function hasCourseAccessByPhone(
   const phone = normalizePhone(rawPhone);
   if (!phone) return false;
 
-  const { data: user } = await supabaseAdmin
-    .from("users")
-    .select("id")
-    .eq("phone", phone)
-    .maybeSingle();
-  if (!user) return false;
-
-  const { data: course } = await supabaseAdmin
-    .from("courses")
-    .select("id")
-    .eq("slug", courseSlug)
-    .maybeSingle();
-  if (!course) return false;
-
+  // Single joined query — resolving user and course separately cost three
+  // sequential round trips, which dominated course page load time.
   const { data: access } = await supabaseAdmin
     .from("course_access")
-    .select("status")
-    .eq("user_id", user.id)
-    .eq("course_id", course.id)
+    .select("status,users!inner(phone),courses!inner(slug)")
+    .eq("users.phone", phone)
+    .eq("courses.slug", courseSlug)
     .maybeSingle();
 
   return access?.status === "active";
 }
 
-/** Grant (or re-activate) access for a user to a course. Idempotent. */
+/**
+ * Grant (or re-activate) access for a user to a course. Idempotent.
+ *
+ * `notify` sends the learner a WhatsApp telling them the course is unlocked.
+ * It defaults to OFF on purpose: bulk CSV import calls this in a loop, and a
+ * few hundred messages fired by accident would be unrecoverable. Turn it on
+ * explicitly for single, user-initiated grants.
+ */
 export async function grantCourseAccess(params: {
   userId: string;
   courseId: string;
   grantedVia: GrantedVia;
   orderId?: string | null;
+  notify?: boolean;
 }): Promise<void> {
   const { error } = await supabaseAdmin.from("course_access").upsert(
     {
@@ -57,6 +54,34 @@ export async function grantCourseAccess(params: {
     { onConflict: "user_id,course_id" }
   );
   if (error) throw new Error(`grantCourseAccess failed: ${error.message}`);
+
+  if (params.notify) {
+    // Look up what the message needs. Failures here must not undo the grant.
+    try {
+      const [{ data: user }, { data: course }] = await Promise.all([
+        supabaseAdmin
+          .from("users")
+          .select("phone,name")
+          .eq("id", params.userId)
+          .maybeSingle(),
+        supabaseAdmin
+          .from("courses")
+          .select("slug,title")
+          .eq("id", params.courseId)
+          .maybeSingle(),
+      ]);
+      if (user?.phone && course?.slug) {
+        await notifyCourseAccess({
+          phone: user.phone,
+          name: user.name,
+          courseTitle: course.title,
+          courseSlug: course.slug,
+        });
+      }
+    } catch (e) {
+      console.error("grantCourseAccess: notification failed:", e);
+    }
+  }
 }
 
 /** Grant access by phone + course slug (used by purchase flow and admin). */
@@ -65,21 +90,20 @@ export async function grantCourseAccessByPhone(params: {
   courseSlug: string;
   grantedVia: GrantedVia;
   orderId?: string | null;
+  /** Defaults to true — this path is only used for single, deliberate grants. */
+  notify?: boolean;
 }): Promise<void> {
   const phone = normalizePhone(params.phone);
 
-  const { data: user } = await supabaseAdmin
-    .from("users")
-    .select("id")
-    .eq("phone", phone)
-    .maybeSingle();
+  const [{ data: user }, { data: course }] = await Promise.all([
+    supabaseAdmin.from("users").select("id").eq("phone", phone).maybeSingle(),
+    supabaseAdmin
+      .from("courses")
+      .select("id")
+      .eq("slug", params.courseSlug)
+      .maybeSingle(),
+  ]);
   if (!user) throw new Error("grantCourseAccessByPhone: user not found");
-
-  const { data: course } = await supabaseAdmin
-    .from("courses")
-    .select("id")
-    .eq("slug", params.courseSlug)
-    .maybeSingle();
   if (!course) throw new Error("grantCourseAccessByPhone: course not found");
 
   await grantCourseAccess({
@@ -87,6 +111,7 @@ export async function grantCourseAccessByPhone(params: {
     courseId: course.id,
     grantedVia: params.grantedVia,
     orderId: params.orderId ?? null,
+    notify: params.notify ?? true,
   });
 }
 
@@ -121,6 +146,16 @@ export async function grantBookBonusForOrderNumber(
 
   // Backfill a user + link if the order wasn't connected (safety / old orders).
   if (!userId) {
+    // Magic Checkout orders have no phone until it's copied back from Razorpay.
+    // Without one there's no identity to grant access to — bail rather than
+    // creating a junk user with an empty phone.
+    if (!order.buyer_phone) {
+      console.error(
+        "grantBookBonusForOrderNumber: order has no buyer_phone yet:",
+        orderNumber
+      );
+      return;
+    }
     const user = await upsertUserByPhone({
       phone: order.buyer_phone,
       name: order.buyer_name,
@@ -153,5 +188,6 @@ export async function grantBookBonusForOrderNumber(
     courseId: course.id,
     grantedVia: "purchase",
     orderId: order.id,
+    notify: true,
   });
 }

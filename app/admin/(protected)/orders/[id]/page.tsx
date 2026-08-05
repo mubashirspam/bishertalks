@@ -133,18 +133,24 @@ export default function AdminOrderDetailPage() {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-neutral-500">Name</span>
-                <span className="text-neutral-900 font-medium">{order.buyer_name}</span>
+                <span className="text-neutral-900 font-medium">
+                  {order.buyer_name ?? <span className="text-neutral-400">—</span>}
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral-500">Phone</span>
-                <a
-                  href={`https://wa.me/91${order.buyer_phone}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-green-600 hover:text-green-700"
-                >
-                  +91 {order.buyer_phone}
-                </a>
+                {order.buyer_phone ? (
+                  <a
+                    href={`https://wa.me/91${order.buyer_phone}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-green-600 hover:text-green-700"
+                  >
+                    +91 {order.buyer_phone}
+                  </a>
+                ) : (
+                  <span className="text-neutral-400">—</span>
+                )}
               </div>
               {order.buyer_email && (
                 <div className="flex justify-between">
@@ -153,10 +159,19 @@ export default function AdminOrderDetailPage() {
                 </div>
               )}
               <div className="pt-2 border-t border-neutral-200 text-neutral-600 leading-relaxed">
-                {order.address_line1}
-                {order.address_line2 && <>, {order.address_line2}</>}
-                <br />
-                {order.city}, {order.state} — {order.pincode}
+                {order.address_line1 ? (
+                  <>
+                    {order.address_line1}
+                    {order.address_line2 && <>, {order.address_line2}</>}
+                    <br />
+                    {order.city}, {order.state} — {order.pincode}
+                  </>
+                ) : (
+                  // Magic Checkout writes the address back only after payment.
+                  <span className="text-neutral-400 italic">
+                    Awaiting address — collected at payment
+                  </span>
+                )}
               </div>
             </div>
           </div>

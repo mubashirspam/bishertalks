@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Image from 'next/image';
 import { Camera, X, ChevronLeft, ChevronRight } from 'lucide-react';
 
 const galleryItems = [
@@ -93,11 +94,13 @@ export default function Gallery() {
                 index === 0 ? 'col-span-2 row-span-2' : ''
               } ${index === 5 ? 'col-span-2' : ''}`}
             >
-              <div className={`${index === 0 ? 'aspect-square' : 'aspect-[4/3]'} w-full`}>
-                <img
+              <div className={`relative ${index === 0 ? 'aspect-square' : 'aspect-[4/3]'} w-full`}>
+                <Image
                   src={item.image}
                   alt={item.title}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                  fill
+                  sizes={index === 0 ? '(max-width: 768px) 100vw, 50vw' : '(max-width: 768px) 50vw, 25vw'}
+                  className="object-cover group-hover:scale-110 transition-transform duration-500"
                 />
               </div>
 

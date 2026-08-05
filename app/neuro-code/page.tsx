@@ -194,11 +194,14 @@ export default function NeuroCodePage() {
             <div className="relative">
               <div className="absolute inset-0 scale-90 translate-y-8 bg-primary-500/20 dark:bg-primary-500/30 blur-3xl rounded-full" />
               <div className="relative w-[260px] md:w-[300px] lg:w-[340px]">
-                <div className="aspect-[3/4] rounded-xl overflow-hidden shadow-2xl shadow-neutral-900/20 dark:shadow-neutral-950 ring-1 ring-neutral-200 dark:ring-white/10">
-                  <img
+                <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-2xl shadow-neutral-900/20 dark:shadow-neutral-950 ring-1 ring-neutral-200 dark:ring-white/10">
+                  <Image
                     src="/images/book_front.png"
                     alt="Neuro Code Book by Bisher KC"
-                    className="w-full h-full object-cover"
+                    fill
+                    priority
+                    sizes="(max-width: 768px) 260px, (max-width: 1024px) 300px, 340px"
+                    className="object-cover"
                   />
                   <div className="absolute left-0 top-0 bottom-0 w-3 bg-gradient-to-r from-neutral-900/30 to-transparent" />
                 </div>
@@ -445,10 +448,12 @@ export default function NeuroCodePage() {
           <div className="relative flex justify-center lg:justify-start">
             <div className="absolute inset-0 max-w-sm bg-primary-400/10 dark:bg-primary-500/10 blur-3xl rounded-full" />
             <div className="relative w-72 md:w-80 aspect-square rounded-3xl overflow-hidden border border-neutral-200 dark:border-white/10 shadow-2xl">
-              <img
+              <Image
                 src="/images/hero1.png"
                 alt="Bisher KC"
-                className="w-full h-full object-cover object-top"
+                fill
+                sizes="(max-width: 768px) 288px, 320px"
+                className="object-cover object-top"
               />
             </div>
             <div className="absolute -bottom-4 -right-4 md:-right-8 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/10 rounded-2xl px-5 py-4 shadow-xl">
@@ -593,10 +598,12 @@ export default function NeuroCodePage() {
             <div className="relative w-[200px] md:w-[240px]">
               <div className="absolute inset-0 scale-75 translate-y-10 bg-primary-500/40 blur-2xl rounded-full" />
               <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-2xl ring-1 ring-white/10">
-                <img
+                <Image
                   src="/images/book_front.png"
                   alt="Neuro Code Book"
-                  className="w-full h-full object-cover"
+                  fill
+                  sizes="(max-width: 768px) 200px, 240px"
+                  className="object-cover"
                 />
               </div>
             </div>

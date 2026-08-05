@@ -1,6 +1,28 @@
+import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Course } from "@/lib/courses-data";
 import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
+import {
+  COURSES_TAG,
+  COURSES_CACHE_SECONDS,
+  revalidateCourses,
+} from "@/lib/db/cache-tags";
+
+/**
+ * Catalogue reads are shared across requests and tagged, so admin edits flush
+ * them instantly (see `revalidateCourses`). Access checks are deliberately NOT
+ * cached — revoking a user's access must take effect on their next page load.
+ */
+function cached<A extends unknown[], R>(
+  keyPart: string,
+  fn: (...args: A) => Promise<R>
+): (...args: A) => Promise<R> {
+  return unstable_cache(fn, [keyPart], {
+    tags: [COURSES_TAG],
+    revalidate: COURSES_CACHE_SECONDS,
+  });
+}
 
 export interface CourseListItem {
   slug: string;
@@ -22,44 +44,34 @@ export interface CourseListItemWithStats extends CourseListItem {
 const COURSE_FIELDS = "slug,title,subtitle,description,thumbnail,is_locked,price,offer_price,sort_order";
 
 /** All courses for the listing page, ordered. */
-export async function getCourseList(): Promise<CourseListItem[]> {
-  const { data } = await supabaseAdmin
-    .from("courses")
-    .select(COURSE_FIELDS)
-    .order("sort_order", { ascending: true });
-  return (data as CourseListItem[]) ?? [];
-}
+export const getCourseList = cached(
+  "course-list",
+  async (): Promise<CourseListItem[]> => {
+    const { data } = await supabaseAdmin
+      .from("courses")
+      .select(COURSE_FIELDS)
+      .order("sort_order", { ascending: true });
+    return (data as CourseListItem[]) ?? [];
+  }
+);
 
 /**
- * Courses for the public listing, with lesson counts. One query per table
- * (courses, modules, lessons) aggregated in memory — fine for a small catalog.
+ * Courses for the public listing, with lesson counts. A single embedded query
+ * (courses → modules → lessons) so the page costs one round trip, not three.
  */
-export async function getCoursesForListing(): Promise<CourseListItemWithStats[]> {
+export const getCoursesForListing = cached("courses-listing", async (): Promise<
+  CourseListItemWithStats[]
+> => {
   const { data: courses } = await supabaseAdmin
     .from("courses")
-    .select(`id,${COURSE_FIELDS}`)
+    .select(`${COURSE_FIELDS},modules(id,lessons(type))`)
     .order("sort_order", { ascending: true });
   if (!courses?.length) return [];
 
-  const courseIds = courses.map((c) => c.id);
-  const { data: modules } = await supabaseAdmin
-    .from("modules")
-    .select("id,course_id")
-    .in("course_id", courseIds);
-
-  const moduleIds = (modules ?? []).map((m) => m.id);
-  const { data: lessons } = await supabaseAdmin
-    .from("lessons")
-    .select("module_id,type")
-    .in("module_id", moduleIds.length ? moduleIds : ["00000000-0000-0000-0000-000000000000"]);
-
-  const moduleToCourse = new Map((modules ?? []).map((m) => [m.id, m.course_id]));
-
-  return courses.map((c) => {
-    const courseModules = (modules ?? []).filter((m) => m.course_id === c.id);
-    const courseLessons = (lessons ?? []).filter(
-      (l) => moduleToCourse.get(l.module_id) === c.id
-    );
+  return (courses as unknown as Array<
+    CourseListItem & { modules: Array<{ id: string; lessons: Array<{ type: string }> }> }
+  >).map((c) => {
+    const lessons = (c.modules ?? []).flatMap((m) => m.lessons ?? []);
     return {
       slug: c.slug,
       title: c.title,
@@ -69,22 +81,104 @@ export async function getCoursesForListing(): Promise<CourseListItemWithStats[]>
       is_locked: c.is_locked,
       price: c.price,
       offer_price: c.offer_price,
-      moduleCount: courseModules.length,
-      videoCount: courseLessons.filter((l) => l.type === "video").length,
-      pdfCount: courseLessons.filter((l) => l.type === "pdf").length,
+      moduleCount: (c.modules ?? []).length,
+      videoCount: lessons.filter((l) => l.type === "video").length,
+      pdfCount: lessons.filter((l) => l.type === "pdf").length,
     };
   });
-}
+});
 
 /** Lightweight course header (no lessons) — safe to render on the locked gate. */
-export async function getCourseMeta(slug: string): Promise<CourseListItem | null> {
-  const { data } = await supabaseAdmin
-    .from("courses")
-    .select(COURSE_FIELDS)
-    .eq("slug", slug)
-    .maybeSingle();
-  return (data as CourseListItem) ?? null;
+export const getCourseMeta = cache(
+  cached("course-meta", async (slug: string): Promise<CourseListItem | null> => {
+    const { data } = await supabaseAdmin
+      .from("courses")
+      .select(COURSE_FIELDS)
+      .eq("slug", slug)
+      .maybeSingle();
+    return (data as CourseListItem) ?? null;
+  })
+);
+
+/** A course plus its gate metadata (price / lock state), from one query. */
+export interface CourseWithMeta {
+  course: Course;
+  meta: CourseListItem;
 }
+
+interface CourseRow extends CourseListItem {
+  modules: Array<{
+    id: string;
+    title: string;
+    sort_order: number | null;
+    lessons: Array<{
+      slug: string;
+      title: string;
+      type: string;
+      url: string;
+      duration: string | null;
+      sort_order: number | null;
+    }>;
+  }>;
+}
+
+const bySortOrder = (a: { sort_order: number | null }, b: { sort_order: number | null }) =>
+  (a.sort_order ?? 0) - (b.sort_order ?? 0);
+
+/**
+ * Full course with modules + lessons AND the listing metadata, in a single
+ * embedded query. Wrapped in React `cache()` so `generateMetadata` and the page
+ * body share one fetch per request instead of hitting the DB twice.
+ *
+ * Only render the returned lesson URLs AFTER an access check.
+ */
+export const getCourseBundle = cache(
+  cached("course-bundle", async (slug: string): Promise<CourseWithMeta | null> => {
+    const { data } = await supabaseAdmin
+      .from("courses")
+      .select(
+        `${COURSE_FIELDS},modules(id,title,sort_order,lessons(slug,title,type,url,duration,sort_order))`
+      )
+      .eq("slug", slug)
+      .maybeSingle();
+
+    const row = data as unknown as CourseRow | null;
+    if (!row) return null;
+
+    const course: Course = {
+      slug: row.slug,
+      title: row.title,
+      subtitle: row.subtitle ?? "",
+      description: row.description ?? "",
+      thumbnail: row.thumbnail ?? "",
+      modules: [...(row.modules ?? [])].sort(bySortOrder).map((m, i) => ({
+        id: i,
+        title: m.title,
+        lessons: [...(m.lessons ?? [])].sort(bySortOrder).map((l) => ({
+          slug: l.slug,
+          title: l.title,
+          type: l.type as "video" | "pdf",
+          url: l.url,
+          duration: l.duration ?? undefined,
+        })),
+      })),
+    };
+
+    return {
+      course,
+      meta: {
+        slug: row.slug,
+        title: row.title,
+        subtitle: row.subtitle,
+        description: row.description,
+        thumbnail: row.thumbnail,
+        is_locked: row.is_locked,
+        price: row.price,
+        offer_price: row.offer_price,
+      },
+    };
+  })
+);
 
 /**
  * Full course with modules + lessons, mapped into the `Course` shape used by
@@ -92,47 +186,7 @@ export async function getCourseMeta(slug: string): Promise<CourseListItem | null
  * it returns lesson URLs.
  */
 export async function getCourseWithContent(slug: string): Promise<Course | null> {
-  const { data: course } = await supabaseAdmin
-    .from("courses")
-    .select("id,slug,title,subtitle,description,thumbnail")
-    .eq("slug", slug)
-    .maybeSingle();
-  if (!course) return null;
-
-  const { data: modules } = await supabaseAdmin
-    .from("modules")
-    .select("id,title,sort_order")
-    .eq("course_id", course.id)
-    .order("sort_order", { ascending: true });
-
-  const moduleIds = (modules ?? []).map((m) => m.id);
-
-  const { data: lessons } = await supabaseAdmin
-    .from("lessons")
-    .select("module_id,slug,title,type,url,duration,sort_order")
-    .in("module_id", moduleIds.length ? moduleIds : ["00000000-0000-0000-0000-000000000000"])
-    .order("sort_order", { ascending: true });
-
-  return {
-    slug: course.slug,
-    title: course.title,
-    subtitle: course.subtitle ?? "",
-    description: course.description ?? "",
-    thumbnail: course.thumbnail ?? "",
-    modules: (modules ?? []).map((m, i) => ({
-      id: i,
-      title: m.title,
-      lessons: (lessons ?? [])
-        .filter((l) => l.module_id === m.id)
-        .map((l) => ({
-          slug: l.slug,
-          title: l.title,
-          type: l.type as "video" | "pdf",
-          url: l.url,
-          duration: l.duration ?? undefined,
-        })),
-    })),
-  };
+  return (await getCourseBundle(slug))?.course ?? null;
 }
 
 /** Update admin-managed course settings (thumbnail / price / offer price). */
@@ -145,6 +199,7 @@ export async function updateCourseSettings(
     .update(fields)
     .eq("slug", slug);
   if (error) throw new Error(`updateCourseSettings failed: ${error.message}`);
+  revalidateCourses();
 }
 
 export interface ProductPricing {

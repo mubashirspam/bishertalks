@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { DbCourse, DbModule, DbLesson } from "@/lib/types/db";
+import { revalidateCourses } from "@/lib/db/cache-tags";
 
 // ── Read (full tree with real ids, for the admin editor) ─────────────────────
 
@@ -83,6 +84,7 @@ async function reorder(table: string, orderedIds: string[]): Promise<void> {
       supabaseAdmin.from(table).update({ sort_order: i }).eq("id", id)
     )
   );
+  revalidateCourses();
 }
 
 // ── Courses ──────────────────────────────────────────────────────────────────
@@ -109,18 +111,21 @@ export async function createCourse(fields: CourseFields): Promise<DbCourse> {
     .select()
     .single();
   if (error) throw new Error(error.message);
+  revalidateCourses();
   return data as DbCourse;
 }
 
 export async function updateCourse(id: string, fields: Partial<CourseFields>): Promise<void> {
   const { error } = await supabaseAdmin.from("courses").update(fields).eq("id", id);
   if (error) throw new Error(error.message);
+  revalidateCourses();
 }
 
 export async function deleteCourse(id: string): Promise<void> {
   // modules/lessons/course_access cascade via FK ON DELETE CASCADE.
   const { error } = await supabaseAdmin.from("courses").delete().eq("id", id);
   if (error) throw new Error(error.message);
+  revalidateCourses();
 }
 
 // ── Modules ──────────────────────────────────────────────────────────────────
@@ -133,17 +138,20 @@ export async function createModule(courseId: string, title: string): Promise<DbM
     .select()
     .single();
   if (error) throw new Error(error.message);
+  revalidateCourses();
   return data as DbModule;
 }
 
 export async function updateModule(id: string, title: string): Promise<void> {
   const { error } = await supabaseAdmin.from("modules").update({ title }).eq("id", id);
   if (error) throw new Error(error.message);
+  revalidateCourses();
 }
 
 export async function deleteModule(id: string): Promise<void> {
   const { error } = await supabaseAdmin.from("modules").delete().eq("id", id);
   if (error) throw new Error(error.message);
+  revalidateCourses();
 }
 
 export async function reorderModules(orderedIds: string[]): Promise<void> {
@@ -168,17 +176,20 @@ export async function createLesson(moduleId: string, fields: LessonFields): Prom
     .select()
     .single();
   if (error) throw new Error(error.message);
+  revalidateCourses();
   return data as DbLesson;
 }
 
 export async function updateLesson(id: string, fields: Partial<LessonFields>): Promise<void> {
   const { error } = await supabaseAdmin.from("lessons").update(fields).eq("id", id);
   if (error) throw new Error(error.message);
+  revalidateCourses();
 }
 
 export async function deleteLesson(id: string): Promise<void> {
   const { error } = await supabaseAdmin.from("lessons").delete().eq("id", id);
   if (error) throw new Error(error.message);
+  revalidateCourses();
 }
 
 export async function reorderLessons(orderedIds: string[]): Promise<void> {

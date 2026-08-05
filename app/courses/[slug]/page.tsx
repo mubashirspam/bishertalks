@@ -10,7 +10,7 @@ import CourseContent from "./CourseContent";
 import CourseGate from "./CourseGate";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access-cookie";
 import { hasCourseAccessByPhone } from "@/lib/db/access";
-import { getCourseWithContent, getCourseMeta } from "@/lib/db/courses";
+import { getCourseBundle } from "@/lib/db/courses";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export async function generateMetadata({
   params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
   const { slug } = await params;
-  const course = await getCourseWithContent(slug);
+  const course = (await getCourseBundle(slug))?.course;
   if (!course) return { title: "Course Not Found" };
 
   const totalVideos = getTotalVideos(course);
@@ -231,24 +231,26 @@ export default async function CoursePage({
 }) {
   const { slug } = await params;
 
-  // Course content + presentation come entirely from the DB.
-  const dbCourse = await getCourseWithContent(slug);
-  const meta = await getCourseMeta(slug);
-  const course = dbCourse;
+  // ── Access check (no user login): signed cookie holds a verified phone,
+  // re-checked against the DB every load so admin revoke is immediate. ──
+  const cookieStore = await cookies();
+  const phone = verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
+
+  // Course content + presentation come entirely from the DB. Fetched in
+  // parallel with the access check — they don't depend on each other.
+  const [bundle, hasAccess] = await Promise.all([
+    getCourseBundle(slug),
+    phone ? hasCourseAccessByPhone(phone, slug) : Promise.resolve(false),
+  ]);
+
+  const course = bundle?.course;
+  const meta = bundle?.meta;
 
   if (!course) {
     notFound();
   }
 
   const jsonLd = getCourseJsonLd(course);
-
-  // ── Access check (no user login): signed cookie holds a verified phone,
-  // re-checked against the DB every load so admin revoke is immediate. ──
-  const cookieStore = await cookies();
-  const phone = verifyAccessToken(cookieStore.get(ACCESS_COOKIE)?.value);
-  const hasAccess = phone
-    ? await hasCourseAccessByPhone(phone, slug)
-    : false;
 
   if (!hasAccess) {
     const outline = course.modules.map((m) => ({
@@ -279,10 +281,7 @@ export default async function CoursePage({
     );
   }
 
-  // Approved — serve content from the DB, falling back to static data.
-  const courseForRender =
-    dbCourse && dbCourse.modules.length ? dbCourse : course;
-
+  // Approved — serve content from the DB.
   return (
     <>
       {jsonLd && (
@@ -291,7 +290,7 @@ export default async function CoursePage({
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
       )}
-      <CourseContent course={courseForRender} />
+      <CourseContent course={course} />
     </>
   );
 }

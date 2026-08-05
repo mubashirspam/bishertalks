@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { grantBookBonusForOrderNumber } from "@/lib/db/access";
+import { backfillOrderFromRazorpay } from "@/lib/db/orders";
+import { redeemPromo } from "@/lib/db/promo";
 
 export async function POST(request: NextRequest) {
   try {
@@ -59,7 +61,12 @@ export async function POST(request: NextRequest) {
 
     console.log("[Verify] Signature verified successfully for order:", order_number);
 
-    await supabaseAdmin
+    // Claim the pending -> paid transition atomically. The Razorpay webhook can
+    // race this route for the same payment; whoever flips the row wins and runs
+    // the one-time side effects (promo redemption, WhatsApp). The loser gets
+    // zero rows back and skips them, so a promo can't be redeemed twice or the
+    // customer messaged twice.
+    const { data: claimed } = await supabaseAdmin
       .from("orders")
       .update({
         payment_status: "paid",
@@ -67,25 +74,46 @@ export async function POST(request: NextRequest) {
         razorpay_payment_id,
         razorpay_signature,
       })
-      .eq("order_number", order_number);
+      .eq("order_number", order_number)
+      .neq("payment_status", "paid")
+      .select("order_number, promo_code");
 
-    // Auto-grant the bonus NLP course to the buyer's phone.
+    const isFirstConfirmation = !!claimed?.length;
+
+    if (isFirstConfirmation && claimed[0].promo_code) {
+      try {
+        await redeemPromo(claimed[0].promo_code);
+      } catch (e) {
+        console.error("[Verify] Promo redemption failed:", e);
+      }
+    }
+
+    // Magic Checkout holds the buyer's contact details and shipping address —
+    // pull them onto the order. Must run before the grant below, which resolves
+    // the buyer from the order's phone number. Safe to re-run: it only fills
+    // fields that are still empty.
+    await backfillOrderFromRazorpay(order_number, razorpay_order_id);
+
+    // Auto-grant the bonus NLP course to the buyer's phone. Idempotent upsert,
+    // so it's safe even when the webhook already did it.
     try {
       await grantBookBonusForOrderNumber(order_number);
     } catch (e) {
       console.error("[Verify] Failed to grant course access:", e);
     }
 
-    // Fire-and-forget WhatsApp notification
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-    fetch(`${appUrl}/api/whatsapp/send`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-internal-secret": process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      },
-      body: JSON.stringify({ order_number, event_type: "confirmed" }),
-    }).catch(console.error);
+    // Fire-and-forget WhatsApp notification — only on the first confirmation.
+    if (isFirstConfirmation) {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+      fetch(`${appUrl}/api/whatsapp/send`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-internal-secret": process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!,
+        },
+        body: JSON.stringify({ order_number, event_type: "confirmed" }),
+      }).catch(console.error);
+    }
 
     return NextResponse.json({ success: true, order_number });
   } catch (err) {

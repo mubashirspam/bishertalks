@@ -8,17 +8,23 @@ export type OrderStatus =
 
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 
+export type CheckoutType = "standard" | "magic";
+
 export interface Order {
   id: string;
   order_number: string;
-  buyer_name: string;
-  buyer_phone: string;
+  // Buyer and address are null until payment confirms: Magic Checkout collects
+  // them itself, and they're written back from Razorpay afterwards.
+  buyer_name: string | null;
+  buyer_phone: string | null;
   buyer_email: string | null;
-  address_line1: string;
+  address_line1: string | null;
   address_line2: string | null;
-  city: string;
-  state: string;
-  pincode: string;
+  city: string | null;
+  state: string | null;
+  pincode: string | null;
+  shipping_fee_paise: number;
+  checkout_type: CheckoutType;
   razorpay_order_id: string | null;
   razorpay_payment_id: string | null;
   razorpay_signature: string | null;

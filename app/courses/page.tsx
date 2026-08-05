@@ -163,10 +163,14 @@ export default async function CoursesPage() {
                   {/* Thumbnail */}
                   <div className="aspect-video bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 relative overflow-hidden">
                     {course.thumbnail ? (
+                      // Plain <img>: thumbnails are admin-supplied URLs from
+                      // arbitrary hosts, which next/image would reject.
                       // eslint-disable-next-line @next/next/no-img-element
                       <img
                         src={course.thumbnail}
                         alt={course.title}
+                        loading="lazy"
+                        decoding="async"
                         className="absolute inset-0 w-full h-full object-cover"
                       />
                     ) : (

@@ -1,4 +1,5 @@
 import React from "react";
+import Image from "next/image";
 import {
   Star,
   BookOpen,
@@ -47,10 +48,12 @@ export default function Book() {
               <div className="relative w-64 md:w-72 mx-auto">
                 <div className="aspect-[3/4] bg-gradient-to-br from-neutral-900 via-neutral-800 to-neutral-900 rounded-lg shadow-2xl overflow-hidden relative">
                   {/* Book cover image */}
-                  <img
+                  <Image
                     src="/images/book_front.png"
                     alt="Neuro Code Book Cover"
-                    className="w-full h-full object-cover"
+                    fill
+                    sizes="(max-width: 768px) 256px, 288px"
+                    className="object-cover"
                   />
                   {/* Book spine effect */}
                   <div className="absolute left-0 top-0 bottom-0 w-4 bg-gradient-to-r from-neutral-950 to-transparent" />

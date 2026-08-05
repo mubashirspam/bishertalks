@@ -1,4 +1,5 @@
 import React from "react";
+import Image from "next/image";
 import { Award, Users, Heart, TrendingUp, Star } from "lucide-react";
 
 const highlights = [
@@ -35,10 +36,12 @@ export default function About() {
           <div className="lg:col-span-5 lg:row-span-2 bg-neutral-100 dark:bg-neutral-800 rounded-3xl overflow-hidden relative group">
             <div className="absolute inset-0 bg-gradient-to-t from-neutral-900/80 via-neutral-900/20 to-transparent z-10" />
 
-            <img
+            <Image
               src="/images/about-main.jpg"
               alt="Bisher KC"
-              className="w-full h-full object-cover"
+              fill
+              sizes="(max-width: 1024px) 100vw, 42vw"
+              className="object-cover"
             />
             <div className="absolute bottom-0 left-0 right-0 p-6 z-20">
               <span className="inline-block px-3 py-1 bg-primary-400 text-neutral-900 text-sm font-semibold rounded-full mb-3">

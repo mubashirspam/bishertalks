@@ -33,6 +33,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
+    // With Magic Checkout the phone arrives from Razorpay after payment, so an
+    // order can legitimately have none yet (or the backfill failed). Bail out
+    // rather than throwing on null.
+    if (!order.buyer_phone) {
+      console.error("[WhatsApp] no buyer_phone on order:", order_number);
+      return NextResponse.json(
+        { error: "Order has no phone number yet" },
+        { status: 409 }
+      );
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
     const trackingUrl = `${appUrl}/neuro-code/track?id=${order_number}`;
     const phone = `91${order.buyer_phone.replace(/^\+?91/, "")}`;
@@ -82,6 +93,22 @@ export async function POST(request: NextRequest) {
             order.buyer_name,
             order_number,
             `${appUrl}/neuro-code`,
+          ],
+        });
+        break;
+
+      // Course-access messages are sent directly via lib/notify.ts, because
+      // access is also granted without an order (admin, CSV import). Kept here
+      // so an admin can manually re-send one for a purchase.
+      case "course_access":
+        await sendWhatsApp({
+          phone,
+          templateName: "course_access",
+          parameters: [
+            order.buyer_name || "there",
+            "Neuro Linguistic Programming",
+            `${appUrl}/courses/nlp`,
+            order.buyer_phone.replace(/^\+?91/, ""),
           ],
         });
         break;

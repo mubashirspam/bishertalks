@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { grantBookBonusForOrderNumber } from "@/lib/db/access";
+import { backfillOrderFromRazorpay } from "@/lib/db/orders";
+import { redeemPromo } from "@/lib/db/promo";
 
 // Add RAZORPAY_WEBHOOK_SECRET to your .env.local
 // Get it from: Razorpay Dashboard → Settings → Webhooks → your webhook → secret
@@ -32,21 +34,36 @@ export async function POST(request: NextRequest) {
   const razorpayOrderId = payment.order_id;
 
   if (event.event === "payment.captured") {
-    const { data: order } = await supabaseAdmin
+    // Atomically claim the pending -> paid transition. /api/orders/verify races
+    // this handler for the same payment; only the winner runs the one-time side
+    // effects, so the promo can't be redeemed twice nor the customer messaged
+    // twice. See the matching claim in the verify route.
+    const { data: claimed } = await supabaseAdmin
       .from("orders")
-      .select("order_number, payment_status")
+      .update({
+        payment_status: "paid",
+        status: "confirmed",
+        razorpay_payment_id: payment.id,
+      })
       .eq("razorpay_order_id", razorpayOrderId)
-      .single();
+      .neq("payment_status", "paid")
+      .select("order_number, promo_code");
 
-    if (order && order.payment_status !== "paid") {
-      await supabaseAdmin
-        .from("orders")
-        .update({
-          payment_status: "paid",
-          status: "confirmed",
-          razorpay_payment_id: payment.id,
-        })
-        .eq("razorpay_order_id", razorpayOrderId);
+    const order = claimed?.[0];
+
+    if (order) {
+      if (order.promo_code) {
+        try {
+          await redeemPromo(order.promo_code);
+        } catch (e) {
+          console.error("[Webhook] Promo redemption failed:", e);
+        }
+      }
+
+      // This is the only path that runs when the customer closes the tab after
+      // paying, so it — not just the browser handler — has to fetch the
+      // shipping address. Runs before the grant, which needs the buyer's phone.
+      await backfillOrderFromRazorpay(order.order_number, razorpayOrderId);
 
       // Auto-grant the bonus NLP course to the buyer's phone.
       try {
