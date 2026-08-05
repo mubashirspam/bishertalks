@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   orderStage, applyStageFilter, STAGE_LABELS, STAGE_BADGE, type OrderStage,
 } from "@/lib/order-stage";
+import { formatISTShort, timeAgo } from "@/lib/format-date";
 
 export const dynamic = "force-dynamic";
 
@@ -129,11 +130,11 @@ export default async function AdminOrdersPage({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 text-left bg-neutral-50">
-                  {["Order", "Customer", "Stage", "Amount", "When"].map((h, i) => (
+                  {["Order", "Customer", "Stage", "Amount", "Date & time"].map((h, i) => (
                     <th
                       key={h}
                       className={`px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider ${
-                        i === 3 ? "hidden md:table-cell" : i === 4 ? "hidden lg:table-cell" : ""
+                        i === 3 ? "hidden md:table-cell" : ""
                       }`}
                     >
                       {h}
@@ -183,10 +184,13 @@ export default async function AdminOrdersPage({
                       <td className="px-4 py-3 text-neutral-900 hidden md:table-cell">
                         ₹{Math.round((o.amount_paise ?? 0) / 100)}
                       </td>
-                      <td className="px-4 py-3 text-neutral-500 text-xs hidden lg:table-cell whitespace-nowrap">
-                        {new Date(o.created_at).toLocaleDateString("en-IN", {
-                          day: "numeric", month: "short",
-                        })}
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        <p className="text-neutral-700 font-medium">
+                          {formatISTShort(o.created_at)}
+                        </p>
+                        <p className="text-neutral-400 mt-0.5">
+                          {timeAgo(o.created_at)}
+                        </p>
                       </td>
                     </tr>
                   );

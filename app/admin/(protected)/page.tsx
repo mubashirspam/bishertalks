@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
+import { formatISTShort, timeAgo } from "@/lib/format-date";
 
 export const dynamic = "force-dynamic";
 
@@ -143,7 +144,10 @@ export default async function AdminDashboard() {
                     {o.buyer_name || <span className="text-neutral-400">No name yet</span>}
                     <span className="text-neutral-400 font-normal"> · {o.buyer_phone ?? "—"}</span>
                   </p>
-                  <p className="text-neutral-400 text-xs font-mono mt-0.5">{o.order_number}</p>
+                  <p className="text-neutral-400 text-xs mt-0.5">
+                    <span className="font-mono">{o.order_number}</span>
+                    <span> · {formatISTShort(o.created_at)} ({timeAgo(o.created_at)})</span>
+                  </p>
                 </div>
                 <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${STAGE_BADGE[stage]}`}>
                   {STAGE_LABELS[stage]}

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard } from "lucide-react";
+import { formatIST, timeAgo } from "@/lib/format-date";
 import {
   STATUS_LABELS,
   STATUS_STEPS,
@@ -86,9 +87,7 @@ export default function AdminOrderDetailPage() {
   const inputCls =
     "w-full bg-white border border-neutral-300 rounded-xl px-4 py-2.5 text-neutral-900 placeholder-neutral-400 text-sm focus:outline-none focus:border-primary-500 transition-colors";
 
-  const date = new Date(order.created_at).toLocaleDateString("en-IN", {
-    day: "numeric", month: "long", year: "numeric",
-  });
+  const date = `${formatIST(order.created_at)} (${timeAgo(order.created_at)})`;
 
   const currentStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
 
@@ -166,10 +165,14 @@ export default function AdminOrderDetailPage() {
                     <br />
                     {order.city}, {order.state} — {order.pincode}
                   </>
+                ) : order.payment_status === "paid" ? (
+                  // Paid but unshippable — the case that costs real money.
+                  <span className="text-orange-600 font-medium">
+                    Paid, but no delivery address yet — chase this customer.
+                  </span>
                 ) : (
-                  // Magic Checkout writes the address back only after payment.
                   <span className="text-neutral-400 italic">
-                    Awaiting address — collected at payment
+                    No address yet — collected after payment
                   </span>
                 )}
               </div>
