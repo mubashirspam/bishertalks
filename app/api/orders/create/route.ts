@@ -39,19 +39,28 @@ export async function POST(request: NextRequest) {
     const promoCode =
       typeof body.promoCode === "string" ? body.promoCode : null;
 
-    // The checkout page only collects a mobile number; the address is collected
-    // after payment. `existingOrderNumber` is the lead row created when the
-    // number was typed, so payment attaches to that row instead of forking a
-    // second one and losing the drop-off trail.
-    const { name, phone, email } = body as Record<string, string | undefined>;
+    // Checkout collects contact + delivery address before payment.
+    // `existingOrderNumber` is the lead row created when the number was typed,
+    // so payment attaches to that row instead of forking a second one and
+    // losing the drop-off trail.
+    const {
+      name, phone, email, address1, address2, city, district, state, pincode,
+    } = body as Record<string, string | undefined>;
     const existingOrderNumber =
       typeof body.order_number === "string" ? body.order_number : null;
 
-    if (!MAGIC_CHECKOUT_ENABLED && !phone && !existingOrderNumber) {
-      return NextResponse.json(
-        { error: "Mobile number is required" },
-        { status: 400 }
-      );
+    // Under Magic Checkout, Razorpay collects these and we backfill after
+    // payment — so only validate them on the standard flow.
+    if (!MAGIC_CHECKOUT_ENABLED) {
+      if (!name || !phone || !address1 || !city || !state || !pincode) {
+        return NextResponse.json(
+          { error: "Please fill in all required fields." },
+          { status: 400 }
+        );
+      }
+      if (!/^\d{6}$/.test(pincode)) {
+        return NextResponse.json({ error: "Invalid pincode" }, { status: 400 });
+      }
     }
     if (phone && !/^[6-9]\d{9}$/.test(normalizePhone(phone))) {
       return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
@@ -134,8 +143,7 @@ export async function POST(request: NextRequest) {
       // one_click_checkout / line_items fields aren't in its signature.
     } as unknown as Parameters<ReturnType<typeof getRazorpay>["orders"]["create"]>[0]);
 
-    // We know the buyer's number up front, so link the user record now. The
-    // address arrives later, from the post-payment form.
+    // We know the buyer up front on the standard flow, so link the user now.
     let userId: string | null = null;
     if (normalizedPhone) {
       try {
@@ -143,6 +151,8 @@ export async function POST(request: NextRequest) {
           phone: normalizedPhone,
           name,
           email,
+          city,
+          state,
         });
         userId = user.id;
       } catch (e) {
@@ -162,6 +172,15 @@ export async function POST(request: NextRequest) {
       buyer_phone: normalizedPhone,
       ...(name ? { buyer_name: name } : {}),
       ...(email ? { buyer_email: email } : {}),
+      // Present on the standard flow; null under Magic Checkout, where they're
+      // backfilled from Razorpay after payment.
+      ...(address1 ? { address_line1: address1 } : {}),
+      ...(address2 ? { address_line2: address2 } : {}),
+      ...(city ? { city } : {}),
+      ...(district ? { district } : {}),
+      ...(state ? { state } : {}),
+      ...(pincode ? { pincode } : {}),
+      ...(address1 ? { address_submitted_at: new Date().toISOString() } : {}),
     };
 
     const { error: dbError } = reusingLead

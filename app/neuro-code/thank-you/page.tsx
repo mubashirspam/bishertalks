@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, Package, Home } from "lucide-react";
+import { CheckCircle2, Package, Home, GraduationCap, MessageCircle } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Order } from "@/lib/types/order";
+import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
 import CopyLinkButton from "./CopyLinkButton";
 
 async function getOrder(id: string): Promise<Order | null> {
@@ -26,6 +27,14 @@ export default async function ThankYouPage({
   if (!order) redirect("/neuro-code");
 
   const amount = Math.round(order.amount_paise / 100);
+
+  // Support number for the WhatsApp button, with the order number pre-filled so
+  // we know who's asking. Set NEXT_PUBLIC_SUPPORT_WHATSAPP to your real number.
+  const support = (process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP || "919876543210")
+    .replace(/\D/g, "");
+  const whatsappHref = `https://wa.me/${support}?text=${encodeURIComponent(
+    `Hi! I just placed order ${order.order_number} for Neuro Code.`
+  )}`;
   const date = new Date(order.created_at).toLocaleDateString("en-IN", {
     day: "numeric", month: "long", year: "numeric",
   });
@@ -70,17 +79,46 @@ export default async function ThankYouPage({
           </div>
         </div>
 
+        {/* Bonus course — the thing they get instantly, so it leads */}
+        <div className="bg-gradient-to-br from-primary-500/15 to-primary-600/5 border border-primary-500/30 rounded-2xl p-5 mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-xs font-bold bg-primary-500 text-white px-2 py-0.5 rounded-full">
+              UNLOCKED
+            </span>
+            <p className="font-bold text-sm">Your free NLP course</p>
+          </div>
+          <p className="text-neutral-300 text-sm mb-4 leading-relaxed">
+            Start straight away — no waiting for delivery. Sign in with the mobile
+            number{" "}
+            <span className="text-white font-medium">{order.buyer_phone}</span>.
+          </p>
+          <Link
+            href={`/courses/${BOOK_BONUS_COURSE_SLUG}`}
+            className="flex items-center justify-center gap-2 py-3.5 rounded-full bg-primary-500 hover:bg-primary-400 text-white font-bold transition-all w-full"
+          >
+            <GraduationCap className="w-4 h-4" /> Start Learning Now
+          </Link>
+        </div>
+
         {/* Actions */}
         <div className="flex flex-col gap-3">
+          <a
+            href={whatsappHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-2 py-3.5 rounded-full bg-[#25D366] hover:bg-[#20bd5a] text-white font-bold transition-all"
+          >
+            <MessageCircle className="w-4 h-4" /> Chat with us on WhatsApp
+          </a>
           <Link
             href={`/neuro-code/track?id=${order.order_number}`}
-            className="flex items-center justify-center gap-2 py-3.5 rounded-full bg-primary-500 hover:bg-primary-400 text-white font-bold transition-all"
+            className="flex items-center justify-center gap-2 py-3.5 rounded-full border border-white/20 hover:border-white/40 text-white font-medium transition-all"
           >
             <Package className="w-4 h-4" /> Track Your Order
           </Link>
           <Link
             href="/"
-            className="flex items-center justify-center gap-2 py-3.5 rounded-full border border-white/20 hover:border-white/40 text-white font-medium transition-all"
+            className="flex items-center justify-center gap-2 py-3.5 rounded-full text-neutral-400 hover:text-white font-medium transition-all"
           >
             <Home className="w-4 h-4" /> Back to Home
           </Link>
