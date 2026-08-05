@@ -2,23 +2,15 @@ import Link from "next/link";
 import { AlertCircle } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
-  orderStage, applyStageFilter, STAGE_LABELS, STAGE_BADGE, type OrderStage,
+  orderStage, STAGE_LABELS, STAGE_BADGE, type OrderStage,
 } from "@/lib/order-stage";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
+import { buildOrdersQuery } from "@/lib/db/orders-query";
+import OrderFilters from "./OrderFilters";
 
 export const dynamic = "force-dynamic";
 
 const PER_PAGE = 20;
-
-/** Buckets, ordered by how urgently they need attention. */
-const STAGE_TABS: { label: string; value: OrderStage | "all" }[] = [
-  { label: "All", value: "all" },
-  { label: "Needs address", value: "paid_no_address" },
-  { label: "Complete", value: "complete" },
-  { label: "Started payment", value: "payment_started" },
-  { label: "Payment failed", value: "failed" },
-  { label: "Left before paying", value: "lead" },
-];
 
 interface Row {
   id: string;
@@ -36,32 +28,19 @@ interface Row {
 export default async function AdminOrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ stage?: string; q?: string; page?: string }>;
+  searchParams: Promise<{
+    stage?: string; q?: string; page?: string; from?: string; to?: string;
+  }>;
 }) {
-  const { stage, q, page = "1" } = await searchParams;
+  const { stage, q, page = "1", from, to } = await searchParams;
   const pageNum = Math.max(0, parseInt(page) - 1);
   const activeStage = (stage ?? "all") as OrderStage | "all";
 
-  let query = supabaseAdmin
-    .from("orders")
-    .select(
-      "id,order_number,buyer_name,buyer_phone,amount_paise,payment_status,address_line1,razorpay_order_id,city,created_at",
-      { count: "exact" }
-    )
-    .order("created_at", { ascending: false })
-    .range(pageNum * PER_PAGE, (pageNum + 1) * PER_PAGE - 1);
-
-  if (activeStage !== "all") {
-    query = applyStageFilter(query, activeStage);
-  }
-  if (q) {
-    query = query.or(
-      `order_number.ilike.%${q}%,buyer_name.ilike.%${q}%,buyer_phone.ilike.%${q}%`
-    );
-  }
-
-  const { data, count } = await query;
-  const orders = (data ?? []) as Row[];
+  // Same builder the export uses, so the file always matches the screen.
+  const { data, count } = await buildOrdersQuery(
+    { stage, q, from, to }
+  ).range(pageNum * PER_PAGE, (pageNum + 1) * PER_PAGE - 1);
+  const orders = (data ?? []) as unknown as Row[];
   const totalPages = Math.ceil((count || 0) / PER_PAGE);
 
   const link = (s: string, p?: number) =>
@@ -72,43 +51,11 @@ export default async function AdminOrdersPage({
       <div className="mb-6">
         <h1 className="text-2xl font-black">Orders</h1>
         <p className="text-neutral-500 text-sm mt-1">
-          {count ?? 0} {activeStage === "all" ? "total" : STAGE_LABELS[activeStage].toLowerCase()}
+          {activeStage === "all" ? "All customers" : STAGE_LABELS[activeStage]}
         </p>
       </div>
 
-      {/* Stage buckets — every customer sits in exactly one */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {STAGE_TABS.map((t) => {
-          const active = activeStage === t.value;
-          const urgent = t.value === "paid_no_address";
-          return (
-            <Link
-              key={t.value}
-              href={link(t.value)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
-                active
-                  ? "bg-primary-500 text-white border-primary-500 shadow-sm"
-                  : urgent
-                    ? "bg-orange-50 text-orange-700 border-orange-200 hover:border-orange-300"
-                    : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-300"
-              }`}
-            >
-              {urgent && !active && <AlertCircle className="w-3 h-3 inline mr-1 -mt-0.5" />}
-              {t.label}
-            </Link>
-          );
-        })}
-      </div>
-
-      <form className="mb-5 max-w-xs">
-        <input
-          name="q"
-          defaultValue={q}
-          placeholder="Search name, phone, order #…"
-          className="w-full bg-white border border-neutral-300 rounded-xl px-4 py-2 text-sm placeholder-neutral-400 focus:outline-none focus:border-primary-500 transition-colors"
-        />
-        {activeStage !== "all" && <input type="hidden" name="stage" value={activeStage} />}
-      </form>
+      <OrderFilters total={count ?? 0} />
 
       {activeStage === "paid_no_address" && orders.length > 0 && (
         <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-4 text-sm">

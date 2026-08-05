@@ -35,6 +35,37 @@ export function formatISTShort(iso: string): string {
 }
 
 /**
+ * IST day boundaries as UTC instants, for filtering `created_at` (stored UTC).
+ *
+ * IST is UTC+5:30, so "5 Aug" in IST runs 2026-08-04T18:30Z → 2026-08-05T18:30Z.
+ * Filtering on the bare date string instead would silently drop orders placed
+ * between midnight and 5:30am IST and pull in the previous evening's.
+ */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+/** Start of the given IST calendar day (YYYY-MM-DD), as a UTC ISO string. */
+export function istDayStartUTC(date: string): string {
+  return new Date(new Date(`${date}T00:00:00Z`).getTime() - IST_OFFSET_MS).toISOString();
+}
+
+/** Exclusive end of the given IST calendar day, as a UTC ISO string. */
+export function istDayEndUTC(date: string): string {
+  return new Date(
+    new Date(`${date}T00:00:00Z`).getTime() - IST_OFFSET_MS + 24 * 60 * 60 * 1000
+  ).toISOString();
+}
+
+/** Today's date in IST as YYYY-MM-DD, for date-input defaults. */
+export function istToday(): string {
+  return new Date(Date.now() + IST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** N days before today, in IST, as YYYY-MM-DD. */
+export function istDaysAgo(n: number): string {
+  return new Date(Date.now() + IST_OFFSET_MS - n * 864e5).toISOString().slice(0, 10);
+}
+
+/**
  * "2h ago", "3d ago". How fresh a lead is matters more than the absolute
  * timestamp when deciding who to chase first.
  */

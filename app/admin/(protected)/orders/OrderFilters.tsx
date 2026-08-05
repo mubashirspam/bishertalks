@@ -1,0 +1,171 @@
+"use client";
+
+import { useRouter, useSearchParams } from "next/navigation";
+import { useState, useTransition } from "react";
+import { Search, Download, X, FileSpreadsheet, FileText } from "lucide-react";
+
+const STAGES = [
+  { label: "All orders", value: "all" },
+  { label: "Needs address", value: "paid_no_address" },
+  { label: "Complete", value: "complete" },
+  { label: "Started payment", value: "payment_started" },
+  { label: "Payment failed", value: "failed" },
+  { label: "Left before paying", value: "lead" },
+];
+
+const PRESETS = [
+  { label: "Today", days: 0 },
+  { label: "7 days", days: 6 },
+  { label: "30 days", days: 29 },
+];
+
+/** Today in IST as YYYY-MM-DD — the browser may be in any timezone. */
+function istToday(): string {
+  return new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+}
+function istDaysAgo(n: number): string {
+  return new Date(Date.now() + 5.5 * 3600e3 - n * 864e5).toISOString().slice(0, 10);
+}
+
+export default function OrderFilters({ total }: { total: number }) {
+  const router = useRouter();
+  const params = useSearchParams();
+  const [pending, startTransition] = useTransition();
+
+  const stage = params.get("stage") ?? "all";
+  const from = params.get("from") ?? "";
+  const to = params.get("to") ?? "";
+  const [q, setQ] = useState(params.get("q") ?? "");
+
+  const push = (changes: Record<string, string | null>) => {
+    const next = new URLSearchParams(params.toString());
+    for (const [k, v] of Object.entries(changes)) {
+      if (v) next.set(k, v);
+      else next.delete(k);
+    }
+    next.delete("page"); // any filter change invalidates the current page
+    startTransition(() => router.push(`/admin/orders?${next.toString()}`));
+  };
+
+  const exportUrl = (format: "csv" | "xlsx") => {
+    const p = new URLSearchParams();
+    if (stage !== "all") p.set("stage", stage);
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
+    if (params.get("q")) p.set("q", params.get("q")!);
+    p.set("format", format);
+    return `/api/admin/orders/export?${p.toString()}`;
+  };
+
+  const hasFilters = stage !== "all" || !!from || !!to || !!params.get("q");
+
+  const field =
+    "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
+
+  return (
+    <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm mb-5">
+      <div className="flex flex-wrap items-end gap-3">
+        {/* Stage */}
+        <div className="min-w-[180px]">
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Stage</label>
+          <select
+            value={stage}
+            onChange={(e) => push({ stage: e.target.value === "all" ? null : e.target.value })}
+            className={`${field} w-full cursor-pointer`}
+          >
+            {STAGES.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Date range — IST calendar days */}
+        <div>
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">From</label>
+          <input
+            type="date"
+            value={from}
+            max={to || istToday()}
+            onChange={(e) => push({ from: e.target.value || null })}
+            className={`${field} cursor-pointer`}
+          />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">To</label>
+          <input
+            type="date"
+            value={to}
+            min={from || undefined}
+            max={istToday()}
+            onChange={(e) => push({ to: e.target.value || null })}
+            className={`${field} cursor-pointer`}
+          />
+        </div>
+
+        <div className="flex gap-1.5">
+          {PRESETS.map((p) => (
+            <button
+              key={p.label}
+              onClick={() => push({ from: istDaysAgo(p.days), to: istToday() })}
+              className="px-2.5 py-2 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 hover:text-neutral-900 transition-all"
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Search */}
+        <form
+          onSubmit={(e) => { e.preventDefault(); push({ q: q || null }); }}
+          className="flex-1 min-w-[200px]"
+        >
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Search</label>
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Name, phone, order #…"
+              className={`${field} w-full pl-8`}
+            />
+          </div>
+        </form>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 mt-4 pt-3 border-t border-neutral-100">
+        <p className="text-xs text-neutral-500">
+          {pending ? "Loading…" : `${total} order${total === 1 ? "" : "s"}`}
+          {hasFilters && " matching filters"}
+        </p>
+
+        {hasFilters && (
+          <button
+            onClick={() => startTransition(() => router.push("/admin/orders"))}
+            className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
+          >
+            <X className="w-3 h-3" /> Clear
+          </button>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          <span className="text-xs text-neutral-400 flex items-center gap-1">
+            <Download className="w-3 h-3" /> Export
+          </span>
+          {/* Plain links, not fetch — lets the browser handle the download. */}
+          <a
+            href={exportUrl("xlsx")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-medium hover:bg-green-700 transition-colors"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+          </a>
+          <a
+            href={exportUrl("csv")}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neutral-900 text-white text-xs font-medium hover:bg-neutral-700 transition-colors"
+          >
+            <FileText className="w-3.5 h-3.5" /> CSV
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
