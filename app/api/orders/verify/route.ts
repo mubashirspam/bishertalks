@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 import { backfillOrderFromRazorpay } from "@/lib/db/orders";
 import { redeemPromo } from "@/lib/db/promo";
+import { signOrderToken } from "@/lib/order-token";
 
 export async function POST(request: NextRequest) {
   try {
@@ -102,6 +103,16 @@ export async function POST(request: NextRequest) {
       console.error("[Verify] Failed to grant course access:", e);
     }
 
+    // Pick the message. In this flow the address is collected AFTER payment, so
+    // normally we ask for it; if we already have one (Magic Checkout backfill,
+    // or a returning customer) we confirm the order instead.
+    const { data: addr } = await supabaseAdmin
+      .from("orders")
+      .select("address_line1")
+      .eq("order_number", order_number)
+      .maybeSingle();
+    const whatsappEvent = addr?.address_line1 ? "confirmed" : "payment_received";
+
     // Fire-and-forget WhatsApp notification — only on the first confirmation.
     if (isFirstConfirmation) {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
@@ -111,11 +122,18 @@ export async function POST(request: NextRequest) {
           "Content-Type": "application/json",
           "x-internal-secret": process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!,
         },
-        body: JSON.stringify({ order_number, event_type: "confirmed" }),
+        body: JSON.stringify({ order_number, event_type: whatsappEvent }),
       }).catch(console.error);
     }
 
-    return NextResponse.json({ success: true, order_number });
+    // Send the browser straight to the address form when we still need one.
+    return NextResponse.json({
+      success: true,
+      order_number,
+      address_url: addr?.address_line1
+        ? null
+        : `/neuro-code/address?id=${order_number}&t=${signOrderToken(order_number)}`,
+    });
   } catch (err) {
     console.error("Verify error:", err);
     return NextResponse.json(

@@ -1,9 +1,9 @@
 # WhatsApp automatic messages — setup
 
-The code is done. What's left is Meta-side setup plus **four message templates
+The code is done. What's left is Meta-side setup plus **five message templates
 that Meta must approve** (usually a few hours, sometimes 1–2 days).
 
-Submit all four together — approval is per-template, so a missed one means
+Submit all five together — approval is per-template, so a missed one means
 waiting again.
 
 ---
@@ -44,10 +44,34 @@ For every one of these:
   component too and the send will fail. Plain (non-variable) buttons are fine.
 - Variable order matters — it must match exactly what's listed below.
 
+### `payment_received` — 4 variables
+
+**The most important template.** Sent the moment payment succeeds, while we
+still have no delivery address. This is what recovers a customer whose internet
+dropped or who closed the tab straight after paying — without it, they've paid
+and you have nowhere to ship to.
+
+```
+Hi {{1}}, we've received your payment ✅
+
+Order: {{2}}
+Amount paid: ₹{{3}}
+
+One last step — tell us where to send your book:
+{{4}}
+```
+
+| # | Value | Sample for Meta |
+|---|---|---|
+| 1 | Name (or "there") | Bisher |
+| 2 | Order number | ORD-7YK955 |
+| 3 | Amount in ₹ | 599 |
+| 4 | Address form link | https://bishertalks.com/neuro-code/address?id=ORD-7YK955&t=abc123 |
+
 ### `order_confirmed` — 6 variables
 
-Sent automatically when payment is confirmed (from both the browser handler and
-the Razorpay webhook).
+Sent once the delivery address has been submitted — so this is now the
+"we know where to send it" message, not the payment receipt.
 
 ```
 Hi {{1}}, your order is confirmed! 🎉
@@ -148,7 +172,7 @@ node scripts/test-whatsapp.mjs 9876543210 course_access
 ```
 
 Sends one real message to that number using sample values. Run it for each of
-the four templates once they're approved.
+the five templates once they're approved.
 
 Note WhatsApp's rule: a business-initiated message requires an **approved
 template**. Free-form text only works within 24h of the customer messaging you
@@ -160,7 +184,8 @@ first — which is why everything here is a template.
 
 | Event | Template | Trigger |
 |---|---|---|
-| Payment confirmed | `order_confirmed` | `/api/orders/verify` + Razorpay webhook |
+| Payment received, no address | `payment_received` | `/api/orders/verify` + Razorpay webhook |
+| Address submitted | `order_confirmed` | `/api/orders/address` |
 | Course unlocked | `course_access` | any single course-access grant |
 | Marked shipped | `order_shipped` | admin order status update |
 | Marked delivered | `order_delivered` | admin order status update |

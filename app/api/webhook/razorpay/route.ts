@@ -72,6 +72,13 @@ export async function POST(request: NextRequest) {
         console.error("[Webhook] Failed to grant course access:", e);
       }
 
+      const { data: addr } = await supabaseAdmin
+        .from("orders")
+        .select("address_line1")
+        .eq("order_number", order.order_number)
+        .maybeSingle();
+      const whatsappEvent = addr?.address_line1 ? "confirmed" : "payment_received";
+
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
       fetch(`${appUrl}/api/whatsapp/send`, {
         method: "POST",
@@ -81,7 +88,7 @@ export async function POST(request: NextRequest) {
         },
         body: JSON.stringify({
           order_number: order.order_number,
-          event_type: "confirmed",
+          event_type: whatsappEvent,
         }),
       }).catch(console.error);
     }

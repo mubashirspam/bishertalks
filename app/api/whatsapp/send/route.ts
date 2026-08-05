@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { sendWhatsApp } from "@/lib/whatsapp";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { addressUrl } from "@/lib/order-token";
 
 const INTERNAL_SECRET =
   process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -49,6 +50,25 @@ export async function POST(request: NextRequest) {
     const phone = `91${order.buyer_phone.replace(/^\+?91/, "")}`;
 
     switch (event_type) {
+      // Payment landed but we don't have a delivery address yet — this is the
+      // message that recovers a customer whose browser died after paying.
+      case "payment_received":
+        await sendWhatsApp({
+          phone,
+          templateName: "payment_received",
+          parameters: [
+            order.buyer_name || "there",
+            order_number,
+            String(Math.round(order.amount_paise / 100)),
+            addressUrl(order_number),
+          ],
+        });
+        await supabaseAdmin
+          .from("orders")
+          .update({ address_reminders_sent: (order.address_reminders_sent ?? 0) + 1 })
+          .eq("order_number", order_number);
+        break;
+
       case "confirmed":
         await sendWhatsApp({
           phone,

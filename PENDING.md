@@ -8,11 +8,17 @@ Detail lives in [MAGIC_CHECKOUT.md](./MAGIC_CHECKOUT.md) and
 
 ---
 
+## 🔴 Run migration 0004 before deploying
+
+- [ ] **Run `supabase/migrations/0004_lead_capture.sql`** in the Supabase SQL
+      editor. The new lead-capture and address-after-payment flow writes
+      `district`, `address_submitted_at` and `address_reminders_sent`; without
+      the migration, saving an address fails.
+
 ## 🔴 Blocking revenue — do first
 
-The site has taken **17 orders and captured ₹0**. Every order reached Razorpay;
-none ever came back paid. That is exactly the signature of test keys in
-production.
+✅ Live payments now work — two ₹1 orders captured, verified, and course access
+granted. The chain below is proven end to end.
 
 - [ ] **Confirm Vercel has `rzp_live_*` keys.** Vercel → Settings → Environment
       Variables. Key id and secret must be from the **same mode** — a live id
@@ -30,10 +36,9 @@ production.
 - [ ] **Check auto-capture is ON** — Razorpay → Settings → Payment Capture.
       If it's off, payments sit as `authorized`, `payment.captured` never
       fires, and orders stay `pending` *even with a working webhook*.
-- [ ] **Deploy.** The DB migration is already applied, so ordering is fine.
-- [ ] **Place one real low-value order** and confirm the whole chain:
-      capture → verify → `payment_status = paid` → course access granted →
-      WhatsApp received. **This chain has never once completed successfully.**
+- [ ] **Deploy** (after migration 0004 above).
+- [ ] **Re-test after deploying the new flow**: pay → land on the address form →
+      pincode fills district/state → submit → thank-you.
 
 Verify config before testing:
 
@@ -51,9 +56,9 @@ which matters most when their browser died before the thank-you page.
 - [ ] Meta Business verification → WhatsApp Business Account
 - [ ] Register a phone number **not** in use on the normal WhatsApp app
 - [ ] **System User permanent token** — the API Setup page token expires in 24h
-- [ ] Submit **all four** templates together (approval is per-template):
-      `order_confirmed` (6 vars) · `order_shipped` (6) · `order_delivered` (3) ·
-      `course_access` (4)
+- [ ] Submit **all five** templates together (approval is per-template):
+      `payment_received` (4) · `order_confirmed` (6) · `order_shipped` (6) ·
+      `order_delivered` (3) · `course_access` (4)
       - Category **Utility**, language **English** (not English US / `en_US`)
       - All variables in the **body** — no variable URL buttons
 - [ ] Set both env vars locally and on Vercel
@@ -127,7 +132,7 @@ Full list: <https://razorpay.com/docs/payments/payments/test-card-details/>
 |---|---|
 | Preflight check | `npm run check-env` |
 | WhatsApp test | `npm run test-whatsapp <phone> <template>` |
-| Migrations | `supabase/migrations/` — source of truth, applied through `0003` |
+| Migrations | `supabase/migrations/` — source of truth, applied through `0003`; **`0004` pending** |
 | Magic Checkout flag | `NEXT_PUBLIC_MAGIC_CHECKOUT` (default `false`) |
 
 ## Done
@@ -141,3 +146,12 @@ Full list: <https://razorpay.com/docs/payments/payments/test-card-details/>
 - Promo redemption moved to payment confirmation, so abandoned checkouts no
   longer burn redemptions
 - `course_access` WhatsApp added — access grants previously notified nobody
+- **First real payments captured** (₹1 × 2) — verify, course grant and signature
+  checks all confirmed working
+- Fixed thank-you page crash (Server Component with an `onClick`) — it had been
+  broken forever but was never reached, because no payment had ever succeeded
+- Admin panel rebuilt: left sidebar, dashboard, stage-based order buckets
+- Lead capture — visitors are recorded when they type their number, before
+  clicking Pay
+- Checkout reduced to a single field; address collected after payment with
+  pincode → district/state auto-fill

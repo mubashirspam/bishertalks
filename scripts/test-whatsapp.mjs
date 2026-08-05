@@ -5,7 +5,8 @@
  *   node scripts/test-whatsapp.mjs <phone> [template]
  *   node scripts/test-whatsapp.mjs 9876543210 course_access
  *
- * Templates: order_confirmed | order_shipped | order_delivered | course_access
+ * Templates: payment_received | order_confirmed | order_shipped |
+ *             order_delivered | course_access
  * Defaults to course_access.
  *
  * Uses sample values, touches no orders and writes nothing. Meta's error
@@ -48,6 +49,7 @@ const digits = rawPhone.replace(/\D/g, "").replace(/^91/, "");
 const to = `91${digits}`;
 
 const SAMPLES = {
+  payment_received: ["Test User", "ORD-TEST01", "599", `${appUrl}/neuro-code/address?id=ORD-TEST01&t=sample`],
   order_confirmed: ["Test User", "ORD-TEST01", "599", "Kochi, Kerala", "5–7 business days", `${appUrl}/neuro-code/track?id=ORD-TEST01`],
   order_shipped:   ["Test User", "ORD-TEST01", "BlueDart", "1234567890", "12 Aug 2026", `${appUrl}/neuro-code/track?id=ORD-TEST01`],
   order_delivered: ["Test User", "ORD-TEST01", `${appUrl}/neuro-code`],

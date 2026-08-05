@@ -39,25 +39,22 @@ export async function POST(request: NextRequest) {
     const promoCode =
       typeof body.promoCode === "string" ? body.promoCode : null;
 
-    // Standard Checkout still collects the address up front. Validate it here;
-    // under Magic Checkout these fields don't exist and are backfilled later.
-    const {
-      name, phone, email, address1, address2, city, state, pincode,
-    } = body as Record<string, string | undefined>;
+    // The checkout page only collects a mobile number; the address is collected
+    // after payment. `existingOrderNumber` is the lead row created when the
+    // number was typed, so payment attaches to that row instead of forking a
+    // second one and losing the drop-off trail.
+    const { name, phone, email } = body as Record<string, string | undefined>;
+    const existingOrderNumber =
+      typeof body.order_number === "string" ? body.order_number : null;
 
-    if (!MAGIC_CHECKOUT_ENABLED) {
-      if (!name || !phone || !address1 || !city || !state || !pincode) {
-        return NextResponse.json(
-          { error: "Required fields missing" },
-          { status: 400 }
-        );
-      }
-      if (!/^[6-9]\d{9}$/.test(phone)) {
-        return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
-      }
-      if (!/^\d{6}$/.test(pincode)) {
-        return NextResponse.json({ error: "Invalid pincode" }, { status: 400 });
-      }
+    if (!MAGIC_CHECKOUT_ENABLED && !phone && !existingOrderNumber) {
+      return NextResponse.json(
+        { error: "Mobile number is required" },
+        { status: 400 }
+      );
+    }
+    if (phone && !/^[6-9]\d{9}$/.test(normalizePhone(phone))) {
+      return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
     }
 
     const { payablePaise } = await getProductPricing();
@@ -76,8 +73,31 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const orderNumber = generateOrderNumber();
-    const normalizedPhone = phone ? normalizePhone(phone) : null;
+    // Attach to the lead row if we already captured this visitor, so one
+    // customer stays one row from first keystroke to delivery.
+    let orderNumber: string;
+    let reusingLead = false;
+    let leadPhone: string | null = null;
+
+    if (existingOrderNumber) {
+      const { data: lead } = await supabaseAdmin
+        .from("orders")
+        .select("order_number, buyer_phone, payment_status")
+        .eq("order_number", existingOrderNumber)
+        .maybeSingle();
+      // Never reattach to an order that's already been paid for.
+      if (lead && lead.payment_status !== "paid") {
+        orderNumber = lead.order_number;
+        leadPhone = lead.buyer_phone;
+        reusingLead = true;
+      } else {
+        orderNumber = generateOrderNumber();
+      }
+    } else {
+      orderNumber = generateOrderNumber();
+    }
+
+    const normalizedPhone = phone ? normalizePhone(phone) : leadPhone;
 
     // Magic Checkout fields are only accepted once Razorpay has provisioned the
     // feature. Sending them to an unprovisioned account fails the whole order
@@ -109,24 +129,20 @@ export async function POST(request: NextRequest) {
       currency: "INR",
       receipt: orderNumber,
       ...magicFields,
-      notes: MAGIC_CHECKOUT_ENABLED
-        ? { order_number: orderNumber }
-        : { order_number: orderNumber, buyer_name: name!, buyer_phone: normalizedPhone! },
+      notes: { order_number: orderNumber, buyer_phone: normalizedPhone ?? "" },
       // The Node SDK's Orders.create types predate Magic Checkout, so the
       // one_click_checkout / line_items fields aren't in its signature.
     } as unknown as Parameters<ReturnType<typeof getRazorpay>["orders"]["create"]>[0]);
 
-    // Standard Checkout knows the buyer up front, so link the user immediately.
-    // Under Magic Checkout this happens after payment, in the backfill.
+    // We know the buyer's number up front, so link the user record now. The
+    // address arrives later, from the post-payment form.
     let userId: string | null = null;
-    if (!MAGIC_CHECKOUT_ENABLED && normalizedPhone) {
+    if (normalizedPhone) {
       try {
         const user = await upsertUserByPhone({
           phone: normalizedPhone,
           name,
           email,
-          city,
-          state,
         });
         userId = user.id;
       } catch (e) {
@@ -134,8 +150,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const { error: dbError } = await supabaseAdmin.from("orders").insert({
-      order_number: orderNumber,
+    const row = {
       razorpay_order_id: razorpayOrder.id,
       amount_paise: amountPaise,
       promo_code: appliedPromo,
@@ -143,18 +158,20 @@ export async function POST(request: NextRequest) {
       payment_status: "pending",
       status: "confirmed",
       checkout_type: MAGIC_CHECKOUT_ENABLED ? "magic" : "standard",
-      // Null under Magic Checkout — Razorpay collects these and we backfill
-      // them once the payment is confirmed.
       user_id: userId,
-      buyer_name: name ?? null,
       buyer_phone: normalizedPhone,
-      buyer_email: email || null,
-      address_line1: address1 ?? null,
-      address_line2: address2 || null,
-      city: city ?? null,
-      state: state ?? null,
-      pincode: pincode ?? null,
-    });
+      ...(name ? { buyer_name: name } : {}),
+      ...(email ? { buyer_email: email } : {}),
+    };
+
+    const { error: dbError } = reusingLead
+      ? await supabaseAdmin
+          .from("orders")
+          .update(row)
+          .eq("order_number", orderNumber)
+      : await supabaseAdmin
+          .from("orders")
+          .insert({ order_number: orderNumber, ...row });
 
     if (dbError) {
       console.error("DB insert error:", dbError);
@@ -172,6 +189,27 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error("Order creation error:", err);
+
+    // Razorpay rejects one_click_checkout unless Magic Checkout is provisioned
+    // on the account. Without this branch it surfaces as a generic 500 and
+    // looks like a code bug — it isn't, it's the flag being on too early.
+    const desc =
+      (err as { error?: { description?: string } })?.error?.description ?? "";
+    if (/one_click_checkout/i.test(desc)) {
+      console.error(
+        "\n*** Magic Checkout is NOT enabled on this Razorpay account. ***\n" +
+          "Set NEXT_PUBLIC_MAGIC_CHECKOUT=false and restart, or ask Razorpay\n" +
+          "to enable Magic Checkout. See MAGIC_CHECKOUT.md.\n"
+      );
+      return NextResponse.json(
+        {
+          error:
+            "Checkout is misconfigured (Magic Checkout is not enabled on this Razorpay account). Please contact support.",
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

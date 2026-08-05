@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, Package, Home, Share2 } from "lucide-react";
+import { CheckCircle2, Package, Home } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Order } from "@/lib/types/order";
+import CopyLinkButton from "./CopyLinkButton";
 
 async function getOrder(id: string): Promise<Order | null> {
   const { data } = await supabaseAdmin
@@ -91,12 +92,7 @@ export default async function ThankYouPage({
             <p className="text-sm font-medium">Share with friends</p>
             <p className="text-neutral-500 text-xs">Spread the knowledge 📖</p>
           </div>
-          <button
-            onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/neuro-code`)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-sm transition-all"
-          >
-            <Share2 className="w-3.5 h-3.5" /> Copy Link
-          </button>
+          <CopyLinkButton />
         </div>
       </div>
     </div>
