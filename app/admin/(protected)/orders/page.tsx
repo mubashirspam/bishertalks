@@ -22,6 +22,7 @@ interface Row {
   address_line1: string | null;
   razorpay_order_id: string | null;
   city: string | null;
+  state: string | null;
   created_at: string;
 }
 
@@ -121,7 +122,13 @@ export default async function AdminOrdersPage({
                             </a>
                           ) : "—"}
                           {o.city ? ` · ${o.city}` : ""}
+                          {o.state ? `, ${o.state}` : ""}
                         </p>
+                        {/* What they'd typed before leaving — makes an
+                            abandoned checkout actionable rather than a dead row. */}
+                        {!o.address_line1 && (
+                          <p className="text-amber-600 text-[11px] mt-0.5">no address</p>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${STAGE_BADGE[s]}`}>

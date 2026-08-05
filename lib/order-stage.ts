@@ -25,11 +25,11 @@ export function orderStage(o: StageInput): OrderStage {
 }
 
 export const STAGE_LABELS: Record<OrderStage, string> = {
-  lead: "Left before paying",
-  payment_started: "Started payment",
+  lead: "Payment not started",
+  payment_started: "Payment started",
   failed: "Payment failed",
   paid_no_address: "Paid — needs address",
-  complete: "Complete",
+  complete: "Paid",
 };
 
 export const STAGE_BADGE: Record<OrderStage, string> = {

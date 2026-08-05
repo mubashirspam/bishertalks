@@ -66,27 +66,36 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
     return () => { if (document.body.contains(script)) document.body.removeChild(script); };
   }, []);
 
-  // Capture the visitor as soon as the number is valid — before they pay.
+  // Progressively save whatever has been typed, keyed on the mobile number, so
+  // an abandoned checkout still leaves a name and address to follow up on.
+  // Debounced, and skipped when nothing has actually changed.
   useEffect(() => {
-    if (!phoneValid || capturedFor.current === phone) return;
+    if (!phoneValid) return;
+
+    const snapshot = JSON.stringify({
+      phone, name, email, address1, address2, city, district, state, pincode,
+    });
+    if (capturedFor.current === snapshot) return;
+
     const t = setTimeout(async () => {
       try {
         const res = await fetch("/api/leads", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ phone }),
+          body: snapshot,
         });
         const data = await res.json();
         if (data.order_number) {
           orderNumberRef.current = data.order_number;
-          capturedFor.current = phone;
+          capturedFor.current = snapshot;
         }
       } catch {
         // Silent — capture is for our benefit, never the customer's problem.
       }
-    }, 700);
+    }, 900);
+
     return () => clearTimeout(t);
-  }, [phone, phoneValid]);
+  }, [phone, phoneValid, name, email, address1, address2, city, district, state, pincode]);
 
   // Pincode drives district / state / locality.
   useEffect(() => {

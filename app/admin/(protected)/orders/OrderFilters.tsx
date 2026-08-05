@@ -6,11 +6,11 @@ import { Search, Download, X, FileSpreadsheet, FileText } from "lucide-react";
 
 const STAGES = [
   { label: "All orders", value: "all" },
-  { label: "Needs address", value: "paid_no_address" },
-  { label: "Complete", value: "complete" },
-  { label: "Started payment", value: "payment_started" },
+  { label: "Paid", value: "complete" },
+  { label: "Paid — needs address", value: "paid_no_address" },
+  { label: "Payment started", value: "payment_started" },
+  { label: "Payment not started", value: "lead" },
   { label: "Payment failed", value: "failed" },
-  { label: "Left before paying", value: "lead" },
 ];
 
 const PRESETS = [
