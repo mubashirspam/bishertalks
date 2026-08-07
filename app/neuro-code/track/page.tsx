@@ -15,7 +15,8 @@ async function getOrder(id: string): Promise<Order | null> {
     .select(
       `order_number, buyer_name, city, state, status, payment_status,
        amount_paise, tracking_number, courier_name, expected_delivery,
-       created_at, address_line1, address_line2, pincode`
+       created_at, address_line1, address_line2, pincode,
+       label_downloaded_at, shipped_at, delivered_at`
     )
     .eq("order_number", id)
     .single();
@@ -23,6 +24,35 @@ async function getOrder(id: string): Promise<Order | null> {
 }
 
 const STEP_ICONS = [Package, Package, Truck, Truck, Home];
+
+/**
+ * When each step happened. Undated steps simply show nothing — better than a
+ * placeholder, and the only ones without their own timestamp are the two we
+ * can't date honestly (out for delivery shares the shipping date, which would
+ * be misleading).
+ */
+function stepDates(order: Order): Record<OrderStatus, string | null> {
+  return {
+    confirmed: order.created_at,
+    processing: order.label_downloaded_at,
+    shipped: order.shipped_at,
+    out_for_delivery: null,
+    delivered: order.delivered_at,
+    cancelled: null,
+  };
+}
+
+/** e.g. "5 Aug, 9:40 pm" */
+function stepStamp(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+}
 
 export default async function TrackPage({
   searchParams,
@@ -52,6 +82,7 @@ export default async function TrackPage({
 
   const currentStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
   const isCancelled = order.status === "cancelled";
+  const dates = stepDates(order);
 
   const date = new Date(order.created_at).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
@@ -114,6 +145,11 @@ export default async function TrackPage({
                       <p className={`text-sm font-medium ${isDone ? "text-white" : "text-neutral-600"}`}>
                         {STATUS_LABELS[step]}
                       </p>
+                      {isDone && dates[step] && (
+                        <p className="text-neutral-500 text-xs mt-0.5">
+                          {stepStamp(dates[step]!)}
+                        </p>
+                      )}
                       {isActive && (
                         <p className="text-primary-400 text-xs mt-0.5">Current Status</p>
                       )}

@@ -122,6 +122,25 @@ export default function AdminOrderDetailPage() {
             <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_BADGE[order.status as OrderStatus]}`}>
               {STATUS_LABELS[order.status as OrderStatus]}
             </span>
+
+            {/* Whether the parcel label has been printed — the same signal the
+                Delivery queue sorts on, so both screens agree. */}
+            <div className="mt-4 pt-4 border-t border-neutral-100 text-xs">
+              {order.label_downloaded_at ? (
+                <p className="text-neutral-600">
+                  Address label printed {formatIST(order.label_downloaded_at)}
+                  {order.label_download_count > 1 &&
+                    ` · ${order.label_download_count} times`}
+                </p>
+              ) : (
+                <p className="text-neutral-400">
+                  Address label not printed yet —{" "}
+                  <Link href="/admin/delivery" className="text-primary-600 hover:underline">
+                    Delivery queue
+                  </Link>
+                </p>
+              )}
+            </div>
           </div>
 
           {/* Buyer info */}

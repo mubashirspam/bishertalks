@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  LayoutDashboard, ShoppingBag, Users, BookOpen, Tag, Menu, X, AlertCircle,
+  LayoutDashboard, ShoppingBag, Truck, Users, BookOpen, Tag, Menu, X, AlertCircle,
 } from "lucide-react";
 
 const NAV = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
+  { href: "/admin/delivery", label: "Delivery", icon: Truck },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/courses", label: "Courses", icon: BookOpen },
   { href: "/admin/promos", label: "Promos", icon: Tag },
@@ -19,16 +20,19 @@ const NAV = [
  * Left navigation. Client-side so the active item can be highlighted from the
  * pathname and so it can collapse on mobile.
  *
- * `needsAddress` is passed from the server layout and surfaced as a badge —
- * paid orders with no delivery address are the one thing that costs money if
- * it goes unnoticed, so it's visible from every screen.
+ * The two counts come from the server layout and are surfaced as badges, so
+ * the day's work is visible from every screen: `needsAddress` is paid orders
+ * with nowhere to ship (costs money if unnoticed), `toPrint` is parcels
+ * waiting for a label.
  */
 export default function AdminSidebar({
   email,
   needsAddress,
+  toPrint,
 }: {
   email: string;
   needsAddress: number;
+  toPrint: number;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -36,10 +40,24 @@ export default function AdminSidebar({
   const isActive = (href: string, exact?: boolean) =>
     exact ? pathname === href : pathname.startsWith(href);
 
+  const badges: Record<string, { count: number; title: string; tone: string }> = {
+    "/admin/orders": {
+      count: needsAddress,
+      title: "Paid orders with no delivery address",
+      tone: "bg-orange-100 text-orange-700",
+    },
+    "/admin/delivery": {
+      count: toPrint,
+      title: "Parcels waiting for an address label",
+      tone: "bg-blue-100 text-blue-700",
+    },
+  };
+
   const nav = (
     <nav className="flex flex-col gap-1 px-3">
       {NAV.map(({ href, label, icon: Icon, exact }) => {
         const active = isActive(href, exact);
+        const badge = badges[href];
         return (
           <Link
             key={href}
@@ -53,14 +71,14 @@ export default function AdminSidebar({
           >
             <Icon className="w-4 h-4 flex-shrink-0" />
             <span className="flex-1">{label}</span>
-            {href === "/admin/orders" && needsAddress > 0 && (
+            {badge && badge.count > 0 && (
               <span
                 className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
-                  active ? "bg-white/25 text-white" : "bg-orange-100 text-orange-700"
+                  active ? "bg-white/25 text-white" : badge.tone
                 }`}
-                title="Paid orders with no delivery address"
+                title={badge.title}
               >
-                {needsAddress}
+                {badge.count}
               </span>
             )}
           </Link>
@@ -80,13 +98,24 @@ export default function AdminSidebar({
           Neuro <span className="text-primary-500">Code</span>{" "}
           <span className="text-neutral-400 font-normal">Admin</span>
         </span>
-        {needsAddress > 0 ? (
-          <span className="flex items-center gap-1 text-orange-600 text-xs font-bold">
-            <AlertCircle className="w-3.5 h-3.5" /> {needsAddress}
-          </span>
-        ) : (
-          <span className="w-8" />
-        )}
+        <span className="flex items-center gap-2 min-w-8 justify-end">
+          {needsAddress > 0 && (
+            <span
+              className="flex items-center gap-1 text-orange-600 text-xs font-bold"
+              title="Paid orders with no delivery address"
+            >
+              <AlertCircle className="w-3.5 h-3.5" /> {needsAddress}
+            </span>
+          )}
+          {toPrint > 0 && (
+            <span
+              className="flex items-center gap-1 text-blue-600 text-xs font-bold"
+              title="Parcels waiting for an address label"
+            >
+              <Truck className="w-3.5 h-3.5" /> {toPrint}
+            </span>
+          )}
+        </span>
       </div>
 
       {open && (

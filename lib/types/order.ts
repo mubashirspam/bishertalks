@@ -37,13 +37,22 @@ export interface Order {
   courier_name: string | null;
   expected_delivery: string | null;
   notes: string | null;
+  // Delivery (migration 0005). The label print is what moves an order from
+  // 'confirmed' to 'processing', and these are the dates the customer sees
+  // against each step on the tracking page.
+  label_downloaded_at: string | null;
+  label_download_count: number;
+  shipped_at: string | null;
+  delivered_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {
   confirmed: "Order Confirmed",
-  processing: "Processing",
+  // Reached when the address label is printed — "Packed" is what that
+  // actually means to a customer, and to whoever is packing.
+  processing: "Packed",
   shipped: "Shipped",
   out_for_delivery: "Out for Delivery",
   delivered: "Delivered",

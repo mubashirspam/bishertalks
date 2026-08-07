@@ -1,0 +1,74 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { sendOrderNotification, type OrderEvent } from "@/lib/notify";
+import { NOTIFY_STATUSES } from "@/lib/delivery-stage";
+import type { OrderStatus } from "@/lib/types/order";
+
+/**
+ * Bulk delivery mutations.
+ *
+ * Each is one RPC round trip (see migration 0005) rather than a loop of
+ * updates: an admin selecting fifty parcels and clicking "Mark shipped" should
+ * either move all fifty or none, and shouldn't wait fifty times.
+ *
+ * Every function returns the order numbers actually changed — rows outside the
+ * shippable scope are silently skipped by the RPC, and the caller needs to know
+ * what really happened before it starts messaging customers.
+ */
+
+async function rpc(fn: string, args: Record<string, unknown>): Promise<string[]> {
+  const { data, error } = await supabaseAdmin.rpc(fn, args);
+  if (error) {
+    console.error(`[Delivery] ${fn} failed:`, error.message);
+    throw new Error(error.message);
+  }
+  return (data ?? []) as string[];
+}
+
+/** Record that address labels were printed. Called after the PDF is built. */
+export function markLabelsDownloaded(orderNumbers: string[]): Promise<string[]> {
+  return rpc("mark_labels_downloaded", { p_order_numbers: orderNumbers });
+}
+
+/** Undo a print, for a label that came out of the printer unusable. */
+export function unmarkLabelsDownloaded(orderNumbers: string[]): Promise<string[]> {
+  return rpc("unmark_labels_downloaded", { p_order_numbers: orderNumbers });
+}
+
+export function setDeliveryStatus(
+  orderNumbers: string[],
+  status: OrderStatus,
+  courierName?: string | null
+): Promise<string[]> {
+  return rpc("set_delivery_status", {
+    p_order_numbers: orderNumbers,
+    p_status: status,
+    p_courier: courierName || null,
+  });
+}
+
+/**
+ * Tell customers about a status change.
+ *
+ * Only shipped and delivered are worth a message — the others are internal
+ * bookkeeping. Sent in small waves so a fifty-parcel batch doesn't open fifty
+ * simultaneous connections to Meta, and never rethrows: a WhatsApp outage must
+ * not make a completed status change look like it failed.
+ */
+export async function notifyStatusChange(
+  orderNumbers: string[],
+  status: OrderStatus
+): Promise<number> {
+  if (!NOTIFY_STATUSES.includes(status)) return 0;
+
+  const event = status as OrderEvent;
+  let sent = 0;
+
+  for (let i = 0; i < orderNumbers.length; i += 8) {
+    const results = await Promise.allSettled(
+      orderNumbers.slice(i, i + 8).map((n) => sendOrderNotification(n, event))
+    );
+    sent += results.filter((r) => r.status === "fulfilled" && r.value.ok).length;
+  }
+
+  return sent;
+}

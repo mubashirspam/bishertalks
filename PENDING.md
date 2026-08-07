@@ -8,6 +8,17 @@ Detail lives in [MAGIC_CHECKOUT.md](./MAGIC_CHECKOUT.md) and
 
 ---
 
+## 🔴 Run migration 0005 before deploying
+
+- [ ] **Run `supabase/migrations/0005_delivery.sql`** in the Supabase SQL
+      editor. It adds the label-print tracking (`label_downloaded_at`,
+      `label_download_count`), the `shipped_at` / `delivered_at` milestones,
+      and the three bulk RPCs the Delivery screen calls. Without it,
+      `/admin/delivery` and every order status update fail.
+- [ ] **Set `SHIP_FROM_NAME` / `SHIP_FROM_ADDRESS` / `SHIP_FROM_PHONE`**
+      (local and Vercel). This is the return address printed on every parcel
+      label — a courier that can't deliver sends the parcel back to it.
+
 ## 🔴 Run migration 0004 before deploying
 
 - [ ] **Run `supabase/migrations/0004_lead_capture.sql`** in the Supabase SQL

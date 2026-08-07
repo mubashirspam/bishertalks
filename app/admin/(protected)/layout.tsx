@@ -17,17 +17,32 @@ export default async function AdminLayout({
   if (!user) redirect("/admin/login");
   if (user.email !== process.env.ADMIN_EMAIL) redirect("/");
 
-  // Paid orders with no delivery address — money taken, nothing shippable.
-  // Counted here so the badge shows on every admin screen, not just Orders.
-  const { count: needsAddress } = await supabaseAdmin
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("payment_status", "paid")
-    .is("address_line1", null);
+  // The two piles of work, counted here so both badges show on every admin
+  // screen rather than only on the page that owns them:
+  //   needsAddress — paid, but nothing to ship to. Costs money if ignored.
+  //   toPrint      — shippable and waiting for a label. The daily job.
+  const [{ count: needsAddress }, { count: toPrint }] = await Promise.all([
+    supabaseAdmin
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("payment_status", "paid")
+      .is("address_line1", null),
+    supabaseAdmin
+      .from("orders")
+      .select("id", { count: "exact", head: true })
+      .eq("payment_status", "paid")
+      .not("address_line1", "is", null)
+      .in("status", ["confirmed", "processing"])
+      .is("label_downloaded_at", null),
+  ]);
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 lg:flex">
-      <AdminSidebar email={user.email!} needsAddress={needsAddress ?? 0} />
+      <AdminSidebar
+        email={user.email!}
+        needsAddress={needsAddress ?? 0}
+        toPrint={toPrint ?? 0}
+      />
 
       <div className="flex-1 min-w-0">
         <header className="hidden lg:flex items-center justify-end border-b border-neutral-200 bg-white px-8 py-3">
