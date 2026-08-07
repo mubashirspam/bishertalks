@@ -43,6 +43,8 @@ const config: Config = {
         "slide-up": "slideUp 0.6s ease-out",
         "slide-in-left": "slideInLeft 0.6s ease-out",
         "slide-in-right": "slideInRight 0.6s ease-out",
+        shimmer: "shimmer 2.2s ease-in-out infinite",
+        "glow-pulse": "glowPulse 2.4s ease-in-out infinite",
       },
       keyframes: {
         fadeIn: {
@@ -60,6 +62,14 @@ const config: Config = {
         slideInRight: {
           "0%": { opacity: "0", transform: "translateX(20px)" },
           "100%": { opacity: "1", transform: "translateX(0)" },
+        },
+        shimmer: {
+          "0%": { transform: "translateX(-150%)" },
+          "100%": { transform: "translateX(150%)" },
+        },
+        glowPulse: {
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(249, 115, 22, 0.35)" },
+          "50%": { boxShadow: "0 0 0 10px rgba(249, 115, 22, 0)" },
         },
       },
     },

@@ -188,10 +188,45 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
                 </>
               )}
             </div>
-            <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-8 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
-              Free delivery · Free NLP course worth ₹2,499 included
-            </p>
+            <a
+              href="#nlp-course"
+              className="group relative flex items-center gap-4 mb-8 rounded-2xl border border-primary-300/60 dark:border-primary-500/30 bg-gradient-to-r from-primary-50 via-orange-50 to-primary-50 dark:from-primary-500/10 dark:via-primary-500/5 dark:to-primary-500/10 px-5 py-4 overflow-hidden hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary-500/20 transition-all duration-300"
+            >
+              {/* continuous shimmer sweep */}
+              <span className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/60 dark:via-white/10 to-transparent skew-x-12 animate-shimmer" />
+
+              {/* pulsing gift icon */}
+              <span className="relative flex-shrink-0">
+                <span className="absolute inset-0 rounded-full bg-primary-400/50 animate-ping" />
+                <span className="relative flex items-center justify-center w-11 h-11 rounded-full bg-primary-500 text-white shadow-lg shadow-primary-500/30 animate-glow-pulse">
+                  <Gift className="w-5 h-5" />
+                </span>
+              </span>
+
+              <div className="relative flex-1 min-w-0">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-primary-700 dark:text-primary-400 bg-primary-100 dark:bg-primary-500/15 px-2 py-0.5 rounded-full">
+                    <Zap className="w-3 h-3" />
+                    Free Bonus
+                  </span>
+                  <span className="text-sm font-bold text-neutral-900 dark:text-white">NLP Mastery Course</span>
+                  <span className="text-sm font-black text-red-500 dark:text-red-400 line-through decoration-2">₹2,499</span>
+                  <span className="text-xs font-black text-primary-600 dark:text-primary-400">FREE</span>
+                </div>
+                <p className="text-xs text-neutral-600 dark:text-neutral-400 mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5">
+                  <span className="inline-flex items-center gap-1">
+                    <PlayCircle className="w-3.5 h-3.5 text-primary-500" />
+                    14 modules · 42 videos
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
+                    Free delivery
+                  </span>
+                </p>
+              </div>
+
+              <ArrowUpRight className="relative w-4 h-4 text-primary-500 flex-shrink-0 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+            </a>
 
             <div className="flex flex-wrap gap-4">
               <a
@@ -199,7 +234,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
                 className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-primary-500 hover:bg-primary-600 text-white font-bold text-sm transition-all shadow-lg shadow-primary-500/20"
               >
                 <ShoppingCart className="w-4 h-4" />
-                Buy Now — ₹{pricing.payable}
+                Buy Now ₹{pricing.payable}
               </a>
               <a
                 href="#about-book"
@@ -352,7 +387,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
       </section>
 
       {/* ── FREE NLP COURSE WITH BOOK PURCHASE ── */}
-      <section className="py-24 px-6 md:px-12 relative overflow-hidden">
+      <section id="nlp-course" className="py-24 px-6 md:px-12 relative overflow-hidden">
         {/* Background */}
         <div className="absolute inset-0 bg-gradient-to-br from-primary-50 via-white to-orange-50/50 dark:from-neutral-950 dark:via-neutral-900 dark:to-primary-950/20" />
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-primary-400/8 dark:bg-primary-500/8 rounded-full blur-[100px]" />
@@ -416,16 +451,33 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
                 {/* Right — course details */}
                 <div className="p-8 flex flex-col justify-between">
                   <div>
-                    <p className="text-neutral-600 dark:text-neutral-300 text-sm leading-relaxed mb-6">
+                    <p className="text-neutral-600 dark:text-neutral-300 text-sm leading-relaxed mb-5">
                       Master the art of Neuro Linguistic Programming. Learn how to reprogram your mind,
                       break limiting beliefs, and unlock your full potential through proven NLP techniques.
                     </p>
 
+                    {/* Quick stats */}
+                    <div className="grid grid-cols-3 gap-2 mb-6">
+                      {[
+                        { value: "14", label: "Modules" },
+                        { value: "42", label: "Videos" },
+                        { value: "17", label: "Materials" },
+                      ].map((s) => (
+                        <div
+                          key={s.label}
+                          className="text-center rounded-xl bg-primary-50 dark:bg-primary-500/10 border border-primary-100 dark:border-primary-500/15 py-2.5"
+                        >
+                          <p className="text-lg font-black text-primary-600 dark:text-primary-400 leading-none">{s.value}</p>
+                          <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mt-1">{s.label}</p>
+                        </div>
+                      ))}
+                    </div>
+
                     {/* Modules list */}
                     <p className="text-xs font-semibold tracking-widest uppercase text-neutral-500 dark:text-neutral-400 mb-3">
-                      Course Modules
+                      Sample Modules
                     </p>
-                    <ul className="space-y-2 mb-6">
+                    <ul className="space-y-2 mb-2">
                       {nlpCourseModules.map((mod) => (
                         <li key={mod} className="flex items-center gap-2.5 text-sm text-neutral-700 dark:text-neutral-300">
                           <CheckCircle2 className="w-4 h-4 text-primary-500 flex-shrink-0" />
@@ -433,13 +485,16 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
                         </li>
                       ))}
                     </ul>
+                    <p className="text-xs text-neutral-400 dark:text-neutral-500 mb-6 pl-6">
+                      + 8 more modules · 42 videos · 17 downloadable materials
+                    </p>
                   </div>
 
                   {/* Value + unlock note */}
                   <div className="border-t border-neutral-100 dark:border-white/8 pt-5 space-y-3">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-neutral-500 dark:text-neutral-400">Course value</span>
-                      <span className="text-neutral-400 dark:text-neutral-500 line-through text-sm">₹2,499</span>
+                      <span className="text-lg font-black text-red-500 dark:text-red-400 line-through decoration-2">₹2,499</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-sm font-bold text-neutral-900 dark:text-white">Your price</span>
@@ -456,6 +511,19 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
                 </div>
               </div>
             </div>
+
+            {/* Buy button */}
+            <a
+              href="/neuro-code/checkout"
+              className="group relative mt-8 flex items-center justify-center gap-2 w-full px-8 py-4 rounded-full bg-gradient-to-r from-primary-500 via-primary-400 to-primary-500 bg-[length:200%_auto] text-white font-bold text-base overflow-hidden transition-all duration-300 hover:bg-right hover:-translate-y-0.5 hover:scale-[1.01] shadow-lg shadow-primary-500/30 hover:shadow-xl hover:shadow-primary-500/40 animate-glow-pulse"
+            >
+              {/* shimmer sweep */}
+              <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/40 to-transparent skew-x-12 animate-shimmer" />
+
+              <ShoppingCart className="relative w-5 h-5 transition-transform duration-300 group-hover:-rotate-6 group-hover:scale-110" />
+              <span className="relative">Buy Now ₹{pricing.payable}</span>
+              <ArrowUpRight className="relative w-5 h-5 transition-transform duration-300 group-hover:translate-x-1 group-hover:-translate-y-1" />
+            </a>
 
             {/* Bottom note */}
             <p className="text-center text-neutral-500 dark:text-neutral-500 text-sm mt-5">
@@ -661,7 +729,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-primary-500 hover:bg-primary-400 text-white font-bold transition-all shadow-lg shadow-primary-500/20"
               >
                 <ShoppingCart className="w-5 h-5" />
-                Buy Now — ₹{pricing.payable}
+                Buy Now ₹{pricing.payable}
               </a>
               <a
                 href="/neuro-code/checkout"

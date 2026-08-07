@@ -239,7 +239,7 @@ export default function CheckoutForm({ pricing }: { pricing: ProductPricing }) {
             className="mt-6 w-full py-4 rounded-full bg-primary-500 hover:bg-primary-600 disabled:opacity-60 disabled:cursor-not-allowed font-bold text-white flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary-500/20"
           >
             <Lock className="w-4 h-4" />
-            {loading ? "Opening checkout…" : `Buy Now — ₹${rupees(totalPaise)}`}
+            {loading ? "Opening checkout…" : `Buy Now ₹${rupees(totalPaise)}`}
           </button>
           {error && <p className="text-red-500 text-xs mt-2 text-center">{error}</p>}
 
