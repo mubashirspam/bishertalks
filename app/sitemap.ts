@@ -1,11 +1,28 @@
 import { MetadataRoute } from "next";
 import { courses } from "@/lib/courses-data";
 
+/**
+ * Real, crawlable URLs only. Fragment URLs (/#about etc.) used to be listed
+ * here — search engines ignore fragments, so they were pure noise.
+ */
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = "https://bishertalks.com";
   const currentDate = new Date().toISOString();
 
-  const coursePages: MetadataRoute.Sitemap = [
+  return [
+    {
+      url: baseUrl,
+      lastModified: currentDate,
+      changeFrequency: "weekly",
+      priority: 0.9,
+    },
+    // The product page the whole business runs on.
+    {
+      url: `${baseUrl}/neuro-code`,
+      lastModified: currentDate,
+      changeFrequency: "weekly",
+      priority: 1,
+    },
     {
       url: `${baseUrl}/courses`,
       lastModified: currentDate,
@@ -16,41 +33,19 @@ export default function sitemap(): MetadataRoute.Sitemap {
       url: `${baseUrl}/courses/${course.slug}`,
       lastModified: currentDate,
       changeFrequency: "weekly" as const,
-      priority: 0.9,
+      priority: 0.8,
     })),
-  ];
-
-  return [
     {
-      url: baseUrl,
+      url: `${baseUrl}/privacy-policy`,
       lastModified: currentDate,
-      changeFrequency: "weekly",
-      priority: 1,
+      changeFrequency: "yearly",
+      priority: 0.3,
     },
     {
-      url: `${baseUrl}/#about`,
+      url: `${baseUrl}/terms`,
       lastModified: currentDate,
-      changeFrequency: "monthly",
-      priority: 0.8,
-    },
-    {
-      url: `${baseUrl}/#services`,
-      lastModified: currentDate,
-      changeFrequency: "monthly",
-      priority: 0.8,
-    },
-    ...coursePages,
-    {
-      url: `${baseUrl}/#values`,
-      lastModified: currentDate,
-      changeFrequency: "monthly",
-      priority: 0.7,
-    },
-    {
-      url: `${baseUrl}/#contact`,
-      lastModified: currentDate,
-      changeFrequency: "monthly",
-      priority: 0.7,
+      changeFrequency: "yearly",
+      priority: 0.3,
     },
   ];
 }

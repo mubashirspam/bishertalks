@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import type { ProductPricing } from "@/lib/db/courses";
+import { faqs } from "./faqs";
 import Link from "next/link";
 import { useState } from "react";
 import {
@@ -82,33 +83,6 @@ const testimonials = [
   },
 ];
 
-const faqs = [
-  {
-    q: "Who is this book for?",
-    a: "Neuro Code is for anyone who feels stuck, unfulfilled, or limited by their own thinking — whether you're a student, professional, entrepreneur, or someone seeking deeper personal transformation.",
-  },
-  {
-    q: "Is this a religious or spiritual book?",
-    a: "No. Neuro Code is grounded in neuroscience, NLP (Neuro-Linguistic Programming), and behavioral psychology. It's practical, evidence-based, and applicable regardless of background or belief.",
-  },
-  {
-    q: "How long is the book?",
-    a: "The book is concise and power-packed — designed to be read in a weekend but referenced for a lifetime. Quality over quantity is the philosophy.",
-  },
-  {
-    q: "Is it available in languages other than English?",
-    a: "Currently available in English and Malayalam. More regional language editions are in production.",
-  },
-  {
-    q: "Can I get a signed copy?",
-    a: "Yes! Limited signed copies are available. Contact us directly via the website or WhatsApp for signed editions.",
-  },
-  {
-    q: "How do I access the free NLP course after purchase?",
-    a: "Instantly. The moment your payment is confirmed the course is unlocked — go to the Courses page and sign in with the same mobile number you ordered with. There's no waiting for the book to arrive, and no extra charge. We also send the link on WhatsApp.",
-  },
-];
-
 const nlpCourseModules = [
   "Introduction to NLP",
   "NLP Filters & Mental Maps",
@@ -152,6 +126,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
               Bestselling Book
             </span>
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-black leading-[0.95] tracking-tight mb-6 text-neutral-900 dark:text-white">
+              <span className="sr-only">Neuro Code — </span>
               Rewrite Your{" "}
               <span className="text-primary-500">Internal</span>{" "}
               Programming
@@ -300,8 +275,8 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
               About the Book
             </p>
             <h2 className="text-4xl md:text-5xl font-black leading-tight mb-6 text-neutral-900 dark:text-white">
-              What Is{" "}
-              <span className="text-primary-500">Neuro Code</span>?
+              What Is the{" "}
+              <span className="text-primary-500">Neuro Code</span> Book About?
             </h2>
             <div className="space-y-4 text-neutral-600 dark:text-neutral-300 leading-relaxed">
               <p>
@@ -319,6 +294,15 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
                 This is not a motivational book. It is a reprogramming manual — a
                 precise, step-by-step guide for people who are done feeling stuck and
                 ready for a fundamentally different life.
+              </p>
+              {/* Self-contained fact block: written to survive being quoted out
+                  of context by a search snippet or an AI answer. */}
+              <p className="text-sm border-l-2 border-primary-500 pl-4 text-neutral-500 dark:text-neutral-400">
+                Neuro Code is a self-help psychology book by Indian life coach and
+                NLP trainer Bisher KC, available in Malayalam and English. Every
+                copy includes free lifetime access to his 14-module NLP Mastery
+                video course — 42 lessons and 17 practice worksheets — with free
+                delivery across India.
               </p>
             </div>
           </div>
@@ -361,7 +345,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
               What You&apos;ll Discover
             </p>
             <h2 className="text-4xl md:text-5xl font-black text-neutral-900 dark:text-white">
-              Six Codes That{" "}
+              The Six Neuro Codes That{" "}
               <span className="text-primary-500">Change Everything</span>
             </h2>
           </div>
@@ -400,8 +384,8 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
               Exclusive Bonus
             </div>
             <h2 className="text-4xl md:text-5xl font-black text-neutral-900 dark:text-white mb-4">
-              Get This Course{" "}
-              <span className="text-primary-500">Absolutely Free</span>
+              Free NLP Mastery Course{" "}
+              <span className="text-primary-500">With Every Copy</span>
             </h2>
             <p className="text-neutral-600 dark:text-neutral-400 text-lg max-w-2xl mx-auto">
               Every book purchase includes full access to the{" "}
@@ -609,7 +593,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
               Reader Reviews
             </p>
             <h2 className="text-4xl md:text-5xl font-black text-neutral-900 dark:text-white">
-              What Readers{" "}
+              Neuro Code Reviews — What Readers{" "}
               <span className="text-primary-500">Are Saying</span>
             </h2>
           </div>
@@ -648,7 +632,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
             FAQ
           </p>
           <h2 className="text-4xl md:text-5xl font-black text-neutral-900 dark:text-white">
-            Common <span className="text-primary-500">Questions</span>
+            Frequently Asked <span className="text-primary-500">Questions</span>
           </h2>
         </div>
 

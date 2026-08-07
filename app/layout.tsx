@@ -117,9 +117,8 @@ export const metadata: Metadata = {
       "max-snippet": -1,
     },
   },
-  verification: {
-    google: "your-google-verification-code",
-  },
+  // Google Search Console verification: verify via DNS or drop the real token
+  // here — a placeholder string does nothing and looks broken in the source.
   category: "Education",
   classification: "Life Coaching, Personal Development, Corporate Training",
 };
@@ -149,9 +148,9 @@ const jsonLd = {
       url: "https://bishertalks.com",
       image: {
         "@type": "ImageObject",
-        url: "https://bishertalks.com/images/bisher-kc.jpg",
-        width: 800,
-        height: 800,
+        url: "https://bishertalks.com/images/about-main.jpg",
+        width: 853,
+        height: 1280,
       },
       description:
         "Bisher KC is a renowned Life Coach, Author of Neuro Code, and Corporate Trainer. CEO of Skillage, helping individuals and organizations achieve personal and professional excellence.",
@@ -203,17 +202,8 @@ const jsonLd = {
       description:
         "Empowering individuals and organizations through transformative learning",
     },
-    {
-      "@type": "Book",
-      name: "Neuro Code",
-      author: {
-        "@id": "https://bishertalks.com/#person",
-      },
-      description:
-        "Rewrite your internal programming. Discover the hidden codes that drive your thoughts, behaviors, and life outcomes.",
-      genre: "Self-Help",
-      inLanguage: "en",
-    },
+    // The Book schema lives on /neuro-code, not here: it carries the live
+    // price as an Offer, and a second static copy would drift and contradict it.
     {
       "@type": "Service",
       serviceType: "Life Coaching",
@@ -243,8 +233,10 @@ const jsonLd = {
     {
       "@type": "Course",
       name: "Neuro Linguistic Programming (NLP) Mastery",
+      // Numbers must match the landing page exactly — contradictory counts
+      // across a site are what make search engines and AI assistants hedge.
       description:
-        "Free NLP course with 13+ modules, 40+ video lessons, and 18 downloadable worksheets. Learn NLP filters, anchoring, modalities, reframing, belief systems, and more.",
+        "Free NLP course with 14 modules, 42 video lessons, and 17 downloadable worksheets. Learn NLP filters, anchoring, modalities, reframing, belief systems, and more.",
       url: "https://bishertalks.com/courses/nlp",
       provider: {
         "@id": "https://bishertalks.com/#person",

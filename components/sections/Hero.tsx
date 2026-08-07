@@ -35,8 +35,12 @@ export default function Hero() {
           <p className="text-primary-400 text-base font-medium tracking-wider uppercase mb-1">
             Hey there, I&apos;m
           </p>
+          {/* Google indexes mobile-first, so the mobile heading is the real h1;
+              the desktop copy below is presentation only. sr-only tail gives the
+              h1 the entity terms the visible chips already show sighted users. */}
           <h1 className="text-6xl font-bold text-white leading-tight tracking-tight">
-            Bisher kc
+            Bisher KC
+            <span className="sr-only"> — Life Coach &amp; Author of Neuro Code</span>
           </h1>
         </div>
 
@@ -93,9 +97,9 @@ export default function Hero() {
             <p className="text-primary-400 text-base font-medium tracking-wider uppercase mb-3">
               Hey there, I&apos;m
             </p>
-            <h1 className="text-6xl lg:text-7xl xl:text-8xl font-bold text-white leading-[0.95] tracking-tight">
-              Bisher kc
-            </h1>
+            <p className="text-6xl lg:text-7xl xl:text-8xl font-bold text-white leading-[0.95] tracking-tight">
+              Bisher KC
+            </p>
           </div>
 
           {/* Center — Image */}

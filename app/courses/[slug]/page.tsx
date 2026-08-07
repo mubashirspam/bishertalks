@@ -153,12 +153,10 @@ function getCourseJsonLd(course: Course | null) {
           { "@type": "Thing", name: "NLP Modalities" },
           { "@type": "Thing", name: "NLP Reframing" },
         ],
-        aggregateRating: {
-          "@type": "AggregateRating",
-          ratingValue: "4.9",
-          bestRating: "5",
-          ratingCount: "500",
-        },
+        // No aggregateRating here deliberately: Google requires the ratings
+        // to be real and visible on the page. A made-up number is how a site
+        // loses rich results for everything. Add it back when the page shows
+        // genuine collected reviews.
       },
       {
         "@type": "BreadcrumbList",
