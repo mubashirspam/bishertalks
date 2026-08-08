@@ -1,11 +1,12 @@
 import Link from "next/link";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, Phone, MessageCircle } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   orderStage, STAGE_LABELS, STAGE_BADGE, type OrderStage,
 } from "@/lib/order-stage";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
 import { buildOrdersQuery } from "@/lib/db/orders-query";
+import { funnelWaMessage, waLink, telLink } from "@/lib/wa-message";
 import OrderFilters from "./OrderFilters";
 
 export const dynamic = "force-dynamic";
@@ -110,19 +111,32 @@ export default async function AdminOrdersPage({
                         <p className="text-neutral-900 font-medium">
                           {o.buyer_name ?? <span className="text-neutral-400 font-normal">—</span>}
                         </p>
-                        <p className="text-neutral-500 text-xs">
-                          {o.buyer_phone ? (
-                            <a
-                              href={`https://wa.me/91${o.buyer_phone}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="hover:text-green-600"
-                            >
-                              {o.buyer_phone}
-                            </a>
-                          ) : "—"}
-                          {o.city ? ` · ${o.city}` : ""}
-                          {o.state ? `, ${o.state}` : ""}
+                        <p className="text-neutral-500 text-xs flex items-center gap-1.5">
+                          <span>
+                            {o.buyer_phone ?? "—"}
+                            {o.city ? ` · ${o.city}` : ""}
+                            {o.state ? `, ${o.state}` : ""}
+                          </span>
+                          {o.buyer_phone && (
+                            <span className="inline-flex items-center gap-1">
+                              <a
+                                href={telLink(o.buyer_phone)}
+                                title="Call"
+                                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
+                              >
+                                <Phone className="w-3 h-3" />
+                              </a>
+                              <a
+                                href={waLink(o.buyer_phone, funnelWaMessage(o))}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                title="WhatsApp"
+                                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
+                              >
+                                <MessageCircle className="w-3 h-3" />
+                              </a>
+                            </span>
+                          )}
                         </p>
                         {/* What they'd typed before leaving — makes an
                             abandoned checkout actionable rather than a dead row. */}

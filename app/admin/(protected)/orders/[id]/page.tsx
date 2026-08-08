@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard } from "lucide-react";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle } from "lucide-react";
 import { formatIST, timeAgo } from "@/lib/format-date";
 import {
   STATUS_LABELS,
@@ -12,6 +12,7 @@ import {
   type Order,
   type OrderStatus,
 } from "@/lib/types/order";
+import { funnelWaMessage, deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 
 const ALL_STATUSES: OrderStatus[] = [
   "confirmed", "processing", "shipped", "out_for_delivery", "delivered", "cancelled",
@@ -155,17 +156,33 @@ export default function AdminOrderDetailPage() {
                   {order.buyer_name ?? <span className="text-neutral-400">—</span>}
                 </span>
               </div>
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-neutral-500">Phone</span>
                 {order.buyer_phone ? (
-                  <a
-                    href={`https://wa.me/91${order.buyer_phone}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-green-600 hover:text-green-700"
-                  >
-                    +91 {order.buyer_phone}
-                  </a>
+                  <span className="flex items-center gap-2">
+                    <span className="text-neutral-900">+91 {order.buyer_phone}</span>
+                    <a
+                      href={telLink(order.buyer_phone)}
+                      title="Call"
+                      className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
+                    >
+                      <Phone className="w-3 h-3" />
+                    </a>
+                    <a
+                      href={waLink(
+                        order.buyer_phone,
+                        order.payment_status === "paid" && order.address_line1
+                          ? deliveryWaMessage(order)
+                          : funnelWaMessage(order)
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="WhatsApp"
+                      className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
+                    >
+                      <MessageCircle className="w-3 h-3" />
+                    </a>
+                  </span>
                 ) : (
                   <span className="text-neutral-400">—</span>
                 )}

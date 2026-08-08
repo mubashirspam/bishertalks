@@ -1,9 +1,12 @@
 "use client";
 
+import React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { Printer, Check, RotateCcw, X, AlertCircle } from "lucide-react";
+import {
+  Printer, Check, RotateCcw, X, AlertCircle, Phone, MessageCircle, Info, ChevronDown, ChevronUp,
+} from "lucide-react";
 import {
   deliveryStage,
   DELIVERY_SHORT,
@@ -12,6 +15,7 @@ import {
 } from "@/lib/delivery-stage";
 import { STATUS_LABELS, type OrderStatus } from "@/lib/types/order";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
+import { deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import type { DeliveryRow } from "@/lib/db/delivery-query";
 
 /** Mirrors lib/shipping-label.ts — duplicated rather than imported so the PDF
@@ -44,6 +48,15 @@ export default function DeliveryTable({
   const [courier, setCourier] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const toggleExpanded = (n: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
 
   const ids = [...selected];
   const allOnPage = rows.length > 0 && rows.every((r) => selected.has(r.order_number));
@@ -284,8 +297,8 @@ export default function DeliveryTable({
                   const s = deliveryStage(o);
                   const checked = selected.has(o.order_number);
                   return (
+                    <React.Fragment key={o.id}>
                     <tr
-                      key={o.id}
                       className={`border-b border-neutral-100 last:border-0 transition-colors ${
                         checked ? "bg-primary-50/40" : "hover:bg-neutral-50"
                       }`}
@@ -314,28 +327,43 @@ export default function DeliveryTable({
                         )}
                       </td>
                       <td className="px-4 py-3 align-top max-w-xs">
-                        <p className="text-neutral-900 font-medium">
-                          {o.buyer_name ?? "—"}
-                        </p>
-                        <p className="text-neutral-500 text-xs leading-relaxed">
-                          {[o.address_line1, o.address_line2, o.city, o.district]
-                            .filter(Boolean)
-                            .join(", ")}
-                        </p>
-                        <p className="text-neutral-600 text-xs mt-0.5">
-                          {o.state} — <span className="font-semibold">{o.pincode}</span>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-neutral-900 font-medium">
+                            {o.buyer_name ?? "—"}
+                          </p>
+                          <button
+                            onClick={() => toggleExpanded(o.order_number)}
+                            title={expanded.has(o.order_number) ? "Hide address" : "Show address"}
+                            className="inline-flex items-center justify-center w-5 h-5 rounded-full text-neutral-400 hover:text-neutral-700 hover:bg-neutral-100 transition-colors"
+                          >
+                            {expanded.has(o.order_number) ? (
+                              <ChevronUp className="w-3.5 h-3.5" />
+                            ) : (
+                              <Info className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-neutral-500 text-xs mt-0.5 flex items-center gap-1.5">
+                          <span>{o.buyer_phone ?? "—"}</span>
                           {o.buyer_phone && (
-                            <>
-                              {" · "}
+                            <span className="inline-flex items-center gap-1">
                               <a
-                                href={`https://wa.me/91${o.buyer_phone}`}
+                                href={telLink(o.buyer_phone)}
+                                title="Call"
+                                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
+                              >
+                                <Phone className="w-3 h-3" />
+                              </a>
+                              <a
+                                href={waLink(o.buyer_phone, deliveryWaMessage(o))}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="hover:text-green-600"
+                                title="WhatsApp"
+                                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
                               >
-                                {o.buyer_phone}
+                                <MessageCircle className="w-3 h-3" />
                               </a>
-                            </>
+                            </span>
                           )}
                         </p>
                       </td>
@@ -371,6 +399,22 @@ export default function DeliveryTable({
                         <p className="text-neutral-400 mt-0.5">{timeAgo(o.created_at)}</p>
                       </td>
                     </tr>
+                    {expanded.has(o.order_number) && (
+                      <tr className="bg-neutral-50 border-b border-neutral-100 last:border-0">
+                        <td />
+                        <td colSpan={5} className="px-4 py-3 text-xs text-neutral-600 leading-relaxed">
+                          <p>
+                            {[o.address_line1, o.address_line2, o.city, o.district]
+                              .filter(Boolean)
+                              .join(", ")}
+                          </p>
+                          <p className="mt-0.5">
+                            {o.state} — <span className="font-semibold">{o.pincode}</span>
+                          </p>
+                        </td>
+                      </tr>
+                    )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>

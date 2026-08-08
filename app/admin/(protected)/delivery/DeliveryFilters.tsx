@@ -40,7 +40,7 @@ export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
   const stage = params.get("stage") ?? "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
-  const sort = params.get("sort") ?? "oldest";
+  const sort = params.get("sort") ?? "newest";
   const [q, setQ] = useState(params.get("q") ?? "");
 
   const push = (changes: Record<string, string | null>) => {
@@ -139,12 +139,12 @@ export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
             <select
               value={sort}
               onChange={(e) =>
-                push({ sort: e.target.value === "oldest" ? null : e.target.value })
+                push({ sort: e.target.value === "newest" ? null : e.target.value })
               }
               className={`${field} cursor-pointer`}
             >
-              <option value="oldest">Oldest first</option>
               <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
             </select>
           </div>
 

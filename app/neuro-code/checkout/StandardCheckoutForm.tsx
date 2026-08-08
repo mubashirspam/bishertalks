@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, Lock, ShoppingBag, Tag, Check, User, MapPin, Loader2, Truck,
+  ArrowLeft, Lock, ShoppingBag, Tag, Check, User, MapPin, Loader2, Truck, Gift,
 } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 
@@ -506,12 +506,27 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
               🔒 Powered by Razorpay · UPI · Cards · Netbanking
             </p>
 
-            <div className="mt-5 space-y-2">
-              <div className="bg-neutral-100 dark:bg-neutral-800/60 rounded-xl p-3 text-xs text-neutral-500 flex items-center gap-2">
-                <Truck className="w-3.5 h-3.5" /> Delivery in 5–7 business days
+            <div className="mt-5 space-y-2.5">
+              <div className="group relative flex items-center gap-3 overflow-hidden rounded-xl border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-neutral-800/60 px-3.5 py-3 text-xs text-neutral-600 dark:text-neutral-400">
+                <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/60 dark:via-white/10 to-transparent skew-x-12 animate-shimmer" />
+                <span className="relative flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-neutral-200 dark:bg-white/10">
+                  <Truck className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
+                </span>
+                <span className="relative">
+                  Delivery in <strong className="text-neutral-900 dark:text-white font-semibold">5–7 business days</strong>
+                </span>
               </div>
-              <div className="bg-primary-50 dark:bg-primary-900/20 rounded-xl p-3 text-xs text-primary-700 dark:text-primary-400 flex items-center gap-2">
-                🎁 Free NLP course unlocked instantly after payment
+              <div className="group relative flex items-center gap-3 overflow-hidden rounded-xl border border-primary-200 dark:border-primary-500/20 bg-primary-50 dark:bg-primary-900/20 px-3.5 py-3 text-xs text-primary-700 dark:text-primary-400">
+                <span
+                  className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 to-transparent skew-x-12 animate-shimmer"
+                  style={{ animationDelay: "1.1s" }}
+                />
+                <span className="relative flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-primary-500 animate-glow-pulse">
+                  <Gift className="w-3.5 h-3.5 text-white" />
+                </span>
+                <span className="relative font-medium">
+                  Free NLP course unlocked <strong>instantly</strong> after payment
+                </span>
               </div>
             </div>
           </div>

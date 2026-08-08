@@ -30,7 +30,7 @@ export default async function ThankYouPage({
 
   // Support number for the WhatsApp button, with the order number pre-filled so
   // we know who's asking. Set NEXT_PUBLIC_SUPPORT_WHATSAPP to your real number.
-  const support = (process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP || "919876543210")
+  const support = (process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP || "916282680794")
     .replace(/\D/g, "");
   const whatsappHref = `https://wa.me/${support}?text=${encodeURIComponent(
     `Hi! I just placed order ${order.order_number} for Neuro Code.`

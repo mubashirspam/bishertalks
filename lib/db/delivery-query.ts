@@ -13,7 +13,7 @@ export interface DeliveryFilters {
   /** IST calendar dates, YYYY-MM-DD, both inclusive. */
   from?: string;
   to?: string;
-  /** Oldest first is the default: parcels are packed in the order they were paid for. */
+  /** Newest first is the default, so the freshest orders surface immediately. */
   sort?: "oldest" | "newest";
 }
 
@@ -65,7 +65,7 @@ export function buildDeliveryQuery(
     .select(countOnly ? "id" : DELIVERY_COLUMNS, { count: "exact", head: countOnly })
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
-    .order("created_at", { ascending: filters.sort !== "newest" });
+    .order("created_at", { ascending: filters.sort === "oldest" });
 
   if (isDeliveryStage(filters.stage)) {
     query = applyDeliveryFilter(query, filters.stage);
@@ -125,6 +125,6 @@ export function parseDeliveryFilters(
     q: get("q"),
     from: get("from"),
     to: get("to"),
-    sort: get("sort") === "newest" ? "newest" : "oldest",
+    sort: get("sort") === "oldest" ? "oldest" : "newest",
   };
 }
