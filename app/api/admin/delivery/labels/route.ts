@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   buildDeliveryQuery,
@@ -13,6 +13,7 @@ import {
 import { markLabelsDownloaded } from "@/lib/db/delivery";
 import { buildLabelSheet, LABELS_PER_PAGE } from "@/lib/shipping-label";
 import { istToday } from "@/lib/format-date";
+import { auditMany } from "@/lib/audit";
 
 /**
  * One sheet, 300 labels, 50 pages. Past that it's a stuck filter rather than a
@@ -34,9 +35,8 @@ const MAX_LABELS = 300;
  */
 export async function POST(request: NextRequest) {
   // Every customer's name, phone and home address, in one file.
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("delivery.print");
+  if (!auth.ok) return auth.response;
 
   const body = await request.json().catch(() => ({}));
   const orderNumbers: string[] = Array.isArray(body.order_numbers)
@@ -81,7 +81,8 @@ export async function POST(request: NextRequest) {
 
   // After the PDF exists, so a failed build never marks anything as printed.
   try {
-    await markLabelsDownloaded(rows.map((r) => r.order_number));
+    const marked = await markLabelsDownloaded(rows.map((r) => r.order_number));
+    await auditMany(auth.staff, "labels.printed", "order", marked);
   } catch {
     // The labels are already in the admin's hands; refusing to hand them over
     // now would be worse than an out-of-date "printed" flag they can fix from

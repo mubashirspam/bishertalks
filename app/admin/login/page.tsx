@@ -23,10 +23,14 @@ export default function AdminLoginPage() {
     if (error) {
       setError("Invalid email or password.");
       setLoading(false);
-    } else {
-      router.push("/admin/orders");
-      router.refresh();
+      return;
     }
+
+    // Land on /admin and let the page guard forward them to the first screen
+    // their permissions allow — a delivery agent ends up on the queue, not on
+    // a redirect bounce from a page they can't open.
+    router.push("/admin");
+    router.refresh();
   };
 
   return (

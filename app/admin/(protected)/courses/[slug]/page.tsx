@@ -4,6 +4,7 @@ import { ArrowLeft, ExternalLink } from "lucide-react";
 import { getCourseForAdmin } from "@/lib/db/courses-admin";
 import CourseFieldsForm from "./CourseFieldsForm";
 import ModulesEditor from "./ModulesEditor";
+import { requirePageAccess } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +13,8 @@ export default async function AdminCourseEditorPage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
+  await requirePageAccess("courses.manage");
+
   const { slug } = await params;
   const course = await getCourseForAdmin(slug);
   if (!course) notFound();

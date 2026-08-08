@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { upsertUserByPhone, normalizePhone, isValidPhone } from "@/lib/db/users";
 import { grantCourseAccessByPhone } from "@/lib/db/access";
 import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
@@ -9,9 +9,8 @@ import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
 // POST { phone, name?, email?, grantNlp? } — admin adds a user (and optionally
 // grants NLP course access in the same step).
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("users.manage");
+  if (!auth.ok) return auth.response;
 
   const { phone: rawPhone, name, email, grantNlp } = await request.json();
   const phone = normalizePhone(rawPhone || "");

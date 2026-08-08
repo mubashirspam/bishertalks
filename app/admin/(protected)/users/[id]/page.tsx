@@ -5,12 +5,15 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { STATUS_BADGE, STATUS_LABELS, type Order, type OrderStatus } from "@/lib/types/order";
 import type { User } from "@/lib/types/db";
 import AccessToggle from "./AccessToggle";
+import { requirePageAccess } from "@/lib/admin-auth";
 
 export default async function AdminUserDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  await requirePageAccess("users.view");
+
   const { id } = await params;
 
   const { data: user } = await supabaseAdmin

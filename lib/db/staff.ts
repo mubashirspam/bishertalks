@@ -1,0 +1,169 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  ROLE_PRESETS,
+  isPermission,
+  type Permission,
+  type StaffRole,
+} from "@/lib/permissions";
+
+export interface Staff {
+  id: string;
+  auth_user_id: string | null;
+  email: string;
+  name: string;
+  phone: string | null;
+  role: StaffRole;
+  permissions: string[];
+  is_active: boolean;
+  created_at: string;
+}
+
+const COLUMNS =
+  "id,auth_user_id,email,name,phone,role,permissions,is_active,created_at";
+
+/**
+ * Resolve the logged-in Supabase account to a staff record.
+ *
+ * Read live on every admin request rather than cached in the session token:
+ * switching someone off has to take effect on their next click, not whenever
+ * their JWT happens to expire.
+ */
+export async function getStaffByAuthId(authUserId: string): Promise<Staff | null> {
+  const { data } = await supabaseAdmin
+    .from("staff")
+    .select(COLUMNS)
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+  return (data as Staff) ?? null;
+}
+
+export async function getStaffById(id: string): Promise<Staff | null> {
+  const { data } = await supabaseAdmin
+    .from("staff")
+    .select(COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+  return (data as Staff) ?? null;
+}
+
+export async function listStaff(): Promise<Staff[]> {
+  const { data } = await supabaseAdmin
+    .from("staff")
+    .select(COLUMNS)
+    // Owners first, then newest — the list reads as a hierarchy, not a log.
+    .order("role", { ascending: true })
+    .order("created_at", { ascending: false });
+  return (data as Staff[]) ?? [];
+}
+
+/** Drop anything that isn't a real capability — the list comes from a form. */
+export function sanitizePermissions(input: unknown): Permission[] {
+  if (!Array.isArray(input)) return [];
+  return [...new Set(input.filter((p): p is Permission => typeof p === "string" && isPermission(p)))];
+}
+
+export function presetFor(role: StaffRole): Permission[] {
+  return [...ROLE_PRESETS[role]];
+}
+
+export interface CreateStaffInput {
+  email: string;
+  name: string;
+  phone?: string | null;
+  role: StaffRole;
+  permissions: Permission[];
+  authUserId: string;
+  createdBy: string | null;
+}
+
+export async function createStaff(input: CreateStaffInput): Promise<Staff | null> {
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .insert({
+      auth_user_id: input.authUserId,
+      email: input.email.toLowerCase(),
+      name: input.name,
+      phone: input.phone || null,
+      role: input.role,
+      permissions: input.permissions,
+      is_active: true,
+      created_by: input.createdBy,
+    })
+    .select(COLUMNS)
+    .single();
+
+  if (error) {
+    console.error("[Staff] create failed:", error.message);
+    return null;
+  }
+  return data as Staff;
+}
+
+export async function updateStaff(
+  id: string,
+  patch: Partial<Pick<Staff, "name" | "phone" | "role" | "permissions" | "is_active">>
+): Promise<Staff | null> {
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .update(patch)
+    .eq("id", id)
+    .select(COLUMNS)
+    .single();
+
+  if (error) {
+    console.error("[Staff] update failed:", error.message);
+    return null;
+  }
+  return data as Staff;
+}
+
+/**
+ * Remove a staff member entirely — the auth account goes too, so the login
+ * stops working rather than merely losing its permissions. The `staff` row is
+ * cascaded away by the FK.
+ */
+export async function deleteStaff(staff: Staff): Promise<boolean> {
+  if (staff.auth_user_id) {
+    const { error } = await supabaseAdmin.auth.admin.deleteUser(staff.auth_user_id);
+    if (error) {
+      console.error("[Staff] auth delete failed:", error.message);
+      return false;
+    }
+    return true;
+  }
+
+  const { error } = await supabaseAdmin.from("staff").delete().eq("id", staff.id);
+  if (error) {
+    console.error("[Staff] delete failed:", error.message);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * How many owners are left.
+ *
+ * Guards the two operations that could lock everyone out of the panel:
+ * demoting the last owner, and deleting them.
+ */
+export async function countActiveOwners(): Promise<number> {
+  const { count } = await supabaseAdmin
+    .from("staff")
+    .select("id", { count: "exact", head: true })
+    .eq("role", "owner")
+    .eq("is_active", true);
+  return count ?? 0;
+}
+
+/**
+ * A temporary password to hand over on WhatsApp.
+ *
+ * Deliberately not a random blob: it gets typed by hand, often from a phone
+ * screen, so it avoids characters that are ambiguous in most fonts (0/O, 1/l/I)
+ * while staying long enough to be safe for the short time it exists.
+ */
+export function generateTempPassword(): string {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  const bytes = crypto.getRandomValues(new Uint8Array(14));
+  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
+}

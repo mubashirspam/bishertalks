@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import {
   createPromoCode,
   setPromoActive,
@@ -11,9 +11,8 @@ import {
 
 // POST — create a promo code.
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("promos.manage");
+  if (!auth.ok) return auth.response;
 
   const body = await request.json();
   const code = normalizeCode(body.code || "");
@@ -59,9 +58,8 @@ export async function POST(request: NextRequest) {
 
 // PATCH { id, is_active } — toggle a promo on/off.
 export async function PATCH(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("promos.manage");
+  if (!auth.ok) return auth.response;
   const { id, is_active } = await request.json();
   if (!id || typeof is_active !== "boolean") {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });
@@ -76,9 +74,8 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE { id } — remove a promo code.
 export async function DELETE(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("promos.manage");
+  if (!auth.ok) return auth.response;
   const { id } = await request.json();
   if (!id) {
     return NextResponse.json({ error: "Invalid request." }, { status: 400 });

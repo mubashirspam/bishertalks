@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import {
   createCourse,
   updateCourse,
@@ -51,9 +51,8 @@ function parseCourse(body: Record<string, unknown>): CourseFields | { error: str
 
 // POST — create a course.
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("courses.manage");
+  if (!auth.ok) return auth.response;
   const parsed = parseCourse(await request.json());
   if ("error" in parsed) {
     return NextResponse.json({ error: parsed.error }, { status: 400 });
@@ -70,9 +69,8 @@ export async function POST(request: NextRequest) {
 
 // PATCH { id, ...fields } — update a course (all fields).
 export async function PATCH(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("courses.manage");
+  if (!auth.ok) return auth.response;
   const body = await request.json();
   const id = String(body.id ?? "");
   if (!id) return NextResponse.json({ error: "Missing course id." }, { status: 400 });
@@ -93,9 +91,8 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE { id } — delete a course (cascades modules, lessons, access).
 export async function DELETE(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("courses.manage");
+  if (!auth.ok) return auth.response;
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "Missing course id." }, { status: 400 });
   try {

@@ -2,9 +2,10 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { setDeliveryStatus, notifyStatusChange } from "@/lib/db/delivery";
 import type { OrderStatus } from "@/lib/types/order";
+import { audit } from "@/lib/audit";
 
 /**
  * Update a single order from the admin detail page.
@@ -15,9 +16,8 @@ import type { OrderStatus } from "@/lib/types/order";
  * message always quotes the courier and tracking number just saved.
  */
 export async function PATCH(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("orders.edit");
+  if (!auth.ok) return auth.response;
 
   const {
     order_number,
@@ -55,6 +55,13 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const updated = await setDeliveryStatus([order_number], status as OrderStatus);
+    await audit({
+      actor: auth.staff,
+      action: "order.status",
+      entity: "order",
+      entityId: order_number,
+      meta: { status, ...(courier_name ? { courier: courier_name } : {}) },
+    });
     await notifyStatusChange(updated, status as OrderStatus);
   } catch (e) {
     return NextResponse.json(

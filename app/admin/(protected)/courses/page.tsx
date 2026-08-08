@@ -1,12 +1,30 @@
+import { Suspense } from "react";
+import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import Link from "next/link";
 import { Pencil } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import NewCourseButton from "./NewCourseButton";
 import DeleteCourseButton from "./DeleteCourseButton";
+import { requirePageAccess } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminCoursesPage() {
+export default async function Page() {
+  // Guard runs in the shell so an unauthorised visitor is redirected before
+  // any of the work below is started. The staff lookup is memoised per
+  // request, so the body re-reading it costs nothing.
+  await requirePageAccess("courses.manage");
+
+  return (
+    <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={5} columns={4} /></>}>
+      <CoursesBody  />
+    </Suspense>
+  );
+}
+
+async function CoursesBody() {
+  await requirePageAccess("courses.manage");
+
   const { data: courses } = await supabaseAdmin
     .from("courses")
     .select("id,slug,title,subtitle,thumbnail,price,offer_price,is_locked,sort_order")

@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendOrderNotification, type OrderEvent } from "@/lib/notify";
 import { NOTIFY_STATUSES } from "@/lib/delivery-stage";
+import { approveCommissions, voidCommissions } from "@/lib/db/referrals";
 import type { OrderStatus } from "@/lib/types/order";
 
 /**
@@ -34,16 +35,32 @@ export function unmarkLabelsDownloaded(orderNumbers: string[]): Promise<string[]
   return rpc("unmark_labels_downloaded", { p_order_numbers: orderNumbers });
 }
 
-export function setDeliveryStatus(
+/**
+ * Change fulfilment status, and settle the referral consequences.
+ *
+ * Delivered approves any pending commission; cancelled voids it. This is the
+ * one place both happen, so no caller can move an order to delivered without
+ * the commission following — and a commission is never approved for a parcel
+ * that didn't actually arrive.
+ */
+export async function setDeliveryStatus(
   orderNumbers: string[],
   status: OrderStatus,
   courierName?: string | null
 ): Promise<string[]> {
-  return rpc("set_delivery_status", {
+  const updated = await rpc("set_delivery_status", {
     p_order_numbers: orderNumbers,
     p_status: status,
     p_courier: courierName || null,
   });
+
+  if (status === "delivered") {
+    await approveCommissions(updated);
+  } else if (status === "cancelled") {
+    await voidCommissions(updated);
+  }
+
+  return updated;
 }
 
 /**

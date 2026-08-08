@@ -1,10 +1,11 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { buildOrdersQuery, type OrderRow } from "@/lib/db/orders-query";
 import { orderStage, STAGE_LABELS } from "@/lib/order-stage";
 import { formatIST } from "@/lib/format-date";
+import { SOURCE_LABELS, isTrafficSource } from "@/lib/attribution";
 import { toCSV, toXLSX } from "@/lib/export";
 
 const HEADERS = [
@@ -12,6 +13,7 @@ const HEADERS = [
   "Amount (₹)", "Discount (₹)", "Promo", "Payment status", "Fulfilment status",
   "Address", "Landmark", "Area", "District", "State", "Pincode",
   "Razorpay payment ID", "Checkout", "Address submitted (IST)",
+  "Came from", "First touch", "Campaign",
 ];
 
 /**
@@ -22,9 +24,8 @@ const HEADERS = [
  */
 export async function GET(request: NextRequest) {
   // Contains every customer's name, phone and address — admin only.
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("orders.export");
+  if (!auth.ok) return auth.response;
 
   const p = request.nextUrl.searchParams;
   const format = p.get("format") === "xlsx" ? "xlsx" : "csv";
@@ -34,6 +35,7 @@ export async function GET(request: NextRequest) {
     q: p.get("q") ?? undefined,
     from: p.get("from") ?? undefined,
     to: p.get("to") ?? undefined,
+    source: p.get("source") ?? undefined,
   }).limit(5000);
 
   if (error) {
@@ -66,6 +68,9 @@ export async function GET(request: NextRequest) {
     o.razorpay_payment_id ?? "",
     o.checkout_type ?? "",
     o.address_submitted_at ? formatIST(o.address_submitted_at) : "",
+    isTrafficSource(o.source) ? SOURCE_LABELS[o.source] : "",
+    isTrafficSource(o.first_source) ? SOURCE_LABELS[o.first_source] : "",
+    o.utm_campaign ?? "",
   ]);
 
   const stamp = new Date().toISOString().slice(0, 10);

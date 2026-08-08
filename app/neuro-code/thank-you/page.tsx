@@ -5,6 +5,8 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Order } from "@/lib/types/order";
 import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
 import CopyLinkButton from "./CopyLinkButton";
+import ReferralShare from "@/components/ReferralShare";
+import { ensureReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
 
 async function getOrder(id: string): Promise<Order | null> {
   const { data } = await supabaseAdmin
@@ -13,6 +15,34 @@ async function getOrder(id: string): Promise<Order | null> {
     .eq("order_number", id)
     .single();
   return data;
+}
+
+/**
+ * The share block's data, or null if there's nothing to show yet.
+ *
+ * Returns null for an unpaid order or a switched-off program — never throws,
+ * because a referral must never be the reason a thank-you page fails after
+ * someone has just paid.
+ */
+async function getReferralBlock(orderNumber: string) {
+  try {
+    const settings = await getReferralSettings();
+    if (!settings.is_enabled) return null;
+
+    const referrer = await ensureReferrerForOrder(orderNumber);
+    if (!referrer) return null;
+
+    return {
+      code: referrer.code,
+      discountRupees: settings.referee_discount_rupees,
+      commissionRupees:
+        referrer.commission_type === "flat"
+          ? referrer.commission_value
+          : settings.customer_commission_rupees,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export default async function ThankYouPage({
@@ -27,6 +57,11 @@ export default async function ThankYouPage({
   if (!order) redirect("/neuro-code");
 
   const amount = Math.round(order.amount_paise / 100);
+
+  // Their own referral code. Created when payment was confirmed; this call is
+  // the safety net for the case where that step failed or the webhook was slow.
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
+  const referral = await getReferralBlock(order.order_number);
 
   // Support number for the WhatsApp button, with the order number pre-filled so
   // we know who's asking. Set NEXT_PUBLIC_SUPPORT_WHATSAPP to your real number.
@@ -99,6 +134,20 @@ export default async function ThankYouPage({
             <GraduationCap className="w-4 h-4" /> Start Learning Now
           </Link>
         </div>
+
+        {/* Referral — placed here on purpose: right after they've bought, while
+            they're still pleased about it, is the only moment most people will
+            ever share. */}
+        {referral && (
+          <div className="mb-5">
+            <ReferralShare
+              code={referral.code}
+              appUrl={appUrl}
+              discountRupees={referral.discountRupees}
+              commissionRupees={referral.commissionRupees}
+            />
+          </div>
+        )}
 
         {/* Actions */}
         <div className="flex flex-col gap-3">

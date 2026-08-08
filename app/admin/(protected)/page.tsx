@@ -5,6 +5,9 @@ import {
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
+import { requirePageAccess } from "@/lib/admin-auth";
+import { Suspense } from "react";
+import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +21,30 @@ const base = () =>
   supabaseAdmin.from("orders").select("id", { count: "exact", head: true });
 
 export default async function AdminDashboard() {
+  await requirePageAccess("orders.view");
+
+  // Six queries feed this screen. None of them block the shell any more — the
+  // heading is up instantly and the numbers arrive when they arrive.
+  return (
+    <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-black">Dashboard</h1>
+      </div>
+      <Suspense
+        fallback={
+          <>
+            <SkeletonStats />
+            <SkeletonTable rows={6} columns={4} />
+          </>
+        }
+      >
+        <DashboardBody />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DashboardBody() {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 864e5).toISOString();
@@ -74,8 +101,7 @@ export default async function AdminDashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-black">Dashboard</h1>
-      <p className="text-neutral-500 text-sm mt-1 mb-6">
+      <p className="text-neutral-500 text-sm -mt-4 mb-6">
         {failed > 0
           ? `${failed} payment${failed === 1 ? "" : "s"} failed in the last 7 days.`
           : "No failed payments in the last 7 days."}

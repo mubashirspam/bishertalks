@@ -1,10 +1,28 @@
+import { Suspense } from "react";
+import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import { listPromoCodes } from "@/lib/db/promo";
 import AddPromoForm from "./AddPromoForm";
 import PromoRow from "./PromoRow";
+import { requirePageAccess } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function AdminPromosPage() {
+export default async function Page() {
+  // Guard runs in the shell so an unauthorised visitor is redirected before
+  // any of the work below is started. The staff lookup is memoised per
+  // request, so the body re-reading it costs nothing.
+  await requirePageAccess("promos.manage");
+
+  return (
+    <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={6} columns={5} /></>}>
+      <PromosBody  />
+    </Suspense>
+  );
+}
+
+async function PromosBody() {
+  await requirePageAccess("promos.manage");
+
   const promos = await listPromoCodes();
 
   return (

@@ -4,21 +4,45 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
-  LayoutDashboard, ShoppingBag, Truck, Users, BookOpen, Tag, Menu, X, AlertCircle,
+  LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
+  Shield, Gift, Menu, X, AlertCircle,
 } from "lucide-react";
+import {
+  can, ROLE_LABELS, ROLE_BADGE, type Permission, type StaffRole,
+} from "@/lib/permissions";
 
-const NAV = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/admin/orders", label: "Orders", icon: ShoppingBag },
-  { href: "/admin/delivery", label: "Delivery", icon: Truck },
-  { href: "/admin/users", label: "Users", icon: Users },
-  { href: "/admin/courses", label: "Courses", icon: BookOpen },
-  { href: "/admin/promos", label: "Promos", icon: Tag },
+/**
+ * The dashboard is gated on `orders.view` because it shows revenue and order
+ * counts — a delivery agent has no business on it, and lands on the delivery
+ * queue instead. `permission: null` is left available for a genuinely
+ * universal screen.
+ */
+const NAV: {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  exact?: boolean;
+  permission: Permission | null;
+}[] = [
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, permission: "orders.view" },
+  { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
+  { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
+  { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
+  { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },
+  { href: "/admin/courses", label: "Courses", icon: BookOpen, permission: "courses.manage" },
+  { href: "/admin/promos", label: "Promos", icon: Tag, permission: "promos.manage" },
+  { href: "/admin/referrals", label: "Referrals", icon: Gift, permission: "referrals.view" },
+  { href: "/admin/staff", label: "Staff", icon: Shield, permission: "staff.manage" },
 ];
 
 /**
  * Left navigation. Client-side so the active item can be highlighted from the
  * pathname and so it can collapse on mobile.
+ *
+ * Items the signed-in person can't use are not rendered — a delivery agent
+ * sees a two-item sidebar, not a wall of links that bounce them. This is
+ * presentation only; the actual enforcement is `requirePermission` in the API
+ * routes.
  *
  * The two counts come from the server layout and are surfaced as badges, so
  * the day's work is visible from every screen: `needsAddress` is paid orders
@@ -27,15 +51,24 @@ const NAV = [
  */
 export default function AdminSidebar({
   email,
+  name,
+  role,
+  permissions,
   needsAddress,
   toPrint,
 }: {
   email: string;
+  name: string;
+  role: StaffRole;
+  permissions: string[];
   needsAddress: number;
   toPrint: number;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+
+  const holder = { role, permissions };
+  const items = NAV.filter((n) => !n.permission || can(holder, n.permission));
 
   const isActive = (href: string, exact?: boolean) =>
     exact ? pathname === href : pathname.startsWith(href);
@@ -55,7 +88,7 @@ export default function AdminSidebar({
 
   const nav = (
     <nav className="flex flex-col gap-1 px-3">
-      {NAV.map(({ href, label, icon: Icon, exact }) => {
+      {items.map(({ href, label, icon: Icon, exact }) => {
         const active = isActive(href, exact);
         const badge = badges[href];
         return (
@@ -135,8 +168,15 @@ export default function AdminSidebar({
 
         <div className="py-4 flex-1 overflow-y-auto">{nav}</div>
 
+        {/* Who you're signed in as, and with what. Worth showing once more
+            than one person uses the panel — "why can't I see Orders?" is
+            answered by looking at the badge. */}
         <div className="px-5 py-4 border-t border-neutral-100">
-          <p className="text-neutral-400 text-xs truncate" title={email}>{email}</p>
+          <p className="text-neutral-700 text-xs font-medium truncate">{name}</p>
+          <p className="text-neutral-400 text-[11px] truncate" title={email}>{email}</p>
+          <span className={`inline-flex mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${ROLE_BADGE[role]}`}>
+            {ROLE_LABELS[role]}
+          </span>
         </div>
       </aside>
     </>

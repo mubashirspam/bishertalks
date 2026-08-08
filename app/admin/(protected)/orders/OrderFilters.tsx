@@ -1,8 +1,10 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useNavigation } from "@/components/admin/Revalidating";
 import { Search, Download, X, FileSpreadsheet, FileText } from "lucide-react";
+import { TRAFFIC_SOURCES, SOURCE_LABELS } from "@/lib/attribution";
 
 const STAGES = [
   { label: "All orders", value: "all" },
@@ -27,12 +29,18 @@ function istDaysAgo(n: number): string {
   return new Date(Date.now() + 5.5 * 3600e3 - n * 864e5).toISOString().slice(0, 10);
 }
 
-export default function OrderFilters({ total }: { total: number }) {
-  const router = useRouter();
+/**
+ * The count is passed in as a streamed slot rather than a number, so this bar
+ * can render the instant the page does instead of waiting for the query that
+ * produces the total.
+ */
+export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNode }) {
   const params = useSearchParams();
-  const [pending, startTransition] = useTransition();
+  // Shared with the table below, so it dims while these filters reload it.
+  const { navigate } = useNavigation();
 
   const stage = params.get("stage") ?? "all";
+  const source = params.get("source") ?? "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const [q, setQ] = useState(params.get("q") ?? "");
@@ -44,12 +52,13 @@ export default function OrderFilters({ total }: { total: number }) {
       else next.delete(k);
     }
     next.delete("page"); // any filter change invalidates the current page
-    startTransition(() => router.push(`/admin/orders?${next.toString()}`));
+    navigate(`/admin/orders?${next.toString()}`);
   };
 
   const exportUrl = (format: "csv" | "xlsx") => {
     const p = new URLSearchParams();
     if (stage !== "all") p.set("stage", stage);
+    if (source !== "all") p.set("source", source);
     if (from) p.set("from", from);
     if (to) p.set("to", to);
     if (params.get("q")) p.set("q", params.get("q")!);
@@ -57,7 +66,8 @@ export default function OrderFilters({ total }: { total: number }) {
     return `/api/admin/orders/export?${p.toString()}`;
   };
 
-  const hasFilters = stage !== "all" || !!from || !!to || !!params.get("q");
+  const hasFilters =
+    stage !== "all" || source !== "all" || !!from || !!to || !!params.get("q");
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -75,6 +85,21 @@ export default function OrderFilters({ total }: { total: number }) {
           >
             {STAGES.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Traffic source */}
+        <div className="min-w-[150px]">
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Came from</label>
+          <select
+            value={source}
+            onChange={(e) => push({ source: e.target.value === "all" ? null : e.target.value })}
+            className={`${field} w-full cursor-pointer`}
+          >
+            <option value="all">All sources</option>
+            {TRAFFIC_SOURCES.map((s) => (
+              <option key={s} value={s}>{SOURCE_LABELS[s]}</option>
             ))}
           </select>
         </div>
@@ -133,14 +158,11 @@ export default function OrderFilters({ total }: { total: number }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-3 mt-4 pt-3 border-t border-neutral-100">
-        <p className="text-xs text-neutral-500">
-          {pending ? "Loading…" : `${total} order${total === 1 ? "" : "s"}`}
-          {hasFilters && " matching filters"}
-        </p>
+        <p className="text-xs text-neutral-500">{countSlot}</p>
 
         {hasFilters && (
           <button
-            onClick={() => startTransition(() => router.push("/admin/orders"))}
+            onClick={() => navigate("/admin/orders")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
           >
             <X className="w-3 h-3" /> Clear

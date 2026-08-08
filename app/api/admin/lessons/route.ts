@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import {
   createLesson,
   updateLesson,
@@ -27,9 +27,8 @@ function parseLesson(body: Record<string, unknown>): LessonFields | { error: str
 
 // POST { moduleId, ...fields } — add a lesson.
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("courses.manage");
+  if (!auth.ok) return auth.response;
   const body = await request.json();
   if (!body.moduleId) {
     return NextResponse.json({ error: "Missing module." }, { status: 400 });
@@ -48,9 +47,8 @@ export async function POST(request: NextRequest) {
 
 // PATCH { id, ...fields } | { action: 'reorder', orderedIds } — edit or reorder.
 export async function PATCH(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("courses.manage");
+  if (!auth.ok) return auth.response;
   const body = await request.json();
   try {
     if (body.action === "reorder") {
@@ -74,9 +72,8 @@ export async function PATCH(request: NextRequest) {
 
 // DELETE { id } — delete a lesson.
 export async function DELETE(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("courses.manage");
+  if (!auth.ok) return auth.response;
   const { id } = await request.json();
   if (!id) return NextResponse.json({ error: "Missing id." }, { status: 400 });
   try {

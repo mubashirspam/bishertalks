@@ -4,6 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getProductPricing } from "@/lib/db/courses";
 import { normalizePhone, isValidPhone } from "@/lib/db/users";
+import {
+  attributionFromRequest,
+  firstWriteOnly,
+  ATTRIBUTION_COLUMNS,
+} from "@/lib/db/attribution";
 
 function generateOrderNumber(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -56,10 +61,13 @@ export async function POST(request: NextRequest) {
     put("state", body.state);
     put("pincode", body.pincode);
 
+    // Where they came from, from the cookies middleware set on landing.
+    const attribution = attributionFromRequest(request);
+
     // Reuse this customer's unpaid row rather than creating one per keystroke.
     const { data: existing } = await supabaseAdmin
       .from("orders")
-      .select("order_number")
+      .select(`order_number,${ATTRIBUTION_COLUMNS}`)
       .eq("buyer_phone", phone)
       .eq("payment_status", "pending")
       .order("created_at", { ascending: false })
@@ -67,10 +75,13 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (existing) {
-      if (Object.keys(fields).length) {
+      // Attribution only fills gaps — see firstWriteOnly. Typed details still
+      // overwrite, because the newest thing the customer typed is the truth.
+      const patch = { ...fields, ...firstWriteOnly(attribution, existing) };
+      if (Object.keys(patch).length) {
         await supabaseAdmin
           .from("orders")
-          .update(fields)
+          .update(patch)
           .eq("order_number", existing.order_number);
       }
       return NextResponse.json({ order_number: existing.order_number });
@@ -86,6 +97,7 @@ export async function POST(request: NextRequest) {
       payment_status: "pending",
       status: "confirmed",
       checkout_type: "standard",
+      ...attribution,
       ...fields,
     });
 

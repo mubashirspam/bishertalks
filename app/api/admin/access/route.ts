@@ -1,15 +1,14 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { grantCourseAccess, revokeCourseAccess } from "@/lib/db/access";
 
 // POST { userId, courseId, action: 'grant' | 'revoke' } — admin grants or
 // revokes a user's access to a course.
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("users.manage");
+  if (!auth.ok) return auth.response;
 
   const { userId, courseId, action } = await request.json();
 

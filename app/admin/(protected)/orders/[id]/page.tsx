@@ -3,8 +3,9 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle } from "lucide-react";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History } from "lucide-react";
 import { formatIST, timeAgo } from "@/lib/format-date";
+import { describeAudit } from "@/lib/audit";
 import {
   STATUS_LABELS,
   STATUS_STEPS,
@@ -328,6 +329,29 @@ export default function AdminOrderDetailPage() {
               Copy Link
             </button>
           </div>
+
+          {/* History — who changed what. Only meaningful since staff accounts
+              exist; older orders simply have nothing to show. */}
+          {order.history && order.history.length > 0 && (
+            <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm">
+              <h2 className="font-semibold text-sm text-neutral-700 mb-3 flex items-center gap-2">
+                <History className="w-4 h-4 text-primary-500" /> History
+              </h2>
+              <ul className="space-y-2.5">
+                {order.history.map((h) => (
+                  <li key={h.id} className="flex items-start gap-2.5 text-xs">
+                    <span className="w-1.5 h-1.5 rounded-full bg-neutral-300 mt-1.5 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-neutral-700">{describeAudit(h)}</p>
+                      <p className="text-neutral-400 mt-0.5">
+                        {h.actor_email} · {formatIST(h.created_at)}
+                      </p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     </div>

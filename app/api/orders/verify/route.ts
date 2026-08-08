@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 import { backfillOrderFromRazorpay } from "@/lib/db/orders";
+import { ensureReferrerForOrder } from "@/lib/db/referrals";
 import { redeemPromo } from "@/lib/db/promo";
 import { signOrderToken } from "@/lib/order-token";
 
@@ -94,6 +95,11 @@ export async function POST(request: NextRequest) {
     // the buyer from the order's phone number. Safe to re-run: it only fills
     // fields that are still empty.
     await backfillOrderFromRazorpay(order_number, razorpay_order_id);
+
+    // Give this buyer their own referral code. After the backfill, which is
+    // what supplies the name and phone it's built from. Idempotent by phone,
+    // and never throws — see ensureReferrerForOrder.
+    await ensureReferrerForOrder(order_number);
 
     // Auto-grant the bonus NLP course to the buyer's phone. Idempotent upsert,
     // so it's safe even when the webhook already did it.

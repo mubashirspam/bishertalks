@@ -8,6 +8,8 @@ import {
   type Order,
   type OrderStatus,
 } from "@/lib/types/order";
+import ReferralShare from "@/components/ReferralShare";
+import { ensureReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
 
 async function getOrder(id: string): Promise<Order | null> {
   const { data } = await supabaseAdmin
@@ -24,6 +26,28 @@ async function getOrder(id: string): Promise<Order | null> {
 }
 
 const STEP_ICONS = [Package, Package, Truck, Truck, Home];
+
+/** Share block data, or null. Never throws — see the thank-you page. */
+async function getReferralBlock(orderNumber: string) {
+  try {
+    const settings = await getReferralSettings();
+    if (!settings.is_enabled) return null;
+
+    const referrer = await ensureReferrerForOrder(orderNumber);
+    if (!referrer) return null;
+
+    return {
+      code: referrer.code,
+      discountRupees: settings.referee_discount_rupees,
+      commissionRupees:
+        referrer.commission_type === "flat"
+          ? referrer.commission_value
+          : settings.customer_commission_rupees,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /**
  * When each step happened. Undated steps simply show nothing — better than a
@@ -83,6 +107,9 @@ export default async function TrackPage({
   const currentStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
   const isCancelled = order.status === "cancelled";
   const dates = stepDates(order);
+
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
+  const referral = await getReferralBlock(order.order_number);
 
   const date = new Date(order.created_at).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
@@ -214,6 +241,20 @@ export default async function TrackPage({
             </div>
           </div>
         </div>
+
+        {/* Referral — the tracking page gets opened repeatedly while a parcel
+            is in transit, which makes it the best repeat surface for sharing. */}
+        {referral && (
+          <div className="mb-5">
+            <ReferralShare
+              code={referral.code}
+              appUrl={appUrl}
+              discountRupees={referral.discountRupees}
+              commissionRupees={referral.commissionRupees}
+              compact
+            />
+          </div>
+        )}
 
         {/* Help */}
         <div className="bg-neutral-900 border border-white/8 rounded-2xl p-5 flex items-center justify-between">

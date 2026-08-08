@@ -2,7 +2,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
+import { getAuditTrail } from "@/lib/audit";
 
 /**
  * Full order record for the admin detail page — the only caller.
@@ -16,9 +17,8 @@ export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("orders.view");
+  if (!auth.ok) return auth.response;
 
   const { id } = await params;
 
@@ -39,5 +39,8 @@ export async function GET(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  return NextResponse.json(order);
+  // Who changed what, sent alongside so the detail page needs one request.
+  const history = await getAuditTrail("order", id);
+
+  return NextResponse.json({ ...order, history });
 }

@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 import { backfillOrderFromRazorpay } from "@/lib/db/orders";
+import { ensureReferrerForOrder } from "@/lib/db/referrals";
 import { redeemPromo } from "@/lib/db/promo";
 
 // Add RAZORPAY_WEBHOOK_SECRET to your .env.local
@@ -64,6 +65,9 @@ export async function POST(request: NextRequest) {
       // paying, so it — not just the browser handler — has to fetch the
       // shipping address. Runs before the grant, which needs the buyer's phone.
       await backfillOrderFromRazorpay(order.order_number, razorpayOrderId);
+
+      // The customer who closed the tab still gets their referral code.
+      await ensureReferrerForOrder(order.order_number);
 
       // Auto-grant the bonus NLP course to the buyer's phone.
       try {

@@ -7,6 +7,13 @@ import { getProductPricing } from "@/lib/db/courses";
 import { validatePromo } from "@/lib/db/promo";
 import { upsertUserByPhone, normalizePhone } from "@/lib/db/users";
 import { MAGIC_CHECKOUT_ENABLED } from "@/lib/magic-checkout";
+import {
+  attributionFromRequest,
+  firstWriteOnly,
+  refCodeFromRequest,
+  ATTRIBUTION_COLUMNS,
+} from "@/lib/db/attribution";
+import { applyReferral, type AppliedReferral } from "@/lib/db/referrals";
 
 function generateOrderNumber(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -88,10 +95,14 @@ export async function POST(request: NextRequest) {
     let reusingLead = false;
     let leadPhone: string | null = null;
 
+    // Where this visitor came from. On the Magic Checkout path there may be no
+    // lead row at all, so this route has to be able to attribute on its own.
+    let attribution = attributionFromRequest(request);
+
     if (existingOrderNumber) {
       const { data: lead } = await supabaseAdmin
         .from("orders")
-        .select("order_number, buyer_phone, payment_status")
+        .select(`order_number, buyer_phone, payment_status, ${ATTRIBUTION_COLUMNS}`)
         .eq("order_number", existingOrderNumber)
         .maybeSingle();
       // Never reattach to an order that's already been paid for.
@@ -99,6 +110,8 @@ export async function POST(request: NextRequest) {
         orderNumber = lead.order_number;
         leadPhone = lead.buyer_phone;
         reusingLead = true;
+        // The lead row was attributed when it was created; don't overwrite it.
+        attribution = firstWriteOnly(attribution, lead);
       } else {
         orderNumber = generateOrderNumber();
       }
@@ -107,6 +120,30 @@ export async function POST(request: NextRequest) {
     }
 
     const normalizedPhone = phone ? normalizePhone(phone) : leadPhone;
+
+    // ── Referral ────────────────────────────────────────────────────────────
+    // Only when no promo was applied: a referral code and a promo code are
+    // mutually exclusive, or a ₹699 book quietly sells for ₹400. The promo
+    // wins because the customer typed it deliberately.
+    //
+    // The code comes from the attribution cookie, never from the request body,
+    // so it can't be forged by editing what the browser posts. Everything —
+    // validity, the buyer's discount, the referrer's commission — is decided
+    // here on the server.
+    let referral: AppliedReferral | null = null;
+
+    if (!appliedPromo) {
+      referral = await applyReferral({
+        rawCode: refCodeFromRequest(request),
+        buyerPhone: normalizedPhone,
+        amountPaise,
+      });
+
+      if (referral && referral.discountPaise > 0) {
+        amountPaise -= referral.discountPaise;
+        discountPaise = referral.discountPaise;
+      }
+    }
 
     // Magic Checkout fields are only accepted once Razorpay has provisioned the
     // feature. Sending them to an unprovisioned account fails the whole order
@@ -170,6 +207,18 @@ export async function POST(request: NextRequest) {
       checkout_type: MAGIC_CHECKOUT_ENABLED ? "magic" : "standard",
       user_id: userId,
       buyer_phone: normalizedPhone,
+      ...attribution,
+      // Snapshotted now: changing a referrer's rate later must not rewrite
+      // what they were owed on orders already placed.
+      ...(referral
+        ? {
+            referral_code: referral.code,
+            referrer_id: referral.referrerId,
+            referral_commission_paise: referral.commissionPaise,
+            // Nothing is owed until the parcel is delivered.
+            referral_status: "pending",
+          }
+        : {}),
       ...(name ? { buyer_name: name } : {}),
       ...(email ? { buyer_email: email } : {}),
       // Present on the standard flow; null under Magic Checkout, where they're

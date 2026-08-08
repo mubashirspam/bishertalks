@@ -1,7 +1,9 @@
+
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import { useState } from "react";
+import { useNavigation } from "@/components/admin/Revalidating";
 import { Search, X } from "lucide-react";
 import {
   DELIVERY_STAGES,
@@ -33,9 +35,9 @@ const TABS: { value: string; label: string }[] = [
  * The actions themselves live in DeliveryTable.
  */
 export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
-  const router = useRouter();
   const params = useSearchParams();
-  const [pending, startTransition] = useTransition();
+  // Shared with the table, so it dims rather than blanking while reloading.
+  const { pending, navigate } = useNavigation();
 
   const stage = params.get("stage") ?? "all";
   const from = params.get("from") ?? "";
@@ -50,7 +52,7 @@ export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
       else next.delete(k);
     }
     next.delete("page"); // any filter change invalidates the current page
-    startTransition(() => router.push(`/admin/delivery?${next}`));
+    navigate(`/admin/delivery?${next}`);
   };
 
   const hasFilters = !!from || !!to || !!params.get("q");

@@ -1,17 +1,35 @@
+import { Suspense } from "react";
+import { SkeletonFilters, SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { User } from "@/lib/types/db";
 import { getCourseList } from "@/lib/db/courses";
 import AddUserForm from "./AddUserForm";
 import ImportUsersForm from "./ImportUsersForm";
+import { requirePageAccess } from "@/lib/admin-auth";
 
 const PER_PAGE = 20;
 
-export default async function AdminUsersPage({
+export default async function Page(props: Parameters<typeof UsersBody>[0]) {
+  // Guard runs in the shell so an unauthorised visitor is redirected before
+  // any of the work below is started. The staff lookup is memoised per
+  // request, so the body re-reading it costs nothing.
+  await requirePageAccess("users.view");
+
+  return (
+    <Suspense fallback={<><SkeletonHeader /><SkeletonFilters /><SkeletonTable rows={10} columns={5} /></>}>
+      <UsersBody {...props} />
+    </Suspense>
+  );
+}
+
+async function UsersBody({
   searchParams,
 }: {
   searchParams: Promise<{ q?: string; page?: string }>;
 }) {
+  await requirePageAccess("users.view");
+
   const { q, page = "1" } = await searchParams;
   const pageNum = Math.max(0, parseInt(page) - 1);
 

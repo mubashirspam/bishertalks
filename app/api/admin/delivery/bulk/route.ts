@@ -2,7 +2,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import {
   setDeliveryStatus,
   markLabelsDownloaded,
@@ -10,6 +10,7 @@ import {
   notifyStatusChange,
 } from "@/lib/db/delivery";
 import { BULK_STATUSES } from "@/lib/delivery-stage";
+import { auditMany } from "@/lib/audit";
 import type { OrderStatus } from "@/lib/types/order";
 
 const MAX_BATCH = 300;
@@ -25,9 +26,8 @@ const ACTIONS: Action[] = ["status", "mark_printed", "unmark_printed"];
  * same toolbar. Three near-identical routes would drift.
  */
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("delivery.status");
+  if (!auth.ok) return auth.response;
 
   const body = await request.json().catch(() => ({}));
 
@@ -53,11 +53,13 @@ export async function POST(request: NextRequest) {
   try {
     if (action === "mark_printed") {
       const updated = await markLabelsDownloaded(orderNumbers);
+      await auditMany(auth.staff, "labels.printed", "order", updated);
       return NextResponse.json({ updated: updated.length });
     }
 
     if (action === "unmark_printed") {
       const updated = await unmarkLabelsDownloaded(orderNumbers);
+      await auditMany(auth.staff, "labels.unprinted", "order", updated);
       return NextResponse.json({ updated: updated.length });
     }
 
@@ -66,11 +68,15 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unknown status" }, { status: 400 });
     }
 
-    const updated = await setDeliveryStatus(
-      orderNumbers,
+    const courier =
+      typeof body.courier_name === "string" ? body.courier_name.trim() : null;
+
+    const updated = await setDeliveryStatus(orderNumbers, status, courier);
+
+    await auditMany(auth.staff, "order.status", "order", updated, {
       status,
-      typeof body.courier_name === "string" ? body.courier_name.trim() : null
-    );
+      ...(courier ? { courier } : {}),
+    });
 
     // Only the rows that actually changed get a message.
     const notified = await notifyStatusChange(updated, status);

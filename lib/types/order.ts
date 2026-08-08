@@ -46,6 +46,14 @@ export interface Order {
   delivered_at: string | null;
   created_at: string;
   updated_at: string;
+  /** Audit trail, attached by /api/orders/[id] for the admin detail page. */
+  history?: {
+    id: number;
+    actor_email: string | null;
+    action: string;
+    meta: Record<string, unknown> | null;
+    created_at: string;
+  }[];
 }
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {

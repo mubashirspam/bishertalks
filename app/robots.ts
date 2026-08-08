@@ -26,7 +26,12 @@ export default function robots(): MetadataRoute.Robots {
   // Nothing useful for a crawler behind these; /admin also leaks nothing but
   // a login form, and keeping it out of the index avoids "bishertalks admin"
   // ever ranking.
-  const disallow = ["/api/", "/admin/", "/neuro-code/track", "/neuro-code/thank-you", "/neuro-code/address"];
+  const disallow = [
+    "/api/", "/admin/",
+    "/neuro-code/track", "/neuro-code/thank-you", "/neuro-code/address",
+    // Share links — thousands of URLs that all redirect to one page.
+    "/refer/",
+  ];
 
   return {
     rules: [

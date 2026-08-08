@@ -8,6 +8,8 @@ export interface OrderFilters {
   /** IST calendar dates, YYYY-MM-DD, both inclusive. */
   from?: string;
   to?: string;
+  /** Traffic channel the order came from. */
+  source?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -33,12 +35,16 @@ export interface OrderRow {
   checkout_type: string | null;
   created_at: string;
   address_submitted_at: string | null;
+  source: string | null;
+  first_source: string | null;
+  utm_campaign: string | null;
 }
 
 export const ORDER_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,discount_paise,promo_code," +
   "payment_status,status,address_line1,address_line2,city,district,state,pincode," +
-  "razorpay_order_id,razorpay_payment_id,checkout_type,created_at,address_submitted_at";
+  "razorpay_order_id,razorpay_payment_id,checkout_type,created_at,address_submitted_at," +
+  "source,first_source,utm_campaign";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -61,6 +67,13 @@ export function buildOrdersQuery(filters: OrderFilters) {
   // is 5h30m out and silently drops early-morning orders.
   if (isDate(filters.from)) query = query.gte("created_at", istDayStartUTC(filters.from));
   if (isDate(filters.to)) query = query.lt("created_at", istDayEndUTC(filters.to));
+
+  // Plain equality: the column defaults to 'direct' and was backfilled, so
+  // there are no NULLs to special-case. The search box below owns the one
+  // `or` this query gets.
+  if (filters.source && filters.source !== "all") {
+    query = query.eq("source", filters.source);
+  }
 
   if (filters.q) {
     const q = filters.q.replace(/[%,()]/g, "");

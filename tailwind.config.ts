@@ -67,6 +67,12 @@ const config: Config = {
           "0%": { transform: "translateX(-150%)" },
           "100%": { transform: "translateX(150%)" },
         },
+        // Indeterminate progress bar shown while a filtered view reloads —
+        // the duration is unknowable, so it sweeps rather than fills.
+        revalidate: {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(400%)" },
+        },
         glowPulse: {
           "0%, 100%": { boxShadow: "0 0 0 0 rgba(249, 115, 22, 0.35)" },
           "50%": { boxShadow: "0 0 0 10px rgba(249, 115, 22, 0)" },

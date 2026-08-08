@@ -1,7 +1,7 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { isAdmin } from "@/lib/admin-auth";
+import { requirePermission } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { normalizePhone, isValidPhone, getUserByPhone, upsertUserByPhone } from "@/lib/db/users";
 import { grantCourseAccess } from "@/lib/db/access";
@@ -23,9 +23,8 @@ interface RowResult {
 // POST { rows: ImportRow[], courseSlug?: string } — bulk-register users from a
 // CSV the admin parsed in the browser, optionally granting one course to all.
 export async function POST(request: NextRequest) {
-  if (!(await isAdmin())) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const auth = await requirePermission("users.manage");
+  if (!auth.ok) return auth.response;
 
   const { rows, courseSlug } = (await request.json()) as {
     rows?: ImportRow[];
