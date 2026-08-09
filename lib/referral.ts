@@ -85,16 +85,55 @@ export function commissionPaise(input: CommissionInput): number {
 /** Minimum chargeable amount — Razorpay rejects anything below ₹1. */
 const MIN_PAYABLE_PAISE = 100;
 
+export type RefereePricingMode = "discount" | "fixed";
+
+export interface RefereePricingInput {
+  /** The normal price of the book, in paise. */
+  basePaise: number;
+  mode: RefereePricingMode;
+  /** Used when mode is "discount". Whole rupees off. */
+  discountRupees: number;
+  /** Used when mode is "fixed". The exact price a referred buyer pays. */
+  priceRupees?: number | null;
+}
+
+export interface RefereePricing {
+  /** What the referred buyer is charged, in paise. */
+  finalPaise: number;
+  /** The difference from the normal price — recorded on the order. */
+  discountPaise: number;
+}
+
 /**
- * The buyer's discount for using a code, clamped so the order stays chargeable.
+ * What a referred buyer pays.
+ *
+ * Two ways of saying it, because they fail differently. A discount stays
+ * correct when the book price changes but can't express "referred buyers pay
+ * ₹599"; a fixed price says exactly that but quietly stops tracking the book
+ * price, which is why the admin screen shows the resulting margin next to it.
+ *
+ * Both are clamped so the order stays chargeable — Razorpay rejects anything
+ * under ₹1 — and a fixed price above the book price is ignored rather than
+ * charging a referred customer *more* than an ordinary one.
  */
-export function refereeDiscountPaise(
-  amountPaise: number,
-  discountRupees: number
-): number {
-  if (discountRupees <= 0) return 0;
-  const maxDiscount = Math.max(0, amountPaise - MIN_PAYABLE_PAISE);
-  return Math.min(discountRupees * 100, maxDiscount);
+export function refereePricing(input: RefereePricingInput): RefereePricing {
+  const { basePaise, mode, discountRupees, priceRupees } = input;
+  const floor = Math.min(MIN_PAYABLE_PAISE, basePaise);
+
+  if (mode === "fixed") {
+    // No price set yet — behave as if there were no referral rather than
+    // selling the book for nothing.
+    if (priceRupees == null || priceRupees <= 0) {
+      return { finalPaise: basePaise, discountPaise: 0 };
+    }
+    const finalPaise = Math.max(floor, Math.min(priceRupees * 100, basePaise));
+    return { finalPaise, discountPaise: basePaise - finalPaise };
+  }
+
+  if (discountRupees <= 0) return { finalPaise: basePaise, discountPaise: 0 };
+
+  const discountPaise = Math.min(discountRupees * 100, Math.max(0, basePaise - floor));
+  return { finalPaise: basePaise - discountPaise, discountPaise };
 }
 
 // ── Sharing ─────────────────────────────────────────────────────────────────

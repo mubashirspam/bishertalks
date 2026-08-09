@@ -9,6 +9,7 @@ import {
   getReferralSettings,
 } from "@/lib/db/referrals";
 import ReferralsManager from "./ReferralsManager";
+import { getProductPricing } from "@/lib/db/courses";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +29,13 @@ export default async function Page() {
 async function ReferralsBody() {
   const staff = await requirePageAccess("referrals.view");
 
-  const [referrers, stats, settings] = await Promise.all([
+  const [referrers, stats, settings, pricing] = await Promise.all([
     listReferrers(),
     getReferrerStats(),
     getReferralSettings(),
+    // The book's normal price, so the settings card can show what a referred
+    // sale actually nets instead of asking the reader to do the arithmetic.
+    getProductPricing(),
   ]);
 
   // Flattened here rather than in the client: the stats map is keyed by id and
@@ -72,6 +76,7 @@ async function ReferralsBody() {
         settings={settings}
         totals={{ owed: totalOwed, paid: totalPaid, pending: totalPending }}
         canPayout={can(staff, "referrals.payout")}
+        bookPriceRupees={pricing.payable}
       />
     </div>
   );

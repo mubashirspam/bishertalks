@@ -17,11 +17,14 @@ export default function ReferralsManager({
   settings,
   totals,
   canPayout,
+  bookPriceRupees,
 }: {
   rows: Row[];
   settings: ReferralSettings;
   totals: { owed: number; paid: number; pending: number };
   canPayout: boolean;
+  /** The book's normal price, for the margin figure below. */
+  bookPriceRupees: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -114,12 +117,16 @@ export default function ReferralsManager({
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
 
-  // What a referred sale actually nets, so the margin is visible while the
-  // numbers are being changed rather than discovered later.
+  const fixedMode = draftSettings.referee_pricing_mode === "fixed";
+
+  // What a referred sale actually nets, worked out live while the numbers are
+  // being changed rather than discovered a month later.
   const netHint = (() => {
     const commission = draftSettings.customer_commission_rupees;
-    const discount = draftSettings.referee_discount_rupees;
-    return { commission, discount, cost: commission + discount };
+    const price = fixedMode
+      ? (draftSettings.referral_price_rupees ?? bookPriceRupees)
+      : Math.max(0, bookPriceRupees - draftSettings.referee_discount_rupees);
+    return { commission, price, net: price - commission };
   })();
 
   return (
@@ -203,26 +210,68 @@ export default function ReferralsManager({
             </div>
             <div>
               <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
-                Buyer saves (₹)
+                Referred buyers pay
               </label>
-              <input
-                type="number"
-                value={draftSettings.referee_discount_rupees}
+              <select
+                value={draftSettings.referee_pricing_mode}
                 onChange={(e) =>
-                  setDraftSettings({ ...draftSettings, referee_discount_rupees: Number(e.target.value) })
+                  setDraftSettings({
+                    ...draftSettings,
+                    referee_pricing_mode: e.target.value as "discount" | "fixed",
+                  })
                 }
-                className={`${field} w-full`}
-              />
+                className={`${field} w-full cursor-pointer`}
+              >
+                <option value="discount">A discount off the normal price</option>
+                <option value="fixed">A fixed price I set</option>
+              </select>
             </div>
+
+            {fixedMode ? (
+              <div>
+                <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+                  Referral price (₹)
+                </label>
+                <input
+                  type="number"
+                  value={draftSettings.referral_price_rupees ?? ""}
+                  placeholder={String(bookPriceRupees)}
+                  onChange={(e) =>
+                    setDraftSettings({
+                      ...draftSettings,
+                      referral_price_rupees:
+                        e.target.value === "" ? null : Number(e.target.value),
+                    })
+                  }
+                  className={`${field} w-full`}
+                />
+              </div>
+            ) : (
+              <div>
+                <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+                  Buyer saves (₹)
+                </label>
+                <input
+                  type="number"
+                  value={draftSettings.referee_discount_rupees}
+                  onChange={(e) =>
+                    setDraftSettings({ ...draftSettings, referee_discount_rupees: Number(e.target.value) })
+                  }
+                  className={`${field} w-full`}
+                />
+              </div>
+            )}
           </div>
 
           {/* The number that actually matters when tuning these. */}
           <p className="text-xs text-neutral-500 mt-3 bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-2.5">
-            A customer-referred sale costs you{" "}
-            <strong className="text-neutral-900">₹{netHint.cost}</strong> — ₹{netHint.commission} commission
-            plus ₹{netHint.discount} discount — before print, shipping and payment fees.
-            If that&apos;s tight, cut the discount before the commission: the commission is
-            what makes people share.
+            Normal price <strong className="text-neutral-900">₹{bookPriceRupees}</strong> ·
+            a referred buyer pays <strong className="text-neutral-900">₹{netHint.price}</strong> ·
+            you keep <strong className="text-neutral-900">₹{netHint.net}</strong> after the
+            ₹{netHint.commission} commission, before print, shipping and payment fees.
+            {netHint.net < netHint.price * 0.5 && (
+              <span className="text-amber-700"> That&apos;s under half the sale price — worth a second look.</span>
+            )}
           </p>
 
           <label className="flex items-center gap-2 mt-3 cursor-pointer">

@@ -108,6 +108,15 @@ export async function PATCH(request: NextRequest) {
       patch.affiliate_commission_percent = Math.min(100, num(body.affiliate_commission_percent));
     if (body.referee_discount_rupees !== undefined)
       patch.referee_discount_rupees = num(body.referee_discount_rupees);
+    if (body.referee_pricing_mode === "fixed" || body.referee_pricing_mode === "discount")
+      patch.referee_pricing_mode = body.referee_pricing_mode;
+    if (body.referral_price_rupees !== undefined) {
+      // Blank clears it, which puts "fixed" mode back to charging full price
+      // rather than selling for nothing.
+      const v = body.referral_price_rupees;
+      patch.referral_price_rupees =
+        v === null || v === "" || Number.isNaN(Number(v)) ? null : num(v);
+    }
 
     const settings = await updateReferralSettings(patch);
     if (!settings) return NextResponse.json({ error: "Could not save" }, { status: 500 });

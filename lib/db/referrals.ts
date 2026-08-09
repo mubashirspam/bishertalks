@@ -4,7 +4,8 @@ import {
   normalizeCode,
   isValidCodeFormat,
   commissionPaise,
-  refereeDiscountPaise,
+  refereePricing,
+  type RefereePricingMode,
 } from "@/lib/referral";
 
 export interface Referrer {
@@ -28,8 +29,16 @@ export interface ReferralSettings {
   is_enabled: boolean;
   customer_commission_rupees: number;
   affiliate_commission_percent: number;
+  /** Used when referee_pricing_mode is "discount". */
   referee_discount_rupees: number;
+  referee_pricing_mode: RefereePricingMode;
+  /** Used when referee_pricing_mode is "fixed". Null until one is set. */
+  referral_price_rupees: number | null;
 }
+
+const SETTINGS_COLUMNS =
+  "is_enabled,customer_commission_rupees,affiliate_commission_percent," +
+  "referee_discount_rupees,referee_pricing_mode,referral_price_rupees";
 
 const REFERRER_COLUMNS =
   "id,code,name,phone,email,upi_id,type,commission_type,commission_value," +
@@ -41,15 +50,17 @@ const DEFAULT_SETTINGS: ReferralSettings = {
   customer_commission_rupees: 75,
   affiliate_commission_percent: 15,
   referee_discount_rupees: 50,
+  referee_pricing_mode: "discount",
+  referral_price_rupees: null,
 };
 
 export async function getReferralSettings(): Promise<ReferralSettings> {
   const { data } = await supabaseAdmin
     .from("referral_settings")
-    .select("is_enabled,customer_commission_rupees,affiliate_commission_percent,referee_discount_rupees")
+    .select(SETTINGS_COLUMNS)
     .eq("id", true)
     .maybeSingle();
-  return (data as ReferralSettings) ?? DEFAULT_SETTINGS;
+  return (data as unknown as ReferralSettings) ?? DEFAULT_SETTINGS;
 }
 
 export async function updateReferralSettings(
@@ -59,14 +70,14 @@ export async function updateReferralSettings(
     .from("referral_settings")
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq("id", true)
-    .select("is_enabled,customer_commission_rupees,affiliate_commission_percent,referee_discount_rupees")
+    .select(SETTINGS_COLUMNS)
     .single();
 
   if (error) {
     console.error("[Referrals] settings update failed:", error.message);
     return null;
   }
-  return data as ReferralSettings;
+  return data as unknown as ReferralSettings;
 }
 
 export async function getReferrerByCode(rawCode: string): Promise<Referrer | null> {
@@ -154,10 +165,12 @@ export async function applyReferral(params: {
       return null;
     }
 
-    const discountPaise = refereeDiscountPaise(
-      amountPaise,
-      settings.referee_discount_rupees
-    );
+    const { discountPaise } = refereePricing({
+      basePaise: amountPaise,
+      mode: settings.referee_pricing_mode,
+      discountRupees: settings.referee_discount_rupees,
+      priceRupees: settings.referral_price_rupees,
+    });
 
     return {
       referrerId: referrer.id,
@@ -173,6 +186,44 @@ export async function applyReferral(params: {
     };
   } catch (e) {
     console.error("[Referrals] applyReferral failed:", e);
+    return null;
+  }
+}
+
+/**
+ * What a referred visitor should be *shown* before they pay.
+ *
+ * Display only — the charged amount is recomputed by applyReferral at order
+ * creation, which is the authoritative path and also checks self-referral. The
+ * two use the same refereePricing function, so the price on screen and the
+ * price on the card agree.
+ *
+ * Returns null when there's no usable code, so callers fall back to the normal
+ * price. Never throws: a referral must not be able to break the checkout page.
+ */
+export async function previewReferralPricing(
+  rawCode: string | null | undefined,
+  basePaise: number
+): Promise<{ code: string; finalPaise: number; discountPaise: number } | null> {
+  if (!rawCode) return null;
+  try {
+    const settings = await getReferralSettings();
+    if (!settings.is_enabled) return null;
+
+    const referrer = await getReferrerByCode(rawCode);
+    if (!referrer || !referrer.is_active) return null;
+
+    const { finalPaise, discountPaise } = refereePricing({
+      basePaise,
+      mode: settings.referee_pricing_mode,
+      discountRupees: settings.referee_discount_rupees,
+      priceRupees: settings.referral_price_rupees,
+    });
+
+    if (discountPaise <= 0) return null;
+    return { code: referrer.code, finalPaise, discountPaise };
+  } catch (e) {
+    console.error("[Referrals] previewReferralPricing failed:", e);
     return null;
   }
 }
