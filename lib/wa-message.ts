@@ -17,18 +17,19 @@ interface FunnelInput {
 }
 
 export function funnelWaMessage(o: FunnelInput): string {
-  const name = o.buyer_name?.trim() || "there";
+  const name = o.buyer_name?.trim() || "";
+  const greeting = name ? `Hi ${name},` : "Hi,";
   switch (orderStage(o)) {
     case "lead":
-      return `Hi ${name}, this is Bisher Talks 👋 We noticed you were checking out Neuro Code but didn't finish your order. Need any help, or have a question about the book?`;
+      return `Hi ${name}......\n*Neuro Code വാങ്ങാൻ ശ്രമിച്ചതായി കണ്ടു.*\n*കൂടുതൽ എന്തെങ്കിലും അറിയാനുണ്ടോ?*\nഎന്തെങ്കിലും സഹായം ആവശ്യമുണ്ടോ?\nഎങ്കിൽ അറിയിക്കണേ.... ഇല്ലെങ്കിൽ ലിങ്കിൽ കയറി payment ചെയ്ത് കോഴ്‌സ് access നേടാം.. ഒപ്പം നിങ്ങളുടെ അഡ്രസ്സിൽ book അയച്ച് തരുകയും ചെയ്യാം...\nThank you`;
     case "payment_started":
-      return `Hi ${name}, this is Bisher Talks. Your payment for order ${o.order_number} looks like it didn't go through. Would you like help completing it?`;
+      return `${greeting} ഇത് Bisher Talks ആണ്. നിങ്ങളുടെ ഓർഡർ ${o.order_number}-ന്റെ payment complete ആയിട്ടില്ല എന്ന് കാണുന്നു. Payment പൂർത്തിയാക്കാൻ സഹായം വേണോ?`;
     case "failed":
-      return `Hi ${name}, this is Bisher Talks. We saw your payment for order ${o.order_number} failed — no worries, would you like a fresh payment link to try again?`;
+      return `${greeting} ഇത് Bisher Talks ആണ്. നിങ്ങളുടെ ഓർഡർ ${o.order_number}-ന്റെ payment fail ആയതായി കണ്ടു — വിഷമിക്കേണ്ട, വീണ്ടും ശ്രമിക്കാൻ പുതിയ payment link വേണോ?`;
     case "paid_no_address":
-      return `Hi ${name}, thank you for ordering Neuro Code! 🎉 Order ${o.order_number} is confirmed — we just need your delivery address to ship your book. Please share it here: ${addressUrl(o.order_number)}`;
+      return `${greeting} Neuro Code ഓർഡർ ചെയ്തതിന് നന്ദി! 🎉 ഓർഡർ ${o.order_number} confirm ആയി — book അയക്കാൻ നിങ്ങളുടെ delivery address മാത്രം വേണം. ദയവായി ഇവിടെ അയക്കൂ: ${addressUrl(o.order_number)}`;
     case "complete":
-      return `Hi ${name}, this is Bisher Talks regarding your order ${o.order_number} for Neuro Code. How can we help you?`;
+      return `${greeting} ഇത് Bisher Talks ആണ്, നിങ്ങളുടെ Neuro Code ഓർഡർ ${o.order_number} സംബന്ധിച്ച്. എങ്ങനെ സഹായിക്കാം?`;
   }
 }
 

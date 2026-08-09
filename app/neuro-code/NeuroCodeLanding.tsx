@@ -3,8 +3,9 @@
 import Image from "next/image";
 import type { ProductPricing } from "@/lib/db/courses";
 import { faqs } from "./faqs";
+import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Star,
   ShoppingCart,
@@ -95,6 +96,16 @@ const nlpCourseModules = [
 export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing }) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
+  // Tells Meta someone looked at the book, with what it costs. This is the
+  // audience its ad optimisation builds lookalikes from.
+  useEffect(() => {
+    trackViewContent(pricing.payable);
+  }, [pricing.payable]);
+
+  // Every route to checkout reports the same intent signal, so it doesn't
+  // matter which button they press.
+  const onBuyClick = () => trackInitiateCheckout(pricing.payable);
+
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-sans overflow-x-hidden transition-colors">
 
@@ -106,6 +117,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
         </div>
         <a
           href="/neuro-code/checkout"
+                onClick={onBuyClick}
           className="px-5 py-2 rounded-full bg-primary-500 hover:bg-primary-600 text-white text-sm font-semibold transition-all"
         >
           Get the Book
@@ -206,6 +218,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
             <div className="flex flex-wrap gap-4">
               <a
                 href="/neuro-code/checkout"
+                onClick={onBuyClick}
                 className="inline-flex items-center gap-2 px-8 py-4 rounded-full bg-primary-500 hover:bg-primary-600 text-white font-bold text-sm transition-all shadow-lg shadow-primary-500/20"
               >
                 <ShoppingCart className="w-4 h-4" />
@@ -499,6 +512,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
             {/* Buy button */}
             <a
               href="/neuro-code/checkout"
+                onClick={onBuyClick}
               className="group relative mt-8 flex items-center justify-center gap-2 w-full px-8 py-4 rounded-full bg-gradient-to-r from-primary-500 via-primary-400 to-primary-500 bg-[length:200%_auto] text-white font-bold text-base overflow-hidden transition-all duration-300 hover:bg-right hover:-translate-y-0.5 hover:scale-[1.01] shadow-lg shadow-primary-500/30 hover:shadow-xl hover:shadow-primary-500/40 animate-glow-pulse"
             >
               {/* shimmer sweep */}
@@ -710,6 +724,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
             <div className="flex flex-col sm:flex-row gap-4">
               <a
                 href="/neuro-code/checkout"
+                onClick={onBuyClick}
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full bg-primary-500 hover:bg-primary-400 text-white font-bold transition-all shadow-lg shadow-primary-500/20"
               >
                 <ShoppingCart className="w-5 h-5" />
@@ -717,6 +732,7 @@ export default function NeuroCodeLanding({ pricing }: { pricing: ProductPricing 
               </a>
               <a
                 href="/neuro-code/checkout"
+                onClick={onBuyClick}
                 className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-full border border-white/20 hover:border-white/40 text-white font-medium transition-all"
               >
                 Order Signed Copy

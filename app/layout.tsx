@@ -2,6 +2,16 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
+import MetaPixelRouteTracker from "@/components/MetaPixel";
+
+/**
+ * Meta Pixel ID. Hardcoded default so it works without extra Vercel config,
+ * overridable by env, and off in development.
+ */
+const META_PIXEL_ID =
+  process.env.NODE_ENV === "production"
+    ? process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID || "1059545799769579"
+    : process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID || "";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -278,9 +288,51 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
         />
+        {/* Meta Pixel. Inlined here rather than via next/script because an
+            afterInteractive inline script isn't in the served HTML at all —
+            it only appears once React hydrates, which is impossible to verify
+            and silently drops the PageView for anyone who leaves early. This
+            is Meta's snippet verbatim; it loads fbevents.js asynchronously, so
+            it doesn't block rendering. */}
+        {META_PIXEL_ID && (
+          <script
+            dangerouslySetInnerHTML={{
+              __html: `!function(f,b,e,v,n,t,s)
+{if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+n.queue=[];t=b.createElement(e);t.async=!0;
+t.src=v;s=b.getElementsByTagName(e)[0];
+s.parentNode.insertBefore(t,s)}(window, document,'script',
+'https://connect.facebook.net/en_US/fbevents.js');
+fbq('init', '${META_PIXEL_ID}');
+fbq('track', 'PageView');`,
+            }}
+          />
+        )}
       </head>
       <body className={inter.className}>
           <ThemeProvider>{children}</ThemeProvider>
+          {/* Ad tracking. Left out of development on purpose — otherwise every
+              `npm run dev` page load fires a real PageView into the live pixel,
+              which quietly poisons the audience and conversion data the ads are
+              optimised against. Override with NEXT_PUBLIC_FACEBOOK_PIXEL_ID if
+              you ever need to test it locally. */}
+          {META_PIXEL_ID && (
+            <>
+              <MetaPixelRouteTracker />
+              <noscript>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  height="1"
+                  width="1"
+                  style={{ display: "none" }}
+                  alt=""
+                  src={`https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1`}
+                />
+              </noscript>
+            </>
+          )}
         </body>
     </html>
   );

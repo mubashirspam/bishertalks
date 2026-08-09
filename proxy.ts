@@ -6,6 +6,7 @@ import {
   encodeAttribution,
   ATTR_FIRST_COOKIE,
   ATTR_LAST_COOKIE,
+  ATTR_SESSION_COOKIE,
   ATTR_MAX_AGE,
 } from "@/lib/attribution";
 
@@ -97,22 +98,26 @@ function captureAttribution(request: NextRequest) {
   );
 
   const hasFirst = !!request.cookies.get(ATTR_FIRST_COOKIE);
+  const inSession = !!request.cookies.get(ATTR_SESSION_COOKIE);
 
-  // No signal and we've seen them before: ordinary navigation around the site.
-  // Touching cookies here would overwrite a real source with "direct".
-  if (!attribution && hasFirst) return response;
+  // Nothing new to record: no signal, and we're mid-visit. Writing here would
+  // overwrite a real source with "direct" on every click around the site.
+  if (!attribution && inSession && hasFirst) return response;
+
+  const base = {
+    path: "/",
+    sameSite: "lax" as const, // must survive the cross-site click that brought them here
+    httpOnly: false, // no secrets in it, and useful to read client-side later
+    secure: process.env.NODE_ENV === "production",
+  };
 
   const set = (name: string, value: string) =>
-    response.cookies.set(name, value, {
-      maxAge: ATTR_MAX_AGE,
-      path: "/",
-      sameSite: "lax", // must survive the cross-site click that brought them here
-      httpOnly: false, // no secrets in it, and useful to read client-side later
-      secure: process.env.NODE_ENV === "production",
-    });
+    response.cookies.set(name, value, { ...base, maxAge: ATTR_MAX_AGE });
 
   // First touch is recorded even with no signal, so "direct" is a real,
-  // countable answer rather than an absence.
+  // countable answer rather than an absence. Never overwritten afterwards —
+  // whoever introduced this customer keeps the credit, which is what referral
+  // commission is paid on.
   if (!hasFirst) {
     set(
       ATTR_FIRST_COOKIE,
@@ -120,7 +125,21 @@ function captureAttribution(request: NextRequest) {
     );
   }
 
-  if (attribution) set(ATTR_LAST_COOKIE, encodeAttribution(attribution));
+  if (attribution) {
+    set(ATTR_LAST_COOKIE, encodeAttribution(attribution));
+  } else if (!inSession) {
+    // A fresh visit that arrived with no campaign tag and no referrer — they
+    // typed the address, used a bookmark, or came from an app that hides it.
+    // That is genuinely "direct", and saying so matters: without this, someone
+    // who clicked an Instagram ad once would keep being reported as Instagram
+    // for the next 90 days, including on a purchase they made by typing the
+    // checkout URL. Only last-touch is reset; first touch above is not.
+    set(ATTR_LAST_COOKIE, encodeAttribution(directAttribution(url.pathname)));
+  }
+
+  // No maxAge — a session cookie, gone when the browser closes. It's what
+  // separates "still the same visit" from "came back later".
+  response.cookies.set(ATTR_SESSION_COOKIE, "1", base);
 
   return response;
 }

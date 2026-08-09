@@ -196,18 +196,18 @@ async function OrdersTable(props: QueryArgs) {
                               <a
                                 href={telLink(o.buyer_phone)}
                                 title="Call"
-                                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
                               >
-                                <Phone className="w-3 h-3" />
+                                <Phone className="w-4 h-4" />
                               </a>
                               <a
                                 href={waLink(o.buyer_phone, funnelWaMessage(o))}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 title="WhatsApp"
-                                className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
+                                className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
                               >
-                                <MessageCircle className="w-3 h-3" />
+                                <MessageCircle className="w-4 h-4" />
                               </a>
                             </span>
                           )}

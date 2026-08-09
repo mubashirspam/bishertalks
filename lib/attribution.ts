@@ -138,6 +138,13 @@ export interface Attribution {
 
 export const ATTR_FIRST_COOKIE = "attr_first";
 export const ATTR_LAST_COOKIE = "attr_last";
+/**
+ * Session marker. No expiry, so it dies with the browser — that's the whole
+ * point: it tells the middleware whether an untagged page view is "still the
+ * same visit" (leave last-touch alone) or "came back later with no campaign"
+ * (last touch is genuinely direct).
+ */
+export const ATTR_SESSION_COOKIE = "attr_session";
 /** 90 days: long enough to cover "saw the reel, bought next payday". */
 export const ATTR_MAX_AGE = 60 * 60 * 24 * 90;
 

@@ -6,6 +6,7 @@ import type { Order } from "@/lib/types/order";
 import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
 import CopyLinkButton from "./CopyLinkButton";
 import ReferralShare from "@/components/ReferralShare";
+import PurchasePixel from "@/components/PurchasePixel";
 import { getReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
 
 async function getOrder(id: string): Promise<Order | null> {
@@ -78,6 +79,9 @@ export default async function ThankYouPage({
 
   return (
     <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center px-4 py-16">
+      {/* Reports the sale to Meta. Deduplicated on the order number, so a
+          reload doesn't inflate what the campaign appears to have earned. */}
+      <PurchasePixel orderNumber={order.order_number} amountRupees={amount} />
       <div className="w-full max-w-md">
         {/* Success icon */}
         <div className="flex justify-center mb-6">
