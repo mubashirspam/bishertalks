@@ -6,6 +6,7 @@ import { buildOrdersQuery, type OrderRow } from "@/lib/db/orders-query";
 import { orderStage, STAGE_LABELS } from "@/lib/order-stage";
 import { formatIST } from "@/lib/format-date";
 import { SOURCE_LABELS, isTrafficSource } from "@/lib/attribution";
+import { FOLLOW_UP_LABELS, isFollowUpStatus } from "@/lib/follow-up";
 import { toCSV, toXLSX } from "@/lib/export";
 
 const HEADERS = [
@@ -14,6 +15,7 @@ const HEADERS = [
   "Address", "Landmark", "Area", "District", "State", "Pincode",
   "Razorpay payment ID", "Checkout", "Address submitted (IST)",
   "Came from", "First touch", "Campaign",
+  "Follow-up", "Followed up (IST)", "Follow-up note",
 ];
 
 /**
@@ -36,6 +38,7 @@ export async function GET(request: NextRequest) {
     from: p.get("from") ?? undefined,
     to: p.get("to") ?? undefined,
     source: p.get("source") ?? undefined,
+    followUp: p.get("followUp") ?? undefined,
   }).limit(5000);
 
   if (error) {
@@ -71,6 +74,9 @@ export async function GET(request: NextRequest) {
     isTrafficSource(o.source) ? SOURCE_LABELS[o.source] : "",
     isTrafficSource(o.first_source) ? SOURCE_LABELS[o.first_source] : "",
     o.utm_campaign ?? "",
+    isFollowUpStatus(o.follow_up_status) ? FOLLOW_UP_LABELS[o.follow_up_status] : "",
+    o.follow_up_at ? formatIST(o.follow_up_at) : "",
+    o.follow_up_note ?? "",
   ]);
 
   const stamp = new Date().toISOString().slice(0, 10);

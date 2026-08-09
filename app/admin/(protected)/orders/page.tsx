@@ -8,6 +8,7 @@ import { formatISTShort, timeAgo } from "@/lib/format-date";
 import { SOURCE_LABELS, SOURCE_BADGE, isTrafficSource } from "@/lib/attribution";
 import { funnelWaMessage, waLink, telLink } from "@/lib/wa-message";
 import OrderFilters from "./OrderFilters";
+import FollowUpCell from "./FollowUpCell";
 import { Suspense } from "react";
 import { SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
@@ -20,6 +21,7 @@ interface QueryArgs {
   from?: string;
   to?: string;
   source?: string;
+  followUp?: string;
   pageNum: number;
 }
 import { requirePageAccess } from "@/lib/admin-auth";
@@ -42,6 +44,8 @@ interface Row {
   created_at: string;
   source: string | null;
   utm_campaign: string | null;
+  follow_up_status: string | null;
+  follow_up_at: string | null;
 }
 
 export default async function AdminOrdersPage({
@@ -50,19 +54,20 @@ export default async function AdminOrdersPage({
   searchParams: Promise<{
     stage?: string; q?: string; page?: string; from?: string; to?: string;
     source?: string;
+    followUp?: string;
   }>;
 }) {
   // Cached per request and shared with the layout, so this no longer costs a
   // second round trip to Supabase auth.
   await requirePageAccess("orders.view");
 
-  const { stage, q, page = "1", from, to, source } = await searchParams;
+  const { stage, q, page = "1", from, to, source, followUp } = await searchParams;
   const pageNum = Math.max(0, parseInt(page) - 1);
   const activeStage = (stage ?? "all") as OrderStage | "all";
 
   // Nothing is awaited past this point: the shell renders now and the two
   // sections below stream in when the (single, shared) query resolves.
-  const queryArgs: QueryArgs = { stage, q, from, to, source, pageNum };
+  const queryArgs: QueryArgs = { stage, q, from, to, source, followUp, pageNum };
 
   return (
     <NavigationPending>
@@ -97,10 +102,10 @@ export default async function AdminOrdersPage({
 /** Just the count, so the filter bar can paint before the query resolves. */
 async function OrderCount(props: QueryArgs) {
   const { count } = await fetchOrdersPage(
-    props.stage, props.q, props.from, props.to, props.source, props.pageNum, PER_PAGE
+    props.stage, props.q, props.from, props.to, props.source, props.followUp, props.pageNum, PER_PAGE
   );
   const filtered =
-    !!props.stage || !!props.q || !!props.from || !!props.to || !!props.source;
+    !!props.stage || !!props.q || !!props.from || !!props.to || !!props.source || !!props.followUp;
 
   return (
     <>
@@ -113,7 +118,7 @@ async function OrderCount(props: QueryArgs) {
 /** The table itself. Shares one query with OrderCount via React cache. */
 async function OrdersTable(props: QueryArgs) {
   const { rows, count } = await fetchOrdersPage(
-    props.stage, props.q, props.from, props.to, props.source, props.pageNum, PER_PAGE
+    props.stage, props.q, props.from, props.to, props.source, props.followUp, props.pageNum, PER_PAGE
   );
   const orders = rows as unknown as Row[];
   const activeStage = (props.stage ?? "all") as OrderStage | "all";
@@ -126,15 +131,6 @@ async function OrdersTable(props: QueryArgs) {
 
   return (
     <>
-      {activeStage === "paid_no_address" && orders.length > 0 && (
-        <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl px-4 py-3 mb-4 text-sm">
-          <AlertCircle className="w-4 h-4 text-orange-600 mt-0.5 flex-shrink-0" />
-          <p className="text-orange-800">
-            These customers have <strong>paid</strong> but never submitted a delivery
-            address. Call them, or open an order to resend the address link.
-          </p>
-        </div>
-      )}
 
       {!orders.length ? (
         <div className="bg-white border border-neutral-200 rounded-2xl p-12 text-center text-neutral-500 shadow-sm">
@@ -150,6 +146,7 @@ async function OrdersTable(props: QueryArgs) {
                     { label: "Order" },
                     { label: "Customer" },
                     { label: "Stage" },
+                    { label: "Follow-up" },
                     { label: "Came from", narrow: true },
                     { label: "Amount", narrow: true },
                     { label: "Date & time" },
@@ -222,6 +219,17 @@ async function OrdersTable(props: QueryArgs) {
                         <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${STAGE_BADGE[s]}`}>
                           {STAGE_LABELS[s]}
                         </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {o.payment_status === "paid" ? (
+                          <span className="text-neutral-300 text-xs">—</span>
+                        ) : (
+                          <FollowUpCell
+                            orderNumber={o.order_number}
+                            status={o.follow_up_status}
+                            followedAt={o.follow_up_at}
+                          />
+                        )}
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
                         {isTrafficSource(o.source) && (

@@ -10,6 +10,8 @@ export interface OrderFilters {
   to?: string;
   /** Traffic channel the order came from. */
   source?: string;
+  /** Follow-up state: a FollowUpStatus, "none" for untouched, or "all". */
+  followUp?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -38,13 +40,16 @@ export interface OrderRow {
   source: string | null;
   first_source: string | null;
   utm_campaign: string | null;
+  follow_up_status: string | null;
+  follow_up_at: string | null;
+  follow_up_note: string | null;
 }
 
 export const ORDER_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,discount_paise,promo_code," +
   "payment_status,status,address_line1,address_line2,city,district,state,pincode," +
   "razorpay_order_id,razorpay_payment_id,checkout_type,created_at,address_submitted_at," +
-  "source,first_source,utm_campaign";
+  "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -73,6 +78,14 @@ export function buildOrdersQuery(filters: OrderFilters) {
   // `or` this query gets.
   if (filters.source && filters.source !== "all") {
     query = query.eq("source", filters.source);
+  }
+
+  // "none" is the working list — unpaid and nobody has rung them yet.
+  if (filters.followUp && filters.followUp !== "all") {
+    query =
+      filters.followUp === "none"
+        ? query.is("follow_up_status", null)
+        : query.eq("follow_up_status", filters.followUp);
   }
 
   if (filters.q) {

@@ -31,7 +31,6 @@ export default async function AdminLayout({
             name={staff.name}
             role={staff.role}
             permissions={staff.permissions}
-            needsAddress={0}
             toPrint={0}
           />
         }
@@ -41,7 +40,6 @@ export default async function AdminLayout({
           name={staff.name}
           role={staff.role}
           permissions={staff.permissions}
-          canSeeOrders={can(staff, "orders.view")}
           canSeeDelivery={can(staff, "delivery.view")}
         />
       </Suspense>
@@ -63,7 +61,6 @@ export default async function AdminLayout({
  * orders need an address" would be nagged about work they can't open.
  */
 async function SidebarWithCounts({
-  canSeeOrders,
   canSeeDelivery,
   ...props
 }: {
@@ -71,25 +68,11 @@ async function SidebarWithCounts({
   name: string;
   role: Parameters<typeof AdminSidebar>[0]["role"];
   permissions: string[];
-  canSeeOrders: boolean;
   canSeeDelivery: boolean;
 }) {
-  const [needsAddress, toPrint] = await Promise.all([
-    canSeeOrders ? countNeedsAddress() : Promise.resolve(0),
-    canSeeDelivery ? countToPrint() : Promise.resolve(0),
-  ]);
+  const toPrint = canSeeDelivery ? await countToPrint() : 0;
 
-  return <AdminSidebar {...props} needsAddress={needsAddress} toPrint={toPrint} />;
-}
-
-/** Paid orders with no delivery address — money taken, nothing shippable. */
-async function countNeedsAddress(): Promise<number> {
-  const { count } = await supabaseAdmin
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("payment_status", "paid")
-    .is("address_line1", null);
-  return count ?? 0;
+  return <AdminSidebar {...props} toPrint={toPrint} />;
 }
 
 /** Shippable and waiting for a label — the daily job. */

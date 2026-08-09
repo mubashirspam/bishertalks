@@ -5,11 +5,11 @@ import { useState } from "react";
 import { useNavigation } from "@/components/admin/Revalidating";
 import { Search, Download, X, FileSpreadsheet, FileText } from "lucide-react";
 import { TRAFFIC_SOURCES, SOURCE_LABELS } from "@/lib/attribution";
+import { FOLLOW_UP_FILTERS } from "@/lib/follow-up";
 
 const STAGES = [
   { label: "All orders", value: "all" },
   { label: "Paid", value: "complete" },
-  { label: "Paid — needs address", value: "paid_no_address" },
   { label: "Payment started", value: "payment_started" },
   { label: "Payment not started", value: "lead" },
   { label: "Payment failed", value: "failed" },
@@ -41,6 +41,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
 
   const stage = params.get("stage") ?? "all";
   const source = params.get("source") ?? "all";
+  const followUp = params.get("followUp") ?? "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const [q, setQ] = useState(params.get("q") ?? "");
@@ -59,6 +60,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
     const p = new URLSearchParams();
     if (stage !== "all") p.set("stage", stage);
     if (source !== "all") p.set("source", source);
+    if (followUp !== "all") p.set("followUp", followUp);
     if (from) p.set("from", from);
     if (to) p.set("to", to);
     if (params.get("q")) p.set("q", params.get("q")!);
@@ -67,7 +69,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
   };
 
   const hasFilters =
-    stage !== "all" || source !== "all" || !!from || !!to || !!params.get("q");
+    stage !== "all" || source !== "all" || followUp !== "all" || !!from || !!to || !!params.get("q");
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -85,6 +87,20 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
           >
             {STAGES.map((s) => (
               <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Follow-up — the working list for everything unpaid */}
+        <div className="min-w-[160px]">
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Follow-up</label>
+          <select
+            value={followUp}
+            onChange={(e) => push({ followUp: e.target.value === "all" ? null : e.target.value })}
+            className={`${field} w-full cursor-pointer`}
+          >
+            {FOLLOW_UP_FILTERS.map((f) => (
+              <option key={f.value} value={f.value}>{f.label}</option>
             ))}
           </select>
         </div>

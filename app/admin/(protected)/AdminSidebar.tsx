@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, Menu, X, AlertCircle,
+  Shield, Gift, Menu, X,
 } from "lucide-react";
 import {
   can, ROLE_LABELS, ROLE_BADGE, type Permission, type StaffRole,
@@ -44,24 +44,20 @@ const NAV: {
  * presentation only; the actual enforcement is `requirePermission` in the API
  * routes.
  *
- * The two counts come from the server layout and are surfaced as badges, so
- * the day's work is visible from every screen: `needsAddress` is paid orders
- * with nowhere to ship (costs money if unnoticed), `toPrint` is parcels
- * waiting for a label.
+ * `toPrint` comes from the server layout and is surfaced as a badge, so the
+ * day's packing backlog is visible from every screen.
  */
 export default function AdminSidebar({
   email,
   name,
   role,
   permissions,
-  needsAddress,
   toPrint,
 }: {
   email: string;
   name: string;
   role: StaffRole;
   permissions: string[];
-  needsAddress: number;
   toPrint: number;
 }) {
   const pathname = usePathname();
@@ -74,11 +70,6 @@ export default function AdminSidebar({
     exact ? pathname === href : pathname.startsWith(href);
 
   const badges: Record<string, { count: number; title: string; tone: string }> = {
-    "/admin/orders": {
-      count: needsAddress,
-      title: "Paid orders with no delivery address",
-      tone: "bg-orange-100 text-orange-700",
-    },
     "/admin/delivery": {
       count: toPrint,
       title: "Parcels waiting for an address label",
@@ -132,14 +123,6 @@ export default function AdminSidebar({
           <span className="text-neutral-400 font-normal">Admin</span>
         </span>
         <span className="flex items-center gap-2 min-w-8 justify-end">
-          {needsAddress > 0 && (
-            <span
-              className="flex items-center gap-1 text-orange-600 text-xs font-bold"
-              title="Paid orders with no delivery address"
-            >
-              <AlertCircle className="w-3.5 h-3.5" /> {needsAddress}
-            </span>
-          )}
           {toPrint > 0 && (
             <span
               className="flex items-center gap-1 text-blue-600 text-xs font-bold"
