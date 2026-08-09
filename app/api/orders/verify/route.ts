@@ -5,7 +5,6 @@ import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 import { backfillOrderFromRazorpay } from "@/lib/db/orders";
-import { ensureReferrerForOrder } from "@/lib/db/referrals";
 import { redeemPromo } from "@/lib/db/promo";
 import { signOrderToken } from "@/lib/order-token";
 
@@ -77,6 +76,12 @@ export async function POST(request: NextRequest) {
         razorpay_signature,
       })
       .eq("order_number", order_number)
+      // The signature proves this Razorpay payment is genuine — it does NOT
+      // prove it belongs to this order_number, which arrives in the request
+      // body and is attacker-controlled. Without this line one real payment
+      // could be replayed against any number of other orders, marking them
+      // paid and unlocking a course for each.
+      .eq("razorpay_order_id", razorpay_order_id)
       .neq("payment_status", "paid")
       .select("order_number, promo_code");
 
@@ -95,11 +100,6 @@ export async function POST(request: NextRequest) {
     // the buyer from the order's phone number. Safe to re-run: it only fills
     // fields that are still empty.
     await backfillOrderFromRazorpay(order_number, razorpay_order_id);
-
-    // Give this buyer their own referral code. After the backfill, which is
-    // what supplies the name and phone it's built from. Idempotent by phone,
-    // and never throws — see ensureReferrerForOrder.
-    await ensureReferrerForOrder(order_number);
 
     // Auto-grant the bonus NLP course to the buyer's phone. Idempotent upsert,
     // so it's safe even when the webhook already did it.

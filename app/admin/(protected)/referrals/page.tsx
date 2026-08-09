@@ -61,9 +61,9 @@ async function ReferralsBody() {
           <Gift className="w-5 h-5 text-primary-500" /> Referrals
         </h1>
         <p className="text-neutral-500 text-sm mt-1">
-          Every buyer gets a code once their order is paid. Commission is
-          approved when the parcel is <strong>delivered</strong> — not when it&apos;s
-          paid for — so returns never cost you a payout.
+          Add the people you want sharing the book. Commission is approved when
+          the parcel is <strong>delivered</strong> — not when it&apos;s paid for — so
+          returns never cost you a payout.
         </p>
       </div>
 

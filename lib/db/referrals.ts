@@ -3,7 +3,6 @@ import { normalizePhone } from "@/lib/db/users";
 import {
   normalizeCode,
   isValidCodeFormat,
-  generateCode,
   commissionPaise,
   refereeDiscountPaise,
 } from "@/lib/referral";
@@ -181,62 +180,36 @@ export async function applyReferral(params: {
 // ── Creating referrers ──────────────────────────────────────────────────────
 
 /**
- * Give a buyer their own code once their payment lands.
+ * The referrer record for whoever placed this order, or null.
  *
- * Idempotent by phone: a repeat customer keeps the code they've already
- * shared. Never throws — a confirmed payment must not be jeopardised by a
- * referral code.
+ * Look-up only — it never creates anything. Referrers are added by hand in
+ * /admin/referrals, so a code exists for a customer only if someone decided it
+ * should. A buyer with no record simply sees no share block.
+ *
+ * (This used to create a code automatically on every paid order. That was
+ * changed deliberately: it generated a referrer row for every single customer,
+ * most of whom will never share anything, and buried the handful of people
+ * actually worth tracking.)
+ *
+ * Never throws — a referral lookup must not be able to break a thank-you page
+ * shown to someone who has just paid.
  */
-export async function ensureReferrerForOrder(orderNumber: string): Promise<Referrer | null> {
+export async function getReferrerForOrder(orderNumber: string): Promise<Referrer | null> {
   try {
     const settings = await getReferralSettings();
     if (!settings.is_enabled) return null;
 
     const { data: order } = await supabaseAdmin
       .from("orders")
-      .select("buyer_name,buyer_phone,user_id,payment_status")
+      .select("buyer_phone,payment_status")
       .eq("order_number", orderNumber)
       .maybeSingle();
 
     if (!order || order.payment_status !== "paid" || !order.buyer_phone) return null;
 
-    const phone = normalizePhone(order.buyer_phone);
-    const existing = await getReferrerByPhone(phone);
-    if (existing) return existing;
-
-    // Retry on the unique-code constraint rather than pre-checking: the check
-    // would be racy anyway, and the database is the only real arbiter.
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const code = generateCode(order.buyer_name);
-      const { data, error } = await supabaseAdmin
-        .from("referrers")
-        .insert({
-          code,
-          name: order.buyer_name || "Customer",
-          phone,
-          type: "customer",
-          commission_type: "flat",
-          commission_value: settings.customer_commission_rupees,
-          user_id: order.user_id ?? null,
-        })
-        .select(REFERRER_COLUMNS)
-        .single();
-
-      if (!error) return data as unknown as Referrer;
-      // 23505 = unique violation. Anything else is a real failure.
-      if (error.code !== "23505") {
-        console.error("[Referrals] create failed:", error.message);
-        return null;
-      }
-      // Another request created this buyer's code between our check and insert.
-      const raced = await getReferrerByPhone(phone);
-      if (raced) return raced;
-    }
-
-    console.error("[Referrals] could not find a free code for", orderNumber);
-    return null;
+    return await getReferrerByPhone(order.buyer_phone);
   } catch (e) {
-    console.error("[Referrals] ensureReferrerForOrder failed:", orderNumber, e);
+    console.error("[Referrals] getReferrerForOrder failed:", orderNumber, e);
     return null;
   }
 }

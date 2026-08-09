@@ -137,10 +137,29 @@ export async function grantBookBonusForOrderNumber(
 ): Promise<void> {
   const { data: order } = await supabaseAdmin
     .from("orders")
-    .select("id, user_id, buyer_phone, buyer_name, buyer_email, city, state")
+    .select(
+      "id, user_id, buyer_phone, buyer_name, buyer_email, city, state, payment_status"
+    )
     .eq("order_number", orderNumber)
     .maybeSingle();
   if (!order) return;
+
+  // The course is what the book buys. An order row exists from the moment
+  // someone types their phone number into checkout, long before they pay — so
+  // this function refuses to act on anything that isn't actually paid for,
+  // rather than trusting every caller to have checked first.
+  //
+  // Both current callers do check, but this is the last gate before a free
+  // ₹2,499 course is handed out, and a guard here can't be forgotten by the
+  // next route that needs to grant access.
+  if (order.payment_status !== "paid") {
+    console.error(
+      "grantBookBonusForOrderNumber: refusing to grant, order is not paid:",
+      orderNumber,
+      order.payment_status
+    );
+    return;
+  }
 
   let userId = order.user_id as string | null;
 

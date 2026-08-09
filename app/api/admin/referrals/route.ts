@@ -13,7 +13,13 @@ import { normalizeCode, isValidCodeFormat, generateCode } from "@/lib/referral";
 import { normalizePhone } from "@/lib/db/users";
 import { audit } from "@/lib/audit";
 
-/** Create an affiliate by hand — an influencer with a negotiated rate. */
+/**
+ * Create a referrer by hand.
+ *
+ * The only way a code comes into existence. Buyers used to get one
+ * automatically on payment, which produced a row for every customer and
+ * buried the few worth tracking; now someone decides.
+ */
 export async function POST(request: NextRequest) {
   const auth = await requirePermission("referrals.view");
   if (!auth.ok) return auth.response;
@@ -37,10 +43,16 @@ export async function POST(request: NextRequest) {
   }
 
   const settings = await getReferralSettings();
-  const commissionType = body.commission_type === "flat" ? "flat" : "percent";
+
+  // Customers get a flat rupee amount, affiliates a percentage — but the form
+  // can override either, so the type is recorded and the rate taken as given.
+  const type = body.type === "affiliate" ? "affiliate" : "customer";
+  const commissionType = body.commission_type === "percent" ? "percent" : "flat";
   const commissionValue = Number.isFinite(Number(body.commission_value))
     ? Math.max(0, Math.floor(Number(body.commission_value)))
-    : settings.affiliate_commission_percent;
+    : type === "affiliate"
+      ? settings.affiliate_commission_percent
+      : settings.customer_commission_rupees;
 
   if (commissionType === "percent" && commissionValue > 100) {
     return NextResponse.json({ error: "A percentage can't exceed 100." }, { status: 400 });
@@ -54,7 +66,7 @@ export async function POST(request: NextRequest) {
       phone: body.phone ? normalizePhone(String(body.phone)) : null,
       email: body.email ? String(body.email).trim().toLowerCase() : null,
       upi_id: body.upi_id ? String(body.upi_id).trim() : null,
-      type: "affiliate",
+      type,
       commission_type: commissionType,
       commission_value: commissionValue,
       notes: body.notes ? String(body.notes).trim() : null,
@@ -63,7 +75,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   if (error) {
-    console.error("[Referrals] affiliate create failed:", error.message);
+    console.error("[Referrals] referrer create failed:", error.message);
     return NextResponse.json({ error: "Could not create" }, { status: 500 });
   }
 
@@ -72,7 +84,7 @@ export async function POST(request: NextRequest) {
     action: "referrer.created",
     entity: "referrer",
     entityId: (data as { id: string }).id,
-    meta: { code, name, commissionType, commissionValue },
+    meta: { code, name, type, commissionType, commissionValue },
   });
 
   return NextResponse.json({ referrer: data });

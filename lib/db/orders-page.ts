@@ -1,6 +1,10 @@
 import { cache } from "react";
 import { buildOrdersQuery } from "@/lib/db/orders-query";
-import { buildDeliveryQuery, type DeliveryFilters } from "@/lib/db/delivery-query";
+import {
+  buildDeliveryQuery,
+  parseDeliveryFilters,
+  type DeliveryFilters,
+} from "@/lib/db/delivery-query";
 
 /**
  * Page fetches, memoised for the duration of one request.
@@ -60,13 +64,13 @@ export const fetchDeliveryPage = cache(async function fetchDeliveryPage(
   pageNum: number,
   perPage: number
 ) {
-  const filters: DeliveryFilters = {
-    stage,
-    q,
-    from,
-    to,
-    sort: sort === "newest" ? "newest" : "oldest",
-  };
+  // Defaulting is `parseDeliveryFilters`' job — it's what the tab counts and
+  // the label PDF already go through. This function used to re-derive the
+  // default itself, and when the default flipped to newest-first the copy
+  // here didn't: picking "Newest first" clears the ?sort param, the stale
+  // fallback read the absent value as "oldest", and the sort silently never
+  // worked. One source of truth, so it can't drift again.
+  const filters: DeliveryFilters = parseDeliveryFilters({ stage, q, from, to, sort });
 
   const { data, count, error } = await buildDeliveryQuery(filters).range(
     pageNum * perPage,

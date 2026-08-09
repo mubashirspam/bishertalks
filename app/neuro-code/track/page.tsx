@@ -9,7 +9,7 @@ import {
   type OrderStatus,
 } from "@/lib/types/order";
 import ReferralShare from "@/components/ReferralShare";
-import { ensureReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
+import { getReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
 
 async function getOrder(id: string): Promise<Order | null> {
   const { data } = await supabaseAdmin
@@ -33,8 +33,10 @@ async function getReferralBlock(orderNumber: string) {
     const settings = await getReferralSettings();
     if (!settings.is_enabled) return null;
 
-    const referrer = await ensureReferrerForOrder(orderNumber);
-    if (!referrer) return null;
+    // Look-up only. Referrers are added by hand in admin, so most buyers
+    // have no code and simply don't see this block.
+    const referrer = await getReferrerForOrder(orderNumber);
+    if (!referrer || !referrer.is_active) return null;
 
     return {
       code: referrer.code,

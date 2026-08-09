@@ -11,10 +11,16 @@ const PAGES = [
   { label: "Courses", path: "/courses" },
 ];
 
-/** Channels you'd actually post a link on. */
-const CHANNELS = TRAFFIC_SOURCES.filter(
-  (s) => s !== "direct" && s !== "other" && s !== "referral"
-);
+/**
+ * Channels you'd actually post a link on.
+ *
+ * "referral" is included and behaves differently from the rest: instead of
+ * tagging the channel, it builds a /refer/CODE link so the click is counted
+ * against that referrer and their commission is credited on any resulting
+ * order. Keep the paths in step with DESTINATIONS in app/refer/[code]/route.ts —
+ * a page missing there silently falls back to the book page.
+ */
+const CHANNELS = TRAFFIC_SOURCES.filter((s) => s !== "direct" && s !== "other");
 
 /**
  * Generates the tagged URLs the team posts.
@@ -27,18 +33,34 @@ export default function LinkBuilder() {
   const [path, setPath] = useState(PAGES[0].path);
   const [channel, setChannel] = useState<string>("instagram");
   const [campaign, setCampaign] = useState("");
+  const [refCode, setRefCode] = useState("");
   const [copied, setCopied] = useState(false);
+
+  const isReferral = channel === "referral";
 
   const origin =
     typeof window !== "undefined" ? window.location.origin : "https://bishertalks.com";
 
-  const params = new URLSearchParams({ utm_source: channel });
   // Slugified so "Aug reel 2" and "aug-reel-2" don't become two rows in the
   // campaign report.
   const slug = campaign.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-  if (slug) params.set("utm_campaign", slug);
+  const code = refCode.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
 
-  const url = `${origin}${path}?${params}`;
+  let url: string;
+  if (isReferral) {
+    // /refer/CODE, not ?ref=CODE on the page directly: the route counts the
+    // click before redirecting, so the referrer's click total stays honest
+    // whichever page the link points at.
+    const p = new URLSearchParams();
+    if (path !== "/neuro-code") p.set("to", path);
+    if (slug) p.set("utm_campaign", slug);
+    const qs = p.toString();
+    url = `${origin}/refer/${code || "CODE"}${qs ? `?${qs}` : ""}`;
+  } else {
+    const p = new URLSearchParams({ utm_source: channel });
+    if (slug) p.set("utm_campaign", slug);
+    url = `${origin}${path}?${p}`;
+  }
 
   const copy = async () => {
     await navigator.clipboard?.writeText(url);
@@ -56,7 +78,9 @@ export default function LinkBuilder() {
       </h2>
       <p className="text-xs text-neutral-500 mb-4">
         Use this instead of a plain link in your bio, story, or broadcast — it&apos;s
-        the only way the channel shows up correctly above.
+        the only way the channel shows up correctly above. Pick{" "}
+        <strong>Referral</strong> and enter someone&apos;s code to build their
+        sharing link for any page.
       </p>
 
       <div className="flex flex-wrap items-end gap-3">
@@ -78,6 +102,20 @@ export default function LinkBuilder() {
           </select>
         </div>
 
+        {isReferral && (
+          <div className="min-w-[150px]">
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              Referral code
+            </label>
+            <input
+              value={refCode}
+              onChange={(e) => setRefCode(e.target.value.toUpperCase())}
+              placeholder="PRIYA7K2"
+              className={`${field} w-full font-mono`}
+            />
+          </div>
+        )}
+
         <div className="flex-1 min-w-[180px]">
           <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
             Campaign <span className="text-neutral-400 font-normal">(optional)</span>
@@ -97,7 +135,8 @@ export default function LinkBuilder() {
         </code>
         <button
           onClick={copy}
-          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
+          disabled={isReferral && !code}
+          className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 ${
             copied ? "bg-green-500 text-white" : "bg-neutral-900 text-white hover:bg-neutral-700"
           }`}
         >

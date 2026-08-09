@@ -33,9 +33,23 @@ export default function ReferralsManager({
 
   const [form, setForm] = useState({
     name: "", code: "", phone: "", upi_id: "",
-    commission_type: "percent" as "percent" | "flat",
-    commission_value: String(settings.affiliate_commission_percent),
+    type: "customer" as "customer" | "affiliate",
+    commission_type: "flat" as "percent" | "flat",
+    commission_value: String(settings.customer_commission_rupees),
   });
+
+  /** Picking a type sets the rate that type normally gets; still editable. */
+  const setType = (type: "customer" | "affiliate") =>
+    setForm((f) => ({
+      ...f,
+      type,
+      commission_type: type === "customer" ? "flat" : "percent",
+      commission_value: String(
+        type === "customer"
+          ? settings.customer_commission_rupees
+          : settings.affiliate_commission_percent
+      ),
+    }));
   const [draftSettings, setDraftSettings] = useState(settings);
 
   const call = async (method: string, body: unknown) => {
@@ -63,10 +77,10 @@ export default function ReferralsManager({
     }
   };
 
-  const addAffiliate = async () => {
+  const addReferrer = async () => {
     const res = await call("POST", form);
     if (res) {
-      setOk(`Affiliate created with code ${res.referrer.code}`);
+      setOk(`Referrer created with code ${res.referrer.code}`);
       setShowAdd(false);
       setForm({ ...form, name: "", code: "", phone: "", upi_id: "" });
     }
@@ -141,7 +155,7 @@ export default function ReferralsManager({
           onClick={() => { setShowAdd(!showAdd); setShowSettings(false); }}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-bold transition-colors"
         >
-          <UserPlus className="w-4 h-4" /> Add affiliate
+          <UserPlus className="w-4 h-4" /> Add referrer
         </button>
         <button
           onClick={() => { setShowSettings(!showSettings); setShowAdd(false); }}
@@ -242,12 +256,24 @@ export default function ReferralsManager({
       {/* Add affiliate */}
       {showAdd && (
         <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm mb-5">
-          <h2 className="font-semibold text-sm text-neutral-700 mb-1">Add an affiliate</h2>
+          <h2 className="font-semibold text-sm text-neutral-700 mb-1">Add a referrer</h2>
           <p className="text-xs text-neutral-500 mb-4">
-            For influencers and partners on a negotiated rate. Ordinary customers
-            get a code automatically — you don&apos;t need to add them here.
+            Codes are only created here. Pick <strong>Customer</strong> for a
+            reader sharing with friends (flat ₹ per sale), or
+            <strong> Affiliate</strong> for an influencer on a percentage.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Type</label>
+              <select
+                value={form.type}
+                onChange={(e) => setType(e.target.value as "customer" | "affiliate")}
+                className={`${field} w-full cursor-pointer`}
+              >
+                <option value="customer">Customer — flat ₹ per sale</option>
+                <option value="affiliate">Affiliate — % of sale</option>
+              </select>
+            </div>
             <div>
               <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Name</label>
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className={`${field} w-full`} />
@@ -301,11 +327,11 @@ export default function ReferralsManager({
           </div>
           <div className="flex gap-2 mt-4 pt-4 border-t border-neutral-100">
             <button
-              onClick={addAffiliate}
+              onClick={addReferrer}
               disabled={busy}
               className="px-4 py-2 rounded-xl bg-primary-500 hover:bg-primary-600 text-white text-sm font-bold disabled:opacity-60"
             >
-              {busy ? "Creating…" : "Create affiliate"}
+              {busy ? "Creating…" : "Create referrer"}
             </button>
             <button onClick={() => setShowAdd(false)} className="px-4 py-2 rounded-xl border border-neutral-200 text-sm text-neutral-600 hover:border-neutral-400">
               Cancel
@@ -317,7 +343,7 @@ export default function ReferralsManager({
       {/* Referrers */}
       {!rows.length ? (
         <div className="bg-white border border-neutral-200 rounded-2xl p-12 text-center text-neutral-500 shadow-sm">
-          No referrers yet. Codes are created automatically as orders are paid for.
+          No referrers yet. Use “Add referrer” above to give someone a code.
         </div>
       ) : (
         <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-sm">

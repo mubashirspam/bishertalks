@@ -42,6 +42,10 @@ export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
   const stage = params.get("stage") ?? "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
+  // Must match the default in parseDeliveryFilters (lib/db/delivery-query.ts).
+  // It's mirrored rather than imported because that module pulls in the
+  // service-role Supabase client, which has no business in the browser — but
+  // the two disagreeing is exactly what once made this dropdown lie.
   const sort = params.get("sort") ?? "newest";
   const [q, setQ] = useState(params.get("q") ?? "");
 
