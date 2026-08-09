@@ -44,6 +44,8 @@ export interface Order {
   label_download_count: number;
   shipped_at: string | null;
   delivered_at: string | null;
+  /** When the receipt email went out, or null. */
+  invoice_email_sent_at: string | null;
   created_at: string;
   updated_at: string;
   /** Audit trail, attached by /api/orders/[id] for the admin detail page. */

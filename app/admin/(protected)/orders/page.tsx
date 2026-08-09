@@ -275,23 +275,6 @@ async function OrdersTable(props: QueryArgs) {
           </div>
         </div>
       )}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-4">
-          <p className="text-neutral-500 text-xs">Page {pageNum + 1} of {totalPages}</p>
-          <div className="flex gap-2">
-            {pageNum > 0 && (
-              <Link href={link(activeStage, pageNum)} className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm hover:border-neutral-300 transition-all">
-                ← Prev
-              </Link>
-            )}
-            {pageNum + 1 < totalPages && (
-              <Link href={link(activeStage, pageNum + 2)} className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm hover:border-neutral-300 transition-all">
-                Next →
-              </Link>
-            )}
-          </div>
-        </div>
-      )}
     </>
   );
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History } from "lucide-react";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail } from "lucide-react";
 import { formatIST, timeAgo } from "@/lib/format-date";
 import { describeAudit } from "@/lib/audit";
 import {
@@ -26,6 +26,8 @@ export default function AdminOrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [emailMsg, setEmailMsg] = useState<{ text: string; bad?: boolean } | null>(null);
 
   const [form, setForm] = useState({
     status: "" as OrderStatus,
@@ -70,6 +72,31 @@ export default function AdminOrderDetailPage() {
       setTimeout(() => setSaved(false), 2000);
     }
     setSaving(false);
+  };
+
+  const sendEmail = async () => {
+    setEmailing(true);
+    setEmailMsg(null);
+    try {
+      const res = await fetch("/api/admin/orders/email", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setEmailMsg({ text: "Confirmation emailed." });
+        // Reflect the new sent timestamp without a full reload.
+        const fresh = await fetch(`/api/orders/${id}`).then((r) => r.json());
+        setOrder(fresh);
+      } else {
+        setEmailMsg({ text: json.error ?? "Could not send", bad: true });
+      }
+    } catch {
+      setEmailMsg({ text: "Network error", bad: true });
+    } finally {
+      setEmailing(false);
+    }
   };
 
   if (loading) {
@@ -313,6 +340,44 @@ export default function AdminOrderDetailPage() {
                 WhatsApp notification auto-sent on Shipped &amp; Delivered updates
               </p>
             </div>
+          </div>
+
+          {/* Confirmation email. Most orders have no email address — it's optional
+              at checkout — so this states which case you're looking at rather
+              than showing a dead button. */}
+          <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm text-neutral-700 font-medium flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5 text-primary-500" /> Confirmation email
+                </p>
+                <p className="text-xs text-neutral-500 mt-0.5 truncate">
+                  {!order.buyer_email
+                    ? "No email address on this order"
+                    : order.invoice_email_sent_at
+                      ? `Sent ${formatIST(order.invoice_email_sent_at)}`
+                      : "Not sent yet"}
+                </p>
+              </div>
+              {order.buyer_email && order.payment_status === "paid" && (
+                <button
+                  onClick={sendEmail}
+                  disabled={emailing}
+                  className="px-3 py-1.5 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:border-neutral-400 disabled:opacity-50 whitespace-nowrap transition-colors"
+                >
+                  {emailing
+                    ? "Sending…"
+                    : order.invoice_email_sent_at
+                      ? "Send again"
+                      : "Send now"}
+                </button>
+              )}
+            </div>
+            {emailMsg && (
+              <p className={`text-xs mt-2 ${emailMsg.bad ? "text-red-600" : "text-green-600"}`}>
+                {emailMsg.text}
+              </p>
+            )}
           </div>
 
           {/* Tracking link */}

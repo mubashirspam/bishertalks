@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 import { backfillOrderFromRazorpay } from "@/lib/db/orders";
+import { sendPurchaseEmail } from "@/lib/db/order-email";
 import { redeemPromo } from "@/lib/db/promo";
 import { signOrderToken } from "@/lib/order-token";
 
@@ -100,6 +101,12 @@ export async function POST(request: NextRequest) {
     // the buyer from the order's phone number. Safe to re-run: it only fills
     // fields that are still empty.
     await backfillOrderFromRazorpay(order_number, razorpay_order_id);
+
+    // Receipt + course access by email. After the backfill, because that is
+    // what supplies buyer_email on the Magic Checkout path. Guarded against
+    // duplicates by invoice_email_sent_at, so the webhook racing this route
+    // can't send it twice. Never throws.
+    await sendPurchaseEmail(order_number);
 
     // Auto-grant the bonus NLP course to the buyer's phone. Idempotent upsert,
     // so it's safe even when the webhook already did it.
