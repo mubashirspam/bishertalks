@@ -98,6 +98,10 @@ export function describeAudit(row: AuditRow): string {
       return `Label print undone`;
     case "order.updated":
       return `Order details updated`;
+    case "order.payment_link":
+      return `Payment link generated (₹${Math.round(Number(m.amount_paise ?? 0) / 100)})`;
+    case "order.address":
+      return `Delivery address edited manually`;
     default:
       return row.action;
   }

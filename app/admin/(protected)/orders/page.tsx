@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, Phone, MessageCircle } from "lucide-react";
+import { AlertCircle, Phone, MessageCircle, ArrowRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   orderStage, STAGE_LABELS, STAGE_BADGE, type OrderStage,
@@ -142,7 +142,7 @@ async function OrdersTable(props: QueryArgs) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 text-left bg-neutral-50">
-                  {[
+                  {([
                     { label: "Order" },
                     { label: "Customer" },
                     { label: "Stage" },
@@ -150,9 +150,10 @@ async function OrdersTable(props: QueryArgs) {
                     { label: "Came from", narrow: true },
                     { label: "Amount", narrow: true },
                     { label: "Date & time" },
-                  ].map((h) => (
+                    { label: "", key: "view" },
+                  ] as { label: string; narrow?: boolean; key?: string }[]).map((h) => (
                     <th
-                      key={h.label}
+                      key={h.key ?? h.label}
                       className={`px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider ${
                         h.narrow ? "hidden md:table-cell" : ""
                       }`}
@@ -256,6 +257,15 @@ async function OrdersTable(props: QueryArgs) {
                         <p className="text-neutral-400 mt-0.5">
                           {timeAgo(o.created_at)}
                         </p>
+                      </td>
+                      <td className="pl-1 pr-3 py-3">
+                        <Link
+                          href={`/admin/orders/${o.order_number}`}
+                          title="View details"
+                          className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-primary-50 text-primary-600 hover:bg-primary-100 hover:translate-x-0.5 transition-all"
+                        >
+                          <ArrowRight className="w-4 h-4" />
+                        </Link>
                       </td>
                     </tr>
                   );

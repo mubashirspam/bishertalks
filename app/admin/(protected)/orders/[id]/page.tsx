@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail } from "lucide-react";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail, Link2, Copy, Check, PencilLine, X } from "lucide-react";
 import { formatIST, timeAgo } from "@/lib/format-date";
 import { describeAudit } from "@/lib/audit";
 import {
@@ -14,6 +14,7 @@ import {
   type OrderStatus,
 } from "@/lib/types/order";
 import { funnelWaMessage, deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
+import { orderStage, STAGE_LABELS as FUNNEL_LABELS, STAGE_BADGE as FUNNEL_BADGE } from "@/lib/order-stage";
 
 const ALL_STATUSES: OrderStatus[] = [
   "confirmed", "processing", "shipped", "out_for_delivery", "delivered", "cancelled",
@@ -28,6 +29,20 @@ export default function AdminOrderDetailPage() {
   const [saved, setSaved] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [linkLoading, setLinkLoading] = useState(false);
+  const [linkMsg, setLinkMsg] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [addrSaving, setAddrSaving] = useState(false);
+  const [addr, setAddr] = useState({
+    buyer_name: "",
+    address_line1: "",
+    address_line2: "",
+    city: "",
+    district: "",
+    state: "",
+    pincode: "",
+  });
 
   const [form, setForm] = useState({
     status: "" as OrderStatus,
@@ -51,6 +66,15 @@ export default function AdminOrderDetailPage() {
           courier_name: data.courier_name ?? "",
           expected_delivery: data.expected_delivery ?? "",
           notes: data.notes ?? "",
+        });
+        setAddr({
+          buyer_name: data.buyer_name ?? "",
+          address_line1: data.address_line1 ?? "",
+          address_line2: data.address_line2 ?? "",
+          city: data.city ?? "",
+          district: data.district ?? "",
+          state: data.state ?? "",
+          pincode: data.pincode ?? "",
         });
       })
       .catch(() => router.push("/admin/orders"))
@@ -99,6 +123,70 @@ export default function AdminOrderDetailPage() {
     }
   };
 
+  const generateLink = async (regenerate = false) => {
+    setLinkLoading(true);
+    setLinkMsg(null);
+    try {
+      const res = await fetch("/api/admin/orders/payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: id, regenerate }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        setOrder((prev) =>
+          prev ? { ...prev, payment_link_id: json.link_id, payment_link_url: json.url } : prev
+        );
+        setLinkMsg({ text: json.reused ? "Existing link is still live." : "Payment link ready." });
+      } else {
+        setLinkMsg({ text: json.error ?? "Could not create link", bad: true });
+      }
+    } catch {
+      setLinkMsg({ text: "Network error", bad: true });
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
+  const copyLink = async (url: string) => {
+    await navigator.clipboard?.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  const lookupPincode = async (pin: string) => {
+    if (!/^\d{6}$/.test(pin)) return;
+    try {
+      const res = await fetch(`/api/pincode/${pin}`);
+      const json = await res.json();
+      if (json.found) {
+        setAddr((prev) => ({
+          ...prev,
+          city: prev.city || json.district,
+          district: json.district,
+          state: json.state,
+        }));
+      }
+    } catch {
+      // Soft-fail — manual entry still works.
+    }
+  };
+
+  const saveAddress = async () => {
+    setAddrSaving(true);
+    const res = await fetch("/api/orders/update", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ order_number: id, ...addr }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setOrder((prev) => (prev ? { ...prev, ...updated, history: prev.history } : prev));
+      setEditingAddress(false);
+    }
+    setAddrSaving(false);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-neutral-500">
@@ -133,50 +221,75 @@ export default function AdminOrderDetailPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left col */}
         <div className="space-y-5">
-          {/* Status stepper */}
+          {/* Status stepper. The delivery column is written as "confirmed" the
+              moment checkout starts, so for an unpaid order it would lie —
+              "Order Confirmed" on a failed payment. Until money lands, this
+              card shows the funnel stage instead of the delivery stepper. */}
           <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
             <h2 className="font-semibold text-sm text-neutral-700 mb-5 flex items-center gap-2">
               <Package className="w-4 h-4 text-primary-500" /> Order Progress
             </h2>
-            <div className="flex gap-1 flex-wrap mb-4">
-              {STATUS_STEPS.map((step, i) => (
-                <div
-                  key={step}
-                  className={`h-1.5 flex-1 rounded-full transition-all ${
-                    i <= currentStep ? "bg-primary-500" : "bg-neutral-200"
-                  }`}
-                />
-              ))}
-            </div>
-            <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_BADGE[order.status as OrderStatus]}`}>
-              {STATUS_LABELS[order.status as OrderStatus]}
-            </span>
+            {order.payment_status === "paid" ? (
+              <>
+                <div className="flex gap-1 flex-wrap mb-4">
+                  {STATUS_STEPS.map((step, i) => (
+                    <div
+                      key={step}
+                      className={`h-1.5 flex-1 rounded-full transition-all ${
+                        i <= currentStep ? "bg-primary-500" : "bg-neutral-200"
+                      }`}
+                    />
+                  ))}
+                </div>
+                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${STATUS_BADGE[order.status as OrderStatus]}`}>
+                  {STATUS_LABELS[order.status as OrderStatus]}
+                </span>
 
-            {/* Whether the parcel label has been printed — the same signal the
-                Delivery queue sorts on, so both screens agree. */}
-            <div className="mt-4 pt-4 border-t border-neutral-100 text-xs">
-              {order.label_downloaded_at ? (
-                <p className="text-neutral-600">
-                  Address label printed {formatIST(order.label_downloaded_at)}
-                  {order.label_download_count > 1 &&
-                    ` · ${order.label_download_count} times`}
+                {/* Whether the parcel label has been printed — the same signal the
+                    Delivery queue sorts on, so both screens agree. */}
+                <div className="mt-4 pt-4 border-t border-neutral-100 text-xs">
+                  {order.label_downloaded_at ? (
+                    <p className="text-neutral-600">
+                      Address label printed {formatIST(order.label_downloaded_at)}
+                      {order.label_download_count > 1 &&
+                        ` · ${order.label_download_count} times`}
+                    </p>
+                  ) : (
+                    <p className="text-neutral-400">
+                      Address label not printed yet —{" "}
+                      <Link href="/admin/delivery" className="text-primary-600 hover:underline">
+                        Delivery queue
+                      </Link>
+                    </p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <span className={`inline-flex px-3 py-1 rounded-full text-xs font-semibold border ${FUNNEL_BADGE[orderStage(order)]}`}>
+                  {FUNNEL_LABELS[orderStage(order)]}
+                </span>
+                <p className="text-neutral-400 text-xs mt-4 pt-4 border-t border-neutral-100">
+                  Nothing to ship until payment lands — generate a payment link below, or follow up on WhatsApp.
                 </p>
-              ) : (
-                <p className="text-neutral-400">
-                  Address label not printed yet —{" "}
-                  <Link href="/admin/delivery" className="text-primary-600 hover:underline">
-                    Delivery queue
-                  </Link>
-                </p>
-              )}
-            </div>
+              </>
+            )}
           </div>
 
           {/* Buyer info */}
           <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
-            <h2 className="font-semibold text-sm text-neutral-700 mb-4 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-primary-500" /> Buyer & Address
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-sm text-neutral-700 flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-primary-500" /> Buyer & Address
+              </h2>
+              <button
+                onClick={() => setEditingAddress((v) => !v)}
+                className="inline-flex items-center gap-1 text-xs text-primary-600 hover:text-primary-700 font-medium transition-colors"
+              >
+                {editingAddress ? <X className="w-3.5 h-3.5" /> : <PencilLine className="w-3.5 h-3.5" />}
+                {editingAddress ? "Cancel" : "Edit"}
+              </button>
+            </div>
             <div className="space-y-2 text-sm">
               <div className="flex justify-between">
                 <span className="text-neutral-500">Name</span>
@@ -227,12 +340,13 @@ export default function AdminOrderDetailPage() {
                     {order.address_line1}
                     {order.address_line2 && <>, {order.address_line2}</>}
                     <br />
-                    {order.city}, {order.state} — {order.pincode}
+                    {order.city}
+                    {order.district ? `, ${order.district}` : ""}, {order.state} — {order.pincode}
                   </>
                 ) : order.payment_status === "paid" ? (
                   // Paid but unshippable — the case that costs real money.
                   <span className="text-orange-600 font-medium">
-                    Paid, but no delivery address yet — chase this customer.
+                    Paid, but no delivery address yet — chase this customer, or tap Edit above and type it in.
                   </span>
                 ) : (
                   <span className="text-neutral-400 italic">
@@ -241,6 +355,60 @@ export default function AdminOrderDetailPage() {
                 )}
               </div>
             </div>
+
+            {/* Manual entry — for the customer who reads their address out on a
+                call instead of filling the form. Pincode autofills city/state. */}
+            {editingAddress && (
+              <div className="mt-4 pt-4 border-t border-neutral-100 space-y-3">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="col-span-2">
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Name</label>
+                    <input className={inputCls} value={addr.buyer_name} onChange={(e) => setAddr((p) => ({ ...p, buyer_name: e.target.value }))} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Address line 1</label>
+                    <input className={inputCls} value={addr.address_line1} onChange={(e) => setAddr((p) => ({ ...p, address_line1: e.target.value }))} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Address line 2</label>
+                    <input className={inputCls} value={addr.address_line2} onChange={(e) => setAddr((p) => ({ ...p, address_line2: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Pincode</label>
+                    <input
+                      className={inputCls}
+                      inputMode="numeric"
+                      maxLength={6}
+                      value={addr.pincode}
+                      onChange={(e) => {
+                        const pin = e.target.value.replace(/\D/g, "");
+                        setAddr((p) => ({ ...p, pincode: pin }));
+                        lookupPincode(pin);
+                      }}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">City</label>
+                    <input className={inputCls} value={addr.city} onChange={(e) => setAddr((p) => ({ ...p, city: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">District</label>
+                    <input className={inputCls} value={addr.district} onChange={(e) => setAddr((p) => ({ ...p, district: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">State</label>
+                    <input className={inputCls} value={addr.state} onChange={(e) => setAddr((p) => ({ ...p, state: e.target.value }))} />
+                  </div>
+                </div>
+                <button
+                  onClick={saveAddress}
+                  disabled={addrSaving || !addr.address_line1 || addr.pincode.length !== 6}
+                  className="w-full py-2.5 rounded-xl bg-primary-500 hover:bg-primary-600 text-white font-bold text-sm disabled:opacity-50 transition-colors"
+                >
+                  {addrSaving ? "Saving…" : "Save address"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Payment */}
@@ -341,6 +509,71 @@ export default function AdminOrderDetailPage() {
               </p>
             </div>
           </div>
+
+          {/* Collect payment — recovery for failed/abandoned checkouts. The
+              link opens Razorpay's hosted page (UPI QR, cards, netbanking) for
+              exactly this order's amount; paying it flips the order to paid
+              via the payment_link.paid webhook, same as a normal checkout. */}
+          {order.payment_status !== "paid" && (
+            <div className="bg-white border border-primary-200 rounded-2xl p-4 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-neutral-700 font-medium flex items-center gap-1.5">
+                    <Link2 className="w-3.5 h-3.5 text-primary-500" /> Payment link
+                  </p>
+                  <p className="text-xs text-neutral-500 mt-0.5">
+                    {order.payment_link_url
+                      ? "Link is live — share it on WhatsApp"
+                      : "Generate a link the customer can pay directly"}
+                  </p>
+                </div>
+                <button
+                  onClick={() => generateLink(!!order.payment_link_url)}
+                  disabled={linkLoading}
+                  className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold disabled:opacity-50 whitespace-nowrap transition-colors"
+                >
+                  {linkLoading
+                    ? "Working…"
+                    : order.payment_link_url
+                      ? "Regenerate"
+                      : "Generate"}
+                </button>
+              </div>
+              {order.payment_link_url && (
+                <div className="flex items-center gap-2 mt-3">
+                  <code className="flex-1 min-w-0 truncate bg-neutral-50 border border-neutral-200 rounded-lg px-3 py-2 text-xs text-neutral-700">
+                    {order.payment_link_url}
+                  </code>
+                  <button
+                    onClick={() => copyLink(order.payment_link_url!)}
+                    title="Copy link"
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-lg border border-neutral-200 text-neutral-600 hover:border-neutral-400 transition-colors flex-shrink-0"
+                  >
+                    {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
+                  </button>
+                  {order.buyer_phone && (
+                    <a
+                      href={waLink(
+                        order.buyer_phone,
+                        `Hi ${order.buyer_name?.trim() || ""},\nNeuro Code ഓർഡർ (${order.order_number}) പൂർത്തിയാക്കാൻ ഈ ലിങ്കിൽ പേയ്മെന്റ് ചെയ്യാം 👇\n${order.payment_link_url}\n\nUPI, Card, Netbanking — എല്ലാം ലഭ്യം. Payment ആയതിന് ശേഷം book അഡ്രസ്സിൽ എത്തിക്കും + സൗജന്യ NLP course ഉടൻ unlock ആവും.\nThank you`
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Send on WhatsApp"
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition-colors flex-shrink-0"
+                    >
+                      <MessageCircle className="w-4 h-4" />
+                    </a>
+                  )}
+                </div>
+              )}
+              {linkMsg && (
+                <p className={`text-xs mt-2 ${linkMsg.bad ? "text-red-600" : "text-green-600"}`}>
+                  {linkMsg.text}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Confirmation email. Most orders have no email address — it's optional
               at checkout — so this states which case you're looking at rather

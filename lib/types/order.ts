@@ -21,6 +21,7 @@ export interface Order {
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
+  district: string | null;
   state: string | null;
   pincode: string | null;
   shipping_fee_paise: number;
@@ -46,6 +47,9 @@ export interface Order {
   delivered_at: string | null;
   /** When the receipt email went out, or null. */
   invoice_email_sent_at: string | null;
+  /** Recovery payment link generated from admin (migration 0013). */
+  payment_link_id: string | null;
+  payment_link_url: string | null;
   created_at: string;
   updated_at: string;
   /** Audit trail, attached by /api/orders/[id] for the admin detail page. */

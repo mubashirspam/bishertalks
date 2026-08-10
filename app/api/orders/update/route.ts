@@ -26,11 +26,21 @@ export async function PATCH(request: NextRequest) {
     courier_name,
     expected_delivery,
     notes,
+    // Manual address entry — the recovery path when a paid order has no
+    // address and the customer reads it out over a call instead of filling
+    // the form themselves.
+    buyer_name,
+    address_line1,
+    address_line2,
+    city,
+    district,
+    state,
+    pincode,
   } = await request.json();
 
-  if (!order_number || !status) {
+  if (!order_number) {
     return NextResponse.json(
-      { error: "order_number and status are required" },
+      { error: "order_number is required" },
       { status: 400 }
     );
   }
@@ -41,6 +51,17 @@ export async function PATCH(request: NextRequest) {
   if (expected_delivery !== undefined)
     updates.expected_delivery = expected_delivery || null;
   if (notes !== undefined) updates.notes = notes;
+
+  const addressFields = {
+    buyer_name, address_line1, address_line2, city, district, state, pincode,
+  } as const;
+  let addressEdited = false;
+  for (const [col, val] of Object.entries(addressFields)) {
+    if (val !== undefined) {
+      updates[col] = val || null;
+      addressEdited = true;
+    }
+  }
 
   if (Object.keys(updates).length) {
     const { error } = await supabaseAdmin
@@ -53,21 +74,33 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  try {
-    const updated = await setDeliveryStatus([order_number], status as OrderStatus);
+  if (addressEdited) {
     await audit({
       actor: auth.staff,
-      action: "order.status",
+      action: "order.address",
       entity: "order",
       entityId: order_number,
-      meta: { status, ...(courier_name ? { courier: courier_name } : {}) },
+      meta: { city, pincode },
     });
-    await notifyStatusChange(updated, status as OrderStatus);
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Status update failed" },
-      { status: 500 }
-    );
+  }
+
+  if (status) {
+    try {
+      const updated = await setDeliveryStatus([order_number], status as OrderStatus);
+      await audit({
+        actor: auth.staff,
+        action: "order.status",
+        entity: "order",
+        entityId: order_number,
+        meta: { status, ...(courier_name ? { courier: courier_name } : {}) },
+      });
+      await notifyStatusChange(updated, status as OrderStatus);
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Status update failed" },
+        { status: 500 }
+      );
+    }
   }
 
   const { data, error } = await supabaseAdmin

@@ -30,7 +30,7 @@ export async function GET(
        amount_paise, discount_paise, promo_code, notes,
        tracking_number, courier_name, expected_delivery,
        label_downloaded_at, label_download_count, shipped_at, delivered_at,
-       invoice_email_sent_at,
+       invoice_email_sent_at, payment_link_id, payment_link_url,
        created_at, razorpay_payment_id`
     )
     .eq("order_number", id)
