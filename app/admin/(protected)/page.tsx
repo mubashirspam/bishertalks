@@ -1,13 +1,14 @@
 import Link from "next/link";
 import {
-  IndianRupee, ShoppingBag, AlertCircle, TrendingDown, ArrowRight, Clock,
+  IndianRupee, CalendarDays, CalendarRange, CalendarCheck, AlertCircle, ArrowRight, Clock,
 } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
-import { formatISTShort, timeAgo } from "@/lib/format-date";
+import { formatISTShort, timeAgo, istToday, istDayStartUTC } from "@/lib/format-date";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { Suspense } from "react";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
+import RevenueCharts from "./RevenueCharts";
 
 export const dynamic = "force-dynamic";
 
@@ -45,91 +46,86 @@ export default async function AdminDashboard() {
 }
 
 async function DashboardBody() {
-  const now = new Date();
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 864e5).toISOString();
+  // Revenue boundaries on IST calendar days — the dashboard is for an
+  // India-based seller, so "today" means IST midnight, not server-local.
+  const today = istToday();
+  const todayStart = istDayStartUTC(today);
+  const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+  const weekStartDate = new Date(istNow);
+  weekStartDate.setUTCDate(istNow.getUTCDate() - ((istNow.getUTCDay() + 6) % 7));
+  const weekStart = istDayStartUTC(weekStartDate.toISOString().slice(0, 10));
+  const monthStart = istDayStartUTC(`${today.slice(0, 7)}-01`);
 
   const [
     paidOrders,
-    ordersToday,
     needsAddress,
-    leads,
-    failed,
     recent,
   ] = await Promise.all([
-    supabaseAdmin.from("orders").select("amount_paise").eq("payment_status", "paid"),
-    count((q) => q.eq("payment_status", "paid").gte("created_at", startOfToday)),
+    supabaseAdmin.from("orders").select("amount_paise,created_at,source").eq("payment_status", "paid").limit(20000),
     count((q) => q.eq("payment_status", "paid").is("address_line1", null)),
-    count((q) => q.is("razorpay_order_id", null).neq("payment_status", "paid").gte("created_at", sevenDaysAgo)),
-    count((q) => q.eq("payment_status", "failed").gte("created_at", sevenDaysAgo)),
     supabaseAdmin
       .from("orders")
       .select("order_number,buyer_name,buyer_phone,amount_paise,payment_status,address_line1,razorpay_order_id,created_at")
+      .gte("created_at", todayStart)
       .order("created_at", { ascending: false })
       .limit(8),
   ]);
 
-  const revenuePaise = (paidOrders.data ?? []).reduce(
-    (sum, o) => sum + (o.amount_paise ?? 0), 0
-  );
-  const paidCount = paidOrders.data?.length ?? 0;
+  const paid = paidOrders.data ?? [];
+  const paidCount = paid.length;
+  const sumSince = (since: string) =>
+    paid.reduce(
+      (sum, o) => (o.created_at >= since ? sum + (o.amount_paise ?? 0) : sum), 0
+    );
 
   const stats = [
     {
-      label: "Revenue", value: `₹${rupees(revenuePaise)}`,
+      label: "Total revenue", value: `₹${rupees(sumSince(""))}`,
       sub: `${paidCount} paid order${paidCount === 1 ? "" : "s"}`,
-      icon: IndianRupee, tone: "text-green-600 bg-green-50",
+      icon: IndianRupee,
+      card: "bg-gradient-to-br from-green-500 to-emerald-600",
+      chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-green-100",
     },
     {
-      label: "Paid today", value: String(ordersToday),
-      sub: "since midnight", icon: ShoppingBag, tone: "text-blue-600 bg-blue-50",
+      label: "Today", value: `₹${rupees(sumSince(todayStart))}`,
+      sub: "since midnight IST", icon: CalendarDays,
+      card: "bg-gradient-to-br from-blue-500 to-indigo-600",
+      chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-blue-100",
     },
     {
-      label: "Needs address", value: String(needsAddress),
-      sub: needsAddress ? "can't ship these" : "all shippable",
-      icon: AlertCircle,
-      tone: needsAddress ? "text-orange-600 bg-orange-50" : "text-neutral-400 bg-neutral-100",
-      href: "/admin/orders?stage=paid_no_address",
-      urgent: needsAddress > 0,
+      label: "This week", value: `₹${rupees(sumSince(weekStart))}`,
+      sub: "since Monday", icon: CalendarRange,
+      card: "bg-gradient-to-br from-purple-500 to-fuchsia-600",
+      chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-purple-100",
     },
     {
-      label: "Left before paying", value: String(leads),
-      sub: "last 7 days", icon: TrendingDown, tone: "text-neutral-600 bg-neutral-100",
-      href: "/admin/orders?stage=lead",
+      label: "This month", value: `₹${rupees(sumSince(monthStart))}`,
+      sub: new Date().toLocaleString("en-IN", { month: "long", year: "numeric" }),
+      icon: CalendarCheck,
+      card: "bg-gradient-to-br from-primary-500 to-amber-600",
+      chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-orange-100",
     },
   ];
 
   return (
     <div>
-      <p className="text-neutral-500 text-sm -mt-4 mb-6">
-        {failed > 0
-          ? `${failed} payment${failed === 1 ? "" : "s"} failed in the last 7 days.`
-          : "No failed payments in the last 7 days."}
-      </p>
-
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {stats.map((s) => {
-          const card = (
-            <div
-              className={`bg-white border rounded-2xl p-5 shadow-sm h-full transition-all ${
-                s.urgent ? "border-orange-300 ring-1 ring-orange-200" : "border-neutral-200"
-              } ${s.href ? "hover:shadow-md hover:border-neutral-300" : ""}`}
-            >
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.tone}`}>
-                <s.icon className="w-4 h-4" />
-              </div>
-              <p className="text-2xl font-black leading-none">{s.value}</p>
-              <p className="text-neutral-900 text-sm font-medium mt-2">{s.label}</p>
-              <p className="text-neutral-400 text-xs mt-0.5">{s.sub}</p>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-6">
+        {stats.map((s) => (
+          <div
+            key={s.label}
+            className={`${s.card} rounded-2xl p-4 sm:p-5 shadow-sm h-full`}
+          >
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${s.chip}`}>
+              <s.icon className="w-4 h-4" />
             </div>
-          );
-          return s.href ? (
-            <Link key={s.label} href={s.href}>{card}</Link>
-          ) : (
-            <div key={s.label}>{card}</div>
-          );
-        })}
+            <p className={`text-xl sm:text-2xl font-black leading-none ${s.valueTone}`}>{s.value}</p>
+            <p className={`text-sm font-semibold mt-2 ${s.valueTone}`}>{s.label}</p>
+            <p className={`text-xs mt-0.5 ${s.subTone}`}>{s.sub}</p>
+          </div>
+        ))}
       </div>
+
+      <RevenueCharts rows={paid} />
 
       {needsAddress > 0 && (
         <Link
@@ -150,11 +146,8 @@ async function DashboardBody() {
       )}
 
       <div className="bg-white border border-neutral-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100">
-          <h2 className="font-semibold text-sm">Recent activity</h2>
-          <Link href="/admin/orders" className="text-primary-600 text-xs font-medium hover:underline">
-            View all
-          </Link>
+        <div className="px-5 py-4 border-b border-neutral-100">
+          <h2 className="font-semibold text-sm">Today&apos;s activity</h2>
         </div>
         <div className="divide-y divide-neutral-100">
           {(recent.data ?? []).map((o) => {
@@ -187,7 +180,7 @@ async function DashboardBody() {
           {!recent.data?.length && (
             <p className="px-5 py-8 text-center text-neutral-400 text-sm">
               <Clock className="w-4 h-4 mx-auto mb-2" />
-              No activity yet.
+              No activity today.
             </p>
           )}
         </div>

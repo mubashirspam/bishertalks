@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Noto_Sans_Malayalam } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
 import MetaPixelRouteTracker from "@/components/MetaPixel";
@@ -16,6 +16,14 @@ const META_PIXEL_ID =
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+  display: "swap",
+});
+
+// Malayalam body text renders in this rather than Inter's Latin fallback —
+// conjuncts stay crisp instead of falling to the system font.
+const malayalam = Noto_Sans_Malayalam({
+  subsets: ["malayalam", "latin"],
+  variable: "--font-malayalam",
   display: "swap",
 });
 
@@ -274,7 +282,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={inter.variable} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${malayalam.variable}`} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />

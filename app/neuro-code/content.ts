@@ -1,0 +1,198 @@
+/**
+ * Everything written on the Neuro Code landing page.
+ *
+ * Kept apart from the layout so copy can be edited — and testimonials added —
+ * without going near JSX. The audience is Malayalam-speaking, so most strings
+ * are Malayalam with English kept only where it's what people actually say
+ * (NLP, Overthinking, COD, Order Now).
+ *
+ * Headings come in two parts because the design sets the first line in the
+ * foreground colour and the second in orange.
+ */
+
+export const EDITION = "3rd Edition";
+
+export const HERO = {
+  badge: "LIMITED OFFER",
+  headline: "YOU ARE NOT LEADING YOUR LIFE.",
+  headlineAccent: "YOUR PATTERNS ARE.",
+  sub:
+    "നിങ്ങളുടെ ജീവിതത്തെ നയിക്കുന്നത് നിങ്ങളല്ല, നിങ്ങളിൽ രൂപപ്പെട്ട ചില " +
+    "പാറ്റേണുകളാണ്. അത്തരം പാറ്റേണുകളുടെ കോഡുകൾ തിരിച്ചറിയാനും, " +
+    "മാറ്റിയെഴുതാനും, ജീവിതത്തെ പുതിയ രീതിയിൽ കാണാനും സഹായിക്കുന്ന ഒരു " +
+    "മലയാള പുസ്തകം — NEURO CODE.",
+  cta: "ഇപ്പോൾ മൂന്നാം പതിപ്പ് സ്വന്തമാക്കാം",
+  rating: "4.9",
+  readers: "2,400+ വായനക്കാർ",
+};
+
+// ── Problems ────────────────────────────────────────────────────────────────
+
+export const PROBLEMS_HEADING = {
+  line1: "ഇതൊരു Information നൽകുന്ന പുസ്തകമല്ല.",
+  accent: "Transformation",
+  line2: "സാധ്യമാക്കുന്ന പുസ്തകമാണ്.",
+};
+
+export const PROBLEMS_LEAD =
+  "ജീവിതത്തിൽ മാറ്റം വേണമെന്നുണ്ടെങ്കിലും, എന്തുകൊണ്ടാണ് വീണ്ടും വീണ്ടും " +
+  "പഴയ രീതികളിലേക്ക് മടങ്ങിപ്പോകുന്നത്?";
+
+export const PROBLEMS_TITLE = {
+  line1: "താഴെ പറയുന്ന ഏതെങ്കിലും പ്രശ്നം",
+  line2: "നിങ്ങൾ അനുഭവിക്കുന്നുണ്ടോ?",
+};
+
+/** `icon` maps to a lucide name chosen in the component. */
+export const PROBLEMS: { icon: string; text: string }[] = [
+  { icon: "target", text: "ചെയ്യാൻ ആഗ്രഹമുണ്ട്, പക്ഷേ ചെയ്യാൻ കഴിയുന്നില്ല." },
+  { icon: "repeat", text: "മാറണമെന്ന് ആഗ്രഹിക്കുന്നു… പക്ഷേ പഴയ ശീലങ്ങളിലേക്ക് തന്നെ മടങ്ങുന്നു." },
+  { icon: "users", text: "മറ്റുള്ളവർ എന്ത് ചിന്തിക്കും എന്ന ഭയം പല അവസരങ്ങളും തടയുന്നു." },
+  { icon: "frown", text: "കുറ്റബോധവും കുറ്റപ്പെടുത്തലും കാരണം ജീവിതം മടുക്കുന്നു." },
+  { icon: "userStar", text: "കഴിവുണ്ടെങ്കിലും ആത്മവിശ്വാസക്കുറവ് സാധ്യതകളെ തടയുന്നു." },
+  { icon: "brain", text: "Overthinking കാരണം തീരുമാനങ്ങൾ വൈകുന്നു." },
+  { icon: "heart", text: "പഴയ അനുഭവങ്ങൾ ഇന്നും മനസ്സിനെ വേദനിപ്പിക്കുന്നു." },
+  { icon: "cloud", text: "നെഗറ്റീവ് ചിന്തകൾ മനസ്സിനെ അലട്ടുന്നു." },
+];
+
+export const PROBLEMS_CLOSER = {
+  line1: "എങ്കിൽ ഈ പുസ്തകം",
+  line2: "നിങ്ങളിൽ മാറ്റം സാധ്യമാക്കും.",
+};
+
+// ── What is Neuro Code ──────────────────────────────────────────────────────
+
+export const CHAIN_HEADING = {
+  line1: "ജീവിതം മാറ്റാൻ ശ്രമിക്കുന്നതിന് മുമ്പ്",
+  accent: "ജീവിതത്തെ നിയന്ത്രിക്കുന്ന കോഡുകൾ തിരിച്ചറിയൂ.",
+};
+
+/** Experience → Belief → Thought → Emotion → Behaviour → Result. */
+export const CODE_CHAIN: { en: string; ml: string }[] = [
+  { en: "EXPERIENCE", ml: "അനുഭവം" },
+  { en: "BELIEF", ml: "വിശ്വാസം" },
+  { en: "THOUGHT", ml: "ചിന്ത" },
+  { en: "EMOTION", ml: "വികാരം" },
+  { en: "BEHAVIOUR", ml: "പെരുമാറ്റം" },
+  { en: "RESULT", ml: "ഫലം" },
+];
+
+export const CHAIN_NOTE =
+  "നമ്മുടെ പല തീരുമാനങ്ങളും പ്രതികരണങ്ങളും പഴയ അനുഭവങ്ങൾ, വിശ്വാസങ്ങൾ, " +
+  "ചിന്താരീതികൾ, ശീലങ്ങൾ എന്നിവയുടെ സ്വാധീനത്തിലാണ്.";
+
+export const PATTERN_TRIAD = [
+  "തിരിച്ചറിയുക.",
+  "മനസ്സിലാക്കുക.",
+  "മാറ്റിയെഴുതുക.",
+];
+
+export const STEPS: { en: string; ml: string }[] = [
+  { en: "Identify", ml: "നിങ്ങളെ നിയന്ത്രിക്കുന്ന patterns തിരിച്ചറിയുക" },
+  { en: "Understand", ml: "അവ എങ്ങനെ രൂപപ്പെട്ടുവെന്ന് മനസ്സിലാക്കുക" },
+  { en: "Rewrite", ml: "പുതിയ രീതിയിൽ ചിന്തിക്കാനും പ്രവർത്തിക്കാനും പഠിക്കുക" },
+];
+
+// ── Explainer video ─────────────────────────────────────────────────────────
+
+export const VIDEO_HEADING = {
+  line1: "NEURO CODE",
+  accent: "എന്താണ്?",
+  sub1: "ഈ പുസ്തകം നിങ്ങൾക്കായി എന്താണ് ചെയ്യുന്നത്?",
+  sub2: "3 മിനിറ്റിൽ മനസ്സിലാക്കാം.",
+};
+
+// The explainer video is set at /admin/landing.
+export const VIDEO_NOTE =
+  "നമ്മുടെ ജീവിതത്തെ സ്വാധീനിക്കുന്ന ചിന്തകളുടെയും വിശ്വാസങ്ങളുടെയും " +
+  "patterns എങ്ങനെ തിരിച്ചറിയാം?";
+
+// ── What's inside ───────────────────────────────────────────────────────────
+
+export const INSIDE_HEADING = {
+  line1: "പുസ്തകത്തിൽ",
+  accent: "എന്തൊക്കെയുണ്ട്?",
+};
+
+export const INSIDE: string[] = [
+  "മനസ്സിന്റെ ഘടന — ബോധമനസ്സും ഉപബോധമനസ്സും",
+  "വിശ്വാസങ്ങൾ എങ്ങനെ ശരീരത്തെ സ്വാധീനിക്കുന്നു",
+  "വൈകാരിക trigger-കൾ തിരിച്ചറിയാം",
+  "ഉപബോധമനസ്സിന്റെ ഭാഷ",
+  "പുതിയ പാറ്റേണുകൾ എങ്ങനെ സ്ഥാപിക്കാം",
+  "Identity Shift — സ്വത്വത്തിലെ മാറ്റം",
+];
+
+// ── Offer ───────────────────────────────────────────────────────────────────
+
+/** Bonus NLP course stats, shown wherever the free bonus needs to look concrete rather than vague. */
+export const NLP_COURSE = {
+  modules: 14,
+  videos: 42,
+};
+
+export const OFFER = {
+  badge: "LIMITED OFFER",
+  titleTop: "NEURO CODE",
+  titleAccent: "— 30 DAYS NLP COURSE",
+  bookLine: "NEURO CODE BOOK",
+  courseLine: "30 DAYS NLP COURSE",
+  mrpRupees: 3000,
+  delivery: "FREE ALL INDIA DELIVERY",
+  bonusTitle: "NLP Mastery Course",
+  bonusMeta: "30 Days · Online · Structured Learning",
+  bonusBody: "Structured lessons, practical exercises, templates and implementation guidance.",
+  codTitle: "COD Available",
+  codNote: "COD orders-ന് free delivery ലഭ്യമല്ല.",
+  trust: "Secure Order · All India Delivery",
+  warning:
+    "വെറുതെ ഒന്ന് വായിച്ചു നോക്കാനാണെങ്കിൽ Neuro Code വാങ്ങരുത്. " +
+    "ജീവിതത്തിൽ ഒരു മാറ്റം ആഗ്രഹിക്കുന്നുവെങ്കിൽ മാത്രം.",
+};
+
+export const AUTHOR = {
+  name: "Bisher KC",
+  role: "Life Coach | Author | CEO, Skillage",
+  image: "/images/about-main.jpg",
+  quote:
+    "വർഷങ്ങളായി വിദ്യാർത്ഥികളോടും അധ്യാപകരോടും professionals-നോടും " +
+    "സംസാരിക്കുകയും പരിശീലിപ്പിക്കുകയും ചെയ്ത അനുഭവങ്ങളിൽ നിന്ന്, " +
+    "മനുഷ്യന്റെ ചിന്തകളിലും വിശ്വാസങ്ങളിലും ആവർത്തിച്ച് കാണപ്പെട്ട patterns " +
+    "ലളിതമായ ഭാഷയിൽ അവതരിപ്പിക്കാനുള്ള ശ്രമമാണ് Neuro Code.",
+};
+
+// ── Testimonials ────────────────────────────────────────────────────────────
+//
+// The testimonials themselves live in the database and are managed at
+// /admin/landing — adding a reader's voice note shouldn't need a deploy.
+// Only the section headings stay here, with the rest of the written copy.
+
+export const TESTIMONIAL_HEADING = {
+  line1: "NEURO CODE",
+  accent: "വായിച്ചവരുടെ അനുഭവങ്ങൾ",
+  sub: "വായിച്ചവർ പറയുന്നത്…",
+};
+
+export const AUDIO_HEADING = {
+  line1: "വാക്കുകളിൽ മാത്രം അല്ല…",
+  accent: "ശബ്ദത്തിലും കേൾക്കാം.",
+  sub: "NEURO CODE വായിച്ചവരുടെ ചില പ്രതികരണങ്ങൾ",
+};
+
+export const SECTION_TITLES = {
+  video: "വീഡിയോ അനുഭവങ്ങൾ",
+  image: "വായനക്കാരുടെ സന്ദേശങ്ങൾ",
+  audio: "Audio testimonials",
+  text: "വായനക്കാർ പറയുന്നത്",
+  faq: "സാധാരണ ചോദ്യങ്ങൾ",
+  author: "എഴുത്തുകാരനെക്കുറിച്ച്",
+};
+
+export const FINAL_CTA = {
+  line1: "നിങ്ങളുടെ പാറ്റേണുകൾ മാറ്റാൻ",
+  accent: "ഇന്ന് തുടങ്ങാം",
+  sub: "മൂന്നാം പതിപ്പ് ഇപ്പോൾ ലഭ്യമാണ് · All India delivery free",
+};
+
+/** Every call to action on the page says the same thing. */
+export const ORDER_NOW = "Order Now";

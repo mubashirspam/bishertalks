@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { getProductPricing } from "@/lib/db/courses";
 import NeuroCodeLanding from "./NeuroCodeLanding";
+import { getLandingContent } from "@/lib/db/landing";
 import { faqs } from "./faqs";
 
 // Price is admin-editable, so this page can't be statically cached.
@@ -46,7 +47,12 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function NeuroCodePage() {
-  const pricing = await getProductPricing();
+  // Pricing and CMS content in parallel — neither depends on the other, and
+  // this page is force-dynamic so every request pays for both.
+  const [pricing, landing] = await Promise.all([
+    getProductPricing(),
+    getLandingContent(),
+  ]);
 
   // Product + Book + FAQ schema, built from the same data the page renders —
   // the live price and the on-screen FAQ — so it can't contradict the page.
@@ -108,7 +114,11 @@ export default async function NeuroCodePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <NeuroCodeLanding pricing={pricing} />
+      <NeuroCodeLanding
+        pricing={pricing}
+        testimonials={landing.testimonials}
+        settings={landing.settings}
+      />
     </>
   );
 }

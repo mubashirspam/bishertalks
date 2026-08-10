@@ -22,6 +22,7 @@ export const PERMISSIONS = {
   "users.manage": "Add customers and grant course access",
 
   "courses.manage": "Edit courses, modules and lessons",
+  "landing.manage": "Edit the landing page and testimonials",
   "promos.manage": "Create and edit promo codes",
 
   "insights.view": "See sales figures and traffic sources",
@@ -43,7 +44,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: "Orders", permissions: ["orders.view", "orders.edit", "orders.export"] },
   { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.status"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
-  { label: "Content", permissions: ["courses.manage", "promos.manage"] },
+  { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Business", permissions: ["insights.view", "referrals.view", "referrals.payout", "staff.manage"] },
 ];
 
@@ -90,7 +91,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "orders.view", "orders.edit", "orders.export",
     "delivery.view", "delivery.print", "delivery.status",
     "users.view", "users.manage",
-    "courses.manage", "promos.manage",
+    "courses.manage", "landing.manage", "promos.manage",
     "insights.view", "referrals.view",
   ],
 
@@ -137,5 +138,6 @@ export function landingPage(holder: PermissionHolder): string {
   if (can(holder, "referrals.view")) return "/admin/referrals";
   if (can(holder, "users.view")) return "/admin/users";
   if (can(holder, "courses.manage")) return "/admin/courses";
+  if (can(holder, "landing.manage")) return "/admin/landing";
   return "/admin/no-access";
 }

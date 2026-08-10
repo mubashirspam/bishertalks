@@ -36,7 +36,8 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans: ["var(--font-inter)", "system-ui", "sans-serif"],
+        sans: ["var(--font-inter)", "var(--font-malayalam)", "system-ui", "sans-serif"],
+        malayalam: ["var(--font-malayalam)", "var(--font-inter)", "system-ui", "sans-serif"],
       },
       animation: {
         "fade-in": "fadeIn 0.6s ease-out",

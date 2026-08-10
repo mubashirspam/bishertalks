@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, Menu, X,
+  Shield, Gift, LayoutTemplate, Menu, X,
 } from "lucide-react";
 import {
   can, ROLE_LABELS, ROLE_BADGE, type Permission, type StaffRole,
@@ -30,6 +30,7 @@ const NAV: {
   { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },
   { href: "/admin/courses", label: "Courses", icon: BookOpen, permission: "courses.manage" },
+  { href: "/admin/landing", label: "Landing page", icon: LayoutTemplate, permission: "landing.manage" },
   { href: "/admin/promos", label: "Promos", icon: Tag, permission: "promos.manage" },
   { href: "/admin/referrals", label: "Referrals", icon: Gift, permission: "referrals.view" },
   { href: "/admin/staff", label: "Staff", icon: Shield, permission: "staff.manage" },
