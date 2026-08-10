@@ -6,6 +6,52 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/admin-auth";
 import { getRazorpay } from "@/lib/razorpay";
 import { audit } from "@/lib/audit";
+import { claimPaidTransition } from "@/lib/payment-claim";
+
+/**
+ * Ask Razorpay whether the link was paid, and if so run the paid transition.
+ * The webhook normally does this — this is the fallback for when the
+ * payment_link.paid event wasn't enabled or the delivery failed, which
+ * otherwise leaves a paid customer staring at "payment started".
+ */
+async function syncLinkStatus(orderNumber: string) {
+  const { data: order } = await supabaseAdmin
+    .from("orders")
+    .select("order_number, payment_status, payment_link_id")
+    .eq("order_number", orderNumber)
+    .single();
+
+  if (!order?.payment_link_id) {
+    return NextResponse.json({ error: "No payment link on this order" }, { status: 400 });
+  }
+  if (order.payment_status === "paid") {
+    return NextResponse.json({ status: "paid", changed: false });
+  }
+
+  let link;
+  try {
+    link = await getRazorpay().paymentLink.fetch(order.payment_link_id);
+  } catch (e) {
+    console.error("[PaymentLink] sync fetch failed:", order.payment_link_id, e);
+    return NextResponse.json({ error: "Could not reach Razorpay" }, { status: 502 });
+  }
+
+  if (link.status !== "paid") {
+    return NextResponse.json({ status: link.status, changed: false });
+  }
+
+  // payments is null until someone pays; on a paid link it lists the payment.
+  const paymentId =
+    (link.payments as unknown as { payment_id?: string }[] | null)?.[0]?.payment_id ??
+    `plink_${order.payment_link_id}`;
+
+  const won = await claimPaidTransition(
+    { paymentLinkId: order.payment_link_id },
+    paymentId
+  );
+
+  return NextResponse.json({ status: "paid", changed: !!won });
+}
 
 /**
  * Generate (or reuse) a Razorpay payment link for an unpaid order.
@@ -23,10 +69,12 @@ export async function POST(request: NextRequest) {
   const auth = await requirePermission("orders.edit");
   if (!auth.ok) return auth.response;
 
-  const { order_number, regenerate } = await request.json();
+  const { order_number, regenerate, sync } = await request.json();
   if (!order_number) {
     return NextResponse.json({ error: "order_number is required" }, { status: 400 });
   }
+
+  if (sync) return syncLinkStatus(order_number);
 
   const { data: order, error } = await supabaseAdmin
     .from("orders")

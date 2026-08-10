@@ -154,6 +154,38 @@ export default function AdminOrderDetailPage() {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  // Webhooks occasionally miss — ask Razorpay directly whether the link was
+  // paid, and flip the order here if it was.
+  const syncPayment = async () => {
+    setLinkLoading(true);
+    setLinkMsg(null);
+    try {
+      const res = await fetch("/api/admin/orders/payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: id, sync: true }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok) {
+        if (json.changed) {
+          const fresh = await fetch(`/api/orders/${id}`).then((r) => r.json());
+          setOrder(fresh);
+          setLinkMsg({ text: "Payment confirmed — order is now paid." });
+        } else {
+          setLinkMsg({
+            text: json.status === "paid" ? "Already marked paid." : `Razorpay says: ${json.status}.`,
+          });
+        }
+      } else {
+        setLinkMsg({ text: json.error ?? "Sync failed", bad: true });
+      }
+    } catch {
+      setLinkMsg({ text: "Network error", bad: true });
+    } finally {
+      setLinkLoading(false);
+    }
+  };
+
   const lookupPincode = async (pin: string) => {
     if (!/^\d{6}$/.test(pin)) return;
     try {
@@ -527,17 +559,28 @@ export default function AdminOrderDetailPage() {
                       : "Generate a link the customer can pay directly"}
                   </p>
                 </div>
-                <button
-                  onClick={() => generateLink(!!order.payment_link_url)}
-                  disabled={linkLoading}
-                  className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold disabled:opacity-50 whitespace-nowrap transition-colors"
-                >
-                  {linkLoading
-                    ? "Working…"
-                    : order.payment_link_url
-                      ? "Regenerate"
-                      : "Generate"}
-                </button>
+                <div className="flex gap-2 flex-shrink-0">
+                  {order.payment_link_url && (
+                    <button
+                      onClick={syncPayment}
+                      disabled={linkLoading}
+                      className="px-3 py-1.5 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:border-neutral-400 disabled:opacity-50 whitespace-nowrap transition-colors"
+                    >
+                      Sync status
+                    </button>
+                  )}
+                  <button
+                    onClick={() => generateLink(!!order.payment_link_url)}
+                    disabled={linkLoading}
+                    className="px-3 py-1.5 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold disabled:opacity-50 whitespace-nowrap transition-colors"
+                  >
+                    {linkLoading
+                      ? "Working…"
+                      : order.payment_link_url
+                        ? "Regenerate"
+                        : "Generate"}
+                  </button>
+                </div>
               </div>
               {order.payment_link_url && (
                 <div className="flex items-center gap-2 mt-3">
