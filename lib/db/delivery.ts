@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { sendOrderNotification, type OrderEvent } from "@/lib/notify";
+import { sendOrderNotifications, type OrderEvent } from "@/lib/notify";
 import { NOTIFY_STATUSES } from "@/lib/delivery-stage";
 import { approveCommissions, voidCommissions } from "@/lib/db/referrals";
 import type { OrderStatus } from "@/lib/types/order";
@@ -67,25 +67,16 @@ export async function setDeliveryStatus(
  * Tell customers about a status change.
  *
  * Only shipped and delivered are worth a message — the others are internal
- * bookkeeping. Sent in small waves so a fifty-parcel batch doesn't open fifty
- * simultaneous connections to Meta, and never rethrows: a WhatsApp outage must
- * not make a completed status change look like it failed.
+ * bookkeeping. One batched call regardless of how many parcels: fifty selected
+ * orders is one webhook to Make and one execution of its quota, not fifty.
+ * Never rethrows — a WhatsApp outage must not make a completed status change
+ * look like it failed.
  */
-export async function notifyStatusChange(
+export function notifyStatusChange(
   orderNumbers: string[],
   status: OrderStatus
 ): Promise<number> {
-  if (!NOTIFY_STATUSES.includes(status)) return 0;
+  if (!NOTIFY_STATUSES.includes(status)) return Promise.resolve(0);
 
-  const event = status as OrderEvent;
-  let sent = 0;
-
-  for (let i = 0; i < orderNumbers.length; i += 8) {
-    const results = await Promise.allSettled(
-      orderNumbers.slice(i, i + 8).map((n) => sendOrderNotification(n, event))
-    );
-    sent += results.filter((r) => r.status === "fulfilled" && r.value.ok).length;
-  }
-
-  return sent;
+  return sendOrderNotifications(orderNumbers, status as OrderEvent);
 }

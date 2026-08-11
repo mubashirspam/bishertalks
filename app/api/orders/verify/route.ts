@@ -8,6 +8,7 @@ import { backfillOrderFromRazorpay } from "@/lib/db/orders";
 import { sendPurchaseEmail } from "@/lib/db/order-email";
 import { redeemPromo } from "@/lib/db/promo";
 import { signOrderToken } from "@/lib/order-token";
+import { notifyAfterResponse } from "@/lib/notify";
 
 export async function POST(request: NextRequest) {
   try {
@@ -126,17 +127,10 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     const whatsappEvent = addr?.address_line1 ? "confirmed" : "payment_received";
 
-    // Fire-and-forget WhatsApp notification — only on the first confirmation.
+    // WhatsApp notification, after the response — only on the first
+    // confirmation. The customer shouldn't wait on Make to see their receipt.
     if (isFirstConfirmation) {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
-      fetch(`${appUrl}/api/whatsapp/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-internal-secret": process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        },
-        body: JSON.stringify({ order_number, event_type: whatsappEvent }),
-      }).catch(console.error);
+      notifyAfterResponse(order_number, whatsappEvent);
     }
 
     // Send the browser straight to the address form when we still need one.

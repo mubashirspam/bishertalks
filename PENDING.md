@@ -4,7 +4,7 @@ Everything outstanding, in the order it should be done.
 Code is complete and building; almost all of this is dashboard/config work.
 
 Detail lives in [MAGIC_CHECKOUT.md](./MAGIC_CHECKOUT.md) and
-[WHATSAPP_SETUP.md](./WHATSAPP_SETUP.md).
+[MAKE_WHATSAPP.md](./MAKE_WHATSAPP.md).
 
 ---
 
@@ -58,22 +58,34 @@ npm run check-env              # local
 npm run check-env -- --vercel  # as production values
 ```
 
-## 🟠 WhatsApp — nothing sends until this is done
+## 🟠 WhatsApp — nothing sends until the Make scenario exists
 
-`WHATSAPP_TOKEN` and `WHATSAPP_PHONE_NUMBER_ID` are still literal placeholders.
-Payments and course access work without it, but the customer gets no receipt —
-which matters most when their browser died before the thank-you page.
+Sending now goes through a Make.com scenario, not the Meta API directly: the app
+posts an event, Make owns the wording and the provider. `MAKE_WEBHOOK_URL` is
+still blank, so nothing is sent. Payments and course access work without it, but
+the customer gets no receipt — which matters most when their browser died before
+the thank-you page.
 
-- [ ] Meta Business verification → WhatsApp Business Account
-- [ ] Register a phone number **not** in use on the normal WhatsApp app
-- [ ] **System User permanent token** — the API Setup page token expires in 24h
-- [ ] Submit **all five** templates together (approval is per-template):
+Full procedure in [MAKE_WHATSAPP.md](./MAKE_WHATSAPP.md).
+
+- [ ] Run migration `0014_notification_log.sql` — **the app claims a log row
+      before it sends, so nothing goes out until this exists**
+- [ ] Decide the provider: WhatsApp Business Cloud (free per message, days of
+      Meta setup) or a BSP like WATI/AiSensy (monthly fee, live in hours)
+- [ ] Make.com account on **Core** — the free plan covers ~200 messages/month
+      and sleeps inactive scenarios
+- [ ] Build the scenario: webhook → response → secret filter → env filter →
+      dedupe data store → router → send → callback → error handlers
+- [ ] Approve the five templates with the provider:
       `payment_received` (4) · `order_confirmed` (6) · `order_shipped` (6) ·
       `order_delivered` (3) · `course_access` (4)
       - Category **Utility**, language **English** (not English US / `en_US`)
       - All variables in the **body** — no variable URL buttons
-- [ ] Set both env vars locally and on Vercel
-- [ ] Test each: `npm run test-whatsapp 9XXXXXXXXX order_confirmed`
+- [ ] `MAKE_WEBHOOK_URL` + `MAKE_WEBHOOK_SECRET` locally and on Vercel
+      (the secret is already generated in `.env.local`)
+- [ ] Turn the scenario ON — an off scenario 404s and the message is lost
+- [ ] Test: `npm run test-make -- --phone=9XXXXXXXXX --event=all`
+- [ ] Delete the dead `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` from Vercel
 
 ## 🟡 Magic Checkout — blocked on Razorpay
 
@@ -142,7 +154,7 @@ Full list: <https://razorpay.com/docs/payments/payments/test-card-details/>
 | | |
 |---|---|
 | Preflight check | `npm run check-env` |
-| WhatsApp test | `npm run test-whatsapp <phone> <template>` |
+| WhatsApp test | `npm run test-make -- --phone=<phone> --event=all` |
 | Migrations | `supabase/migrations/` — source of truth, applied through `0003`; **`0004` pending** |
 | Magic Checkout flag | `NEXT_PUBLIC_MAGIC_CHECKOUT` (default `false`) |
 

@@ -3,6 +3,7 @@ import { grantBookBonusForOrderNumber } from "@/lib/db/access";
 import { backfillOrderFromRazorpay } from "@/lib/db/orders";
 import { sendPurchaseEmail } from "@/lib/db/order-email";
 import { redeemPromo } from "@/lib/db/promo";
+import { notifyAfterResponse } from "@/lib/notify";
 
 /**
  * The pending -> paid transition and everything that follows it.
@@ -79,18 +80,7 @@ export async function claimPaidTransition(
     .maybeSingle();
   const whatsappEvent = addr?.address_line1 ? "confirmed" : "payment_received";
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-  fetch(`${appUrl}/api/whatsapp/send`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "x-internal-secret": process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    },
-    body: JSON.stringify({
-      order_number: order.order_number,
-      event_type: whatsappEvent,
-    }),
-  }).catch(console.error);
+  notifyAfterResponse(order.order_number, whatsappEvent);
 
   return order.order_number;
 }

@@ -60,6 +60,18 @@ export interface Order {
     meta: Record<string, unknown> | null;
     created_at: string;
   }[];
+  /**
+   * WhatsApp messages sent for this order (migration 0014), attached by the
+   * same route. 'queued' means Make accepted it but hasn't reported back yet.
+   */
+  notifications?: {
+    id: string;
+    event_id: string;
+    event: string;
+    status: "queued" | "sent" | "failed" | "skipped";
+    error: string | null;
+    created_at: string;
+  }[];
 }
 
 export const STATUS_LABELS: Record<OrderStatus, string> = {

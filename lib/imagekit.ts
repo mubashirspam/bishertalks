@@ -8,7 +8,7 @@ import crypto from "crypto";
  * this app, which matters because a serverless function has a request body
  * limit a phone video would blow straight through.
  *
- * Same reasoning as lib/whatsapp.ts and lib/email.ts: one endpoint, a few
+ * Same reasoning as lib/make.ts and lib/email.ts: one endpoint, a few
  * lines of crypto, no dependency in the bundle.
  */
 

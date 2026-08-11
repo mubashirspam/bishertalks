@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { verifyOrderToken } from "@/lib/order-token";
+import { notifyAfterResponse } from "@/lib/notify";
 
 const str = (v: unknown): string | null => {
   const s = typeof v === "string" ? v.trim() : "";
@@ -74,16 +75,7 @@ export async function POST(request: NextRequest) {
     // Now that we know where it's going, send the real order confirmation.
     // Only for paid orders — an unpaid one isn't confirmed yet.
     if (order.payment_status === "paid") {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || "";
-      fetch(`${appUrl}/api/whatsapp/send`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-internal-secret":
-            process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!,
-        },
-        body: JSON.stringify({ order_number: orderNumber, event_type: "confirmed" }),
-      }).catch(console.error);
+      notifyAfterResponse(orderNumber, "confirmed");
     }
 
     return NextResponse.json({ success: true, order_number: orderNumber });

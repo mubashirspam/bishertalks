@@ -1,7 +1,7 @@
 /**
  * Resend, over plain HTTP.
  *
- * No SDK, for the same reason lib/whatsapp.ts talks to Meta with fetch and
+ * No SDK, for the same reason lib/make.ts talks to Make with fetch and
  * lib/export.ts writes its own xlsx: this needs one endpoint, and a dependency
  * in the serverless bundle to build one JSON body isn't worth it.
  *

@@ -20,6 +20,31 @@ const ALL_STATUSES: OrderStatus[] = [
   "confirmed", "processing", "shipped", "out_for_delivery", "delivered", "cancelled",
 ];
 
+/** Wire event names from lib/notify.ts, in the words an admin would use. */
+const NOTIFY_LABELS: Record<string, string> = {
+  "payment.received": "Payment received — address requested",
+  "order.confirmed": "Order confirmed",
+  "order.shipped": "Shipped",
+  "order.delivered": "Delivered",
+  "course.access": "Course unlocked",
+};
+
+// 'queued' is the honest state for "Make took it but hasn't told us it went
+// out" — it is not a success, so it doesn't get a green dot.
+const NOTIFY_STATUS_LABELS: Record<string, string> = {
+  queued: "handed to Make",
+  sent: "delivered",
+  failed: "failed",
+  skipped: "not configured",
+};
+
+const NOTIFY_DOT: Record<string, string> = {
+  queued: "bg-amber-400",
+  sent: "bg-green-500",
+  failed: "bg-red-500",
+  skipped: "bg-neutral-300",
+};
+
 export default function AdminOrderDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
@@ -670,6 +695,41 @@ export default function AdminOrderDetailPage() {
               Copy Link
             </button>
           </div>
+
+          {/* Messages actually sent to this customer (migration 0014). Before
+              this the only answer to "did they get the WhatsApp?" was reading
+              server logs. */}
+          {order.notifications && order.notifications.length > 0 && (
+            <div className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm">
+              <h2 className="font-semibold text-sm text-neutral-700 mb-3 flex items-center gap-2">
+                <MessageCircle className="w-4 h-4 text-primary-500" /> WhatsApp messages
+              </h2>
+              <ul className="space-y-2.5">
+                {order.notifications.map((n) => (
+                  <li key={n.id} className="flex items-start gap-2.5 text-xs">
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                        NOTIFY_DOT[n.status] ?? "bg-neutral-300"
+                      }`}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-neutral-700">
+                        {NOTIFY_LABELS[n.event] ?? n.event}
+                        <span className="text-neutral-400">
+                          {" · "}
+                          {NOTIFY_STATUS_LABELS[n.status] ?? n.status}
+                        </span>
+                      </p>
+                      <p className="text-neutral-400 mt-0.5">{formatIST(n.created_at)}</p>
+                      {n.error && (
+                        <p className="text-red-500 mt-0.5 break-words">{n.error}</p>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* History — who changed what. Only meaningful since staff accounts
               exist; older orders simply have nothing to show. */}

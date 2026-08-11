@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/admin-auth";
 import { getAuditTrail } from "@/lib/audit";
+import { listNotifications } from "@/lib/db/notifications";
 
 /**
  * Full order record for the admin detail page — the only caller.
@@ -40,8 +41,12 @@ export async function GET(
     return NextResponse.json({ error: "Order not found" }, { status: 404 });
   }
 
-  // Who changed what, sent alongside so the detail page needs one request.
-  const history = await getAuditTrail("order", id);
+  // Who changed what, and what the customer was actually sent — both alongside
+  // so the detail page still needs one request.
+  const [history, notifications] = await Promise.all([
+    getAuditTrail("order", id),
+    listNotifications(id),
+  ]);
 
-  return NextResponse.json({ ...order, history });
+  return NextResponse.json({ ...order, history, notifications });
 }

@@ -40,6 +40,8 @@ export async function grantCourseAccess(params: {
   courseId: string;
   grantedVia: GrantedVia;
   orderId?: string | null;
+  /** Human order number, so the notification log ties to the order screen. */
+  orderNumber?: string | null;
   notify?: boolean;
 }): Promise<void> {
   const { error } = await supabaseAdmin.from("course_access").upsert(
@@ -76,6 +78,7 @@ export async function grantCourseAccess(params: {
           name: user.name,
           courseTitle: course.title,
           courseSlug: course.slug,
+          orderNumber: params.orderNumber ?? null,
         });
       }
     } catch (e) {
@@ -207,6 +210,7 @@ export async function grantBookBonusForOrderNumber(
     courseId: course.id,
     grantedVia: "purchase",
     orderId: order.id,
+    orderNumber,
     notify: true,
   });
 }

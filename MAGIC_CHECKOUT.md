@@ -48,7 +48,7 @@ and `shipping_fee_paise` present. Existing orders should read
 |---|---|---|
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | `rzp_live_…` | 17 orders, 0 ever captured — consistent with test keys in production |
 | `RAZORPAY_KEY_SECRET` | live secret | must match the key above |
-| `NEXT_PUBLIC_APP_URL` | `https://bishertalks.com` | WhatsApp confirmations are fired at `${NEXT_PUBLIC_APP_URL}/api/whatsapp/send` |
+| `NEXT_PUBLIC_APP_URL` | `https://bishertalks.com` | every link inside a WhatsApp message and email is built from it |
 | `RAZORPAY_WEBHOOK_SECRET` | dashboard webhook secret | signature validation |
 | `NEXT_PUBLIC_MAGIC_CHECKOUT` | `false` for now | flip in step 4 |
 

@@ -3,7 +3,7 @@
 Marketing site, book store and course platform for Bisher KC.
 
 Next.js 16 (App Router) · TypeScript · Tailwind · Supabase (Postgres) ·
-Razorpay · WhatsApp Cloud API
+Razorpay · WhatsApp via Make.com
 
 ## Docs
 
@@ -11,7 +11,7 @@ Razorpay · WhatsApp Cloud API
 |---|---|
 | **[PENDING.md](./PENDING.md)** | **Everything outstanding — start here** |
 | [MAGIC_CHECKOUT.md](./MAGIC_CHECKOUT.md) | Razorpay Magic Checkout cutover runbook |
-| [WHATSAPP_SETUP.md](./WHATSAPP_SETUP.md) | Meta setup + message template specs |
+| [MAKE_WHATSAPP.md](./MAKE_WHATSAPP.md) | Make.com scenario setup + message templates |
 
 ## Getting started
 
@@ -30,7 +30,7 @@ npm run dev
 | `npm run build` / `npm start` | production build |
 | `npm run check-env` | preflight: env vars + live Razorpay credential check |
 | `npm run check-env -- --vercel` | same, judged as production values |
-| `npm run test-whatsapp <phone> <template>` | send one real test message |
+| `npm run test-make -- --phone=<phone>` | post a sample event to the Make scenario |
 
 ## How it works
 
@@ -60,18 +60,18 @@ address, we backfill it after payment). Default `false` — see
 
 ```
 app/
-  api/            orders, webhook, shipping-info, admin, whatsapp
+  api/            orders, webhook, shipping-info, admin, notify
   admin/          protected admin panel (orders, courses, users, promos)
   courses/        course listing + phone-gated player
   neuro-code/     book landing, checkout, thank-you, tracking
 lib/
   db/             all database access, one module per concern
   razorpay.ts     client + Magic Checkout customer-details fetch
-  whatsapp.ts     Meta Cloud API sender
-  notify.ts       course-access notifications
+  make.ts         posts events to the Make.com WhatsApp scenario
+  notify.ts       builds those events; owns idempotency
 supabase/
   migrations/     source of truth for schema — apply in order
-scripts/          check-env, test-whatsapp, seed generation
+scripts/          check-env, test-make, seed generation
 ```
 
 ## Database
