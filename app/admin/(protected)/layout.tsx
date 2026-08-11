@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentStaff } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
 import LogoutButton from "@/components/admin/LogoutButton";
+import PageTitle from "@/components/admin/PageTitle";
 import AdminSidebar from "./AdminSidebar";
 
 export default async function AdminLayout({
@@ -45,10 +46,16 @@ export default async function AdminLayout({
       </Suspense>
 
       <div className="flex-1 min-w-0">
-        <header className="hidden lg:flex items-center justify-end border-b border-neutral-200 bg-white px-8 py-3">
+        {/* The page heading lives here rather than at the top of each body, so
+            the content starts at the top of the viewport instead of below two
+            lines of text that repeat what the sidebar already highlights. */}
+        <header className="hidden lg:flex items-center justify-between gap-4 border-b border-neutral-200 bg-white px-8 py-2">
+          <Suspense fallback={null}>
+            <PageTitle />
+          </Suspense>
           <LogoutButton />
         </header>
-        <main className="px-4 lg:px-8 py-6 lg:py-8 max-w-7xl">{children}</main>
+        <main className="px-4 lg:px-8 py-4 lg:py-5 max-w-7xl">{children}</main>
       </div>
     </div>
   );

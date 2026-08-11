@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { AlertCircle, Phone, MessageCircle, ArrowRight } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import {
-  orderStage, STAGE_LABELS, STAGE_BADGE, type OrderStage,
-} from "@/lib/order-stage";
+import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
 import { SOURCE_LABELS, SOURCE_BADGE, isTrafficSource } from "@/lib/attribution";
 import { funnelWaMessage, waLink, telLink } from "@/lib/wa-message";
@@ -63,7 +61,6 @@ export default async function AdminOrdersPage({
 
   const { stage, q, page = "1", from, to, source, followUp } = await searchParams;
   const pageNum = Math.max(0, parseInt(page) - 1);
-  const activeStage = (stage ?? "all") as OrderStage | "all";
 
   // Nothing is awaited past this point: the shell renders now and the two
   // sections below stream in when the (single, shared) query resolves.
@@ -71,12 +68,8 @@ export default async function AdminOrdersPage({
 
   return (
     <NavigationPending>
-      <div className="mb-6">
-        <h1 className="text-2xl font-black">Orders</h1>
-        <p className="text-neutral-500 text-sm mt-1">
-          {activeStage === "all" ? "All customers" : STAGE_LABELS[activeStage]}
-        </p>
-      </div>
+      {/* Heading is rendered by the top bar (components/admin/PageTitle), not
+          here — see the layout. */}
 
       {/* Filters render immediately — they need no data, so making them wait
           for the query was pure delay. The row count is streamed into them. */}
@@ -121,13 +114,30 @@ async function OrdersTable(props: QueryArgs) {
     props.stage, props.q, props.from, props.to, props.source, props.followUp, props.pageNum, PER_PAGE
   );
   const orders = rows as unknown as Row[];
-  const activeStage = (props.stage ?? "all") as OrderStage | "all";
   const pageNum = props.pageNum;
   const totalPages = Math.ceil(count / PER_PAGE);
-  const q = props.q;
 
-  const link = (s: string, p?: number) =>
-    `/admin/orders?stage=${s}${q ? `&q=${q}` : ""}${p ? `&page=${p}` : ""}`;
+  /**
+   * Page links carry every active filter.
+   *
+   * They used to rebuild the URL from stage and q alone, so paging out of a
+   * filtered view silently dropped the date range, source and follow-up
+   * filters — page 2 of "failed orders this week" was page 2 of everything.
+   * Built from the same args the query ran with, so a new filter can't be
+   * forgotten here again.
+   */
+  const pageLink = (p: number) => {
+    const sp = new URLSearchParams();
+    if (props.stage) sp.set("stage", props.stage);
+    if (props.q) sp.set("q", props.q);
+    if (props.from) sp.set("from", props.from);
+    if (props.to) sp.set("to", props.to);
+    if (props.source) sp.set("source", props.source);
+    if (props.followUp) sp.set("followUp", props.followUp);
+    if (p > 1) sp.set("page", String(p));
+    const qs = sp.toString();
+    return `/admin/orders${qs ? `?${qs}` : ""}`;
+  };
 
   return (
     <>
@@ -281,12 +291,12 @@ async function OrdersTable(props: QueryArgs) {
           <p className="text-neutral-500 text-xs">Page {pageNum + 1} of {totalPages}</p>
           <div className="flex gap-2">
             {pageNum > 0 && (
-              <Link href={link(activeStage, pageNum)} className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm hover:border-neutral-300 transition-all">
+              <Link href={pageLink(pageNum)} className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm hover:border-neutral-300 transition-all">
                 ← Prev
               </Link>
             )}
             {pageNum + 1 < totalPages && (
-              <Link href={link(activeStage, pageNum + 2)} className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm hover:border-neutral-300 transition-all">
+              <Link href={pageLink(pageNum + 2)} className="px-3 py-1.5 rounded-lg bg-white border border-neutral-200 text-sm hover:border-neutral-300 transition-all">
                 Next →
               </Link>
             )}
