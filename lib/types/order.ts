@@ -4,7 +4,10 @@ export type OrderStatus =
   | "shipped"
   | "out_for_delivery"
   | "delivered"
-  | "cancelled";
+  | "cancelled"
+  // Shipped, and it came back to us. Not the same as cancelled, which means
+  // it never went out. See migration 0015.
+  | "returned";
 
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 
@@ -45,6 +48,8 @@ export interface Order {
   label_download_count: number;
   shipped_at: string | null;
   delivered_at: string | null;
+  /** When the parcel came back, or null (migration 0015). */
+  returned_at: string | null;
   /** When the receipt email went out, or null. */
   invoice_email_sent_at: string | null;
   /** Recovery payment link generated from admin (migration 0013). */
@@ -83,6 +88,7 @@ export const STATUS_LABELS: Record<OrderStatus, string> = {
   out_for_delivery: "Out for Delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
+  returned: "Returned to us",
 };
 
 export const STATUS_STEPS: OrderStatus[] = [
@@ -100,4 +106,5 @@ export const STATUS_BADGE: Record<OrderStatus, string> = {
   out_for_delivery: "bg-orange-50 text-orange-700 border-orange-200",
   delivered: "bg-green-50 text-green-700 border-green-200",
   cancelled: "bg-red-50 text-red-700 border-red-200",
+  returned: "bg-rose-50 text-rose-700 border-rose-300",
 };

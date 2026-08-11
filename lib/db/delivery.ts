@@ -38,10 +38,10 @@ export function unmarkLabelsDownloaded(orderNumbers: string[]): Promise<string[]
 /**
  * Change fulfilment status, and settle the referral consequences.
  *
- * Delivered approves any pending commission; cancelled voids it. This is the
- * one place both happen, so no caller can move an order to delivered without
- * the commission following — and a commission is never approved for a parcel
- * that didn't actually arrive.
+ * Delivered approves any pending commission; cancelled and returned void it.
+ * This is the one place all three happen, so no caller can move an order to
+ * delivered without the commission following — and a commission is never
+ * approved for a parcel that didn't actually arrive, or that came back.
  */
 export async function setDeliveryStatus(
   orderNumbers: string[],
@@ -56,7 +56,9 @@ export async function setDeliveryStatus(
 
   if (status === "delivered") {
     await approveCommissions(updated);
-  } else if (status === "cancelled") {
+  } else if (status === "cancelled" || status === "returned") {
+    // A parcel that came back was already 'delivered' for a while, so its
+    // commission may have been approved. Voiding here is what takes it back.
     await voidCommissions(updated);
   }
 

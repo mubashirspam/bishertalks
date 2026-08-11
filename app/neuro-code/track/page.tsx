@@ -65,6 +65,7 @@ function stepDates(order: Order): Record<OrderStatus, string | null> {
     out_for_delivery: null,
     delivered: order.delivered_at,
     cancelled: null,
+    returned: order.returned_at,
   };
 }
 

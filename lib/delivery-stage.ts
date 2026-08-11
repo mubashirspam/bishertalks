@@ -17,7 +17,8 @@ export type DeliveryStage =
   | "shipped"
   | "out_for_delivery"
   | "delivered"
-  | "cancelled";
+  | "cancelled"
+  | "returned";
 
 interface StageInput {
   status: string;
@@ -26,6 +27,8 @@ interface StageInput {
 
 export function deliveryStage(o: StageInput): DeliveryStage {
   switch (o.status) {
+    case "returned":
+      return "returned";
     case "cancelled":
       return "cancelled";
     case "delivered":
@@ -47,6 +50,7 @@ export const DELIVERY_LABELS: Record<DeliveryStage, string> = {
   out_for_delivery: "Out for delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
+  returned: "Returned to us",
 };
 
 /** Short form, for the table cell where the row already gives context. */
@@ -57,6 +61,7 @@ export const DELIVERY_SHORT: Record<DeliveryStage, string> = {
   out_for_delivery: "Out for delivery",
   delivered: "Delivered",
   cancelled: "Cancelled",
+  returned: "Returned",
 };
 
 export const DELIVERY_BADGE: Record<DeliveryStage, string> = {
@@ -66,6 +71,7 @@ export const DELIVERY_BADGE: Record<DeliveryStage, string> = {
   out_for_delivery: "bg-amber-50 text-amber-700 border-amber-200",
   delivered: "bg-green-50 text-green-700 border-green-200",
   cancelled: "bg-red-50 text-red-700 border-red-200",
+  returned: "bg-rose-50 text-rose-700 border-rose-300",
 };
 
 /** Queue tabs, in the order the work actually happens. */
@@ -75,6 +81,7 @@ export const DELIVERY_STAGES: DeliveryStage[] = [
   "shipped",
   "out_for_delivery",
   "delivered",
+  "returned",
   "cancelled",
 ];
 
@@ -88,6 +95,7 @@ export const BULK_STATUSES: OrderStatus[] = [
   "shipped",
   "out_for_delivery",
   "delivered",
+  "returned",
   "cancelled",
 ];
 

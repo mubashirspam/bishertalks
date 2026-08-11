@@ -132,6 +132,8 @@ export function deliveryWaMessage(o: DeliveryInput): string {
       return `Hi ${name}, your order ${o.order_number} is out for delivery today! 🛵 Please keep your phone handy for the courier.`;
     case "delivered":
       return `Hi ${name}, hope Neuro Code (order ${o.order_number}) reached you safely! 🎉 Don't forget — your free NLP Mastery course is unlocked. Happy reading!`;
+    case "returned":
+      return `Hi ${name}, your order ${o.order_number} came back to us undelivered. Would you like us to send it again? Just reply with the best address and time to reach you.`;
     case "cancelled":
       return `Hi ${name}, your order ${o.order_number} has been cancelled. Let us know if you'd like to place a new order or need any help.`;
   }
