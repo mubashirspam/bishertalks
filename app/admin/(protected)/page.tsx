@@ -72,35 +72,56 @@ async function DashboardBody() {
   ]);
 
   const paid = paidOrders.data ?? [];
-  const paidCount = paid.length;
-  const sumSince = (since: string) =>
+
+  /**
+   * Revenue and order count for one period, in a single pass.
+   *
+   * Both numbers matter together: ₹12,000 is a different day depending on
+   * whether it came from two orders or twenty, and the money alone can't say
+   * which.
+   */
+  const totalsSince = (since: string) =>
     paid.reduce(
-      (sum, o) => (o.created_at >= since ? sum + (o.amount_paise ?? 0) : sum), 0
+      (acc, o) => {
+        if (o.created_at >= since) {
+          acc.paise += o.amount_paise ?? 0;
+          acc.orders += 1;
+        }
+        return acc;
+      },
+      { paise: 0, orders: 0 }
     );
+
+  const orders = (n: number) => `${n} order${n === 1 ? "" : "s"}`;
+
+  const total = totalsSince("");
+  const todayTotals = totalsSince(todayStart);
+  const weekTotals = totalsSince(weekStart);
+  const monthTotals = totalsSince(monthStart);
 
   const stats = [
     {
-      label: "Total revenue", value: `₹${rupees(sumSince(""))}`,
-      sub: `${paidCount} paid order${paidCount === 1 ? "" : "s"}`,
+      label: "Total revenue", value: `₹${rupees(total.paise)}`,
+      sub: `${total.orders} paid order${total.orders === 1 ? "" : "s"}`,
       icon: IndianRupee,
       card: "bg-gradient-to-br from-green-500 to-emerald-600",
       chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-green-100",
     },
     {
-      label: "Today", value: `₹${rupees(sumSince(todayStart))}`,
-      sub: "since midnight IST", icon: CalendarDays,
+      label: "Today", value: `₹${rupees(todayTotals.paise)}`,
+      sub: `${orders(todayTotals.orders)} · since midnight IST`, icon: CalendarDays,
       card: "bg-gradient-to-br from-blue-500 to-indigo-600",
       chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-blue-100",
     },
     {
-      label: "This week", value: `₹${rupees(sumSince(weekStart))}`,
-      sub: "since Monday", icon: CalendarRange,
+      label: "This week", value: `₹${rupees(weekTotals.paise)}`,
+      sub: `${orders(weekTotals.orders)} · since Monday`, icon: CalendarRange,
       card: "bg-gradient-to-br from-purple-500 to-fuchsia-600",
       chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-purple-100",
     },
     {
-      label: "This month", value: `₹${rupees(sumSince(monthStart))}`,
-      sub: new Date().toLocaleString("en-IN", { month: "long", year: "numeric" }),
+      label: "This month", value: `₹${rupees(monthTotals.paise)}`,
+      sub: `${orders(monthTotals.orders)} · ${new Date().toLocaleString("en-IN", { month: "long", year: "numeric" })}`,
       icon: CalendarCheck,
       card: "bg-gradient-to-br from-primary-500 to-amber-600",
       chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-orange-100",
