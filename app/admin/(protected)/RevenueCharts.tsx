@@ -53,8 +53,14 @@ const monthKey = (iso: string) => dayKey(iso).slice(0, 7);
 const fmtDay = (k: string) =>
   new Date(`${k}T00:00:00Z`).toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "UTC" });
 
+/** "Aug '26" — the year matters because a 12-month window spans two of them
+ *  and bare month names repeat. */
 const fmtMonth = (k: string) =>
-  new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-IN", { month: "short", timeZone: "UTC" });
+  new Date(`${k}-01T00:00:00Z`).toLocaleDateString("en-IN", {
+    month: "short",
+    year: "2-digit",
+    timeZone: "UTC",
+  }).replace(" ", " '");
 
 const rupees = (paise: number) => Math.round(paise / 100).toLocaleString("en-IN");
 
@@ -88,7 +94,11 @@ function bucketize(rows: RevenueRow[], grain: Grain): Bucket[] {
       d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
       keys.push(d.toISOString().slice(0, 10));
     } else {
-      keys.push(new Date(now.getUTCFullYear(), now.getUTCMonth() - i, 1).toISOString().slice(0, 7));
+      // UTC month keys — never accidentally fall back a month due to local TZ.
+      const rawMonth = now.getUTCMonth() - i;
+      const year = now.getUTCFullYear() + Math.floor(rawMonth / 12);
+      const month = ((rawMonth % 12) + 12) % 12;
+      keys.push(`${year}-${String(month + 1).padStart(2, "0")}`);
     }
   }
 
@@ -181,44 +191,48 @@ export default function RevenueCharts({ rows }: { rows: RevenueRow[] }) {
 
       <div className="grid lg:grid-cols-5 gap-5 p-4 sm:p-5">
         {/* ── Bars ── */}
-        <div className="lg:col-span-3 rounded-xl border border-neutral-100 bg-neutral-50/50 p-4">
-          <div className="flex gap-1 sm:gap-1.5">
-            {buckets.map((b) => (
-              <div
-                key={b.key}
-                className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1"
-                style={{ height: BAR_H + 16 }}
-                title={`${b.label}: ₹${rupees(b.paise)} (${b.orders} order${b.orders === 1 ? "" : "s"})`}
-              >
-                <span className="text-[9px] font-semibold text-neutral-500 leading-none h-3">
-                  {b.paise > 0 ? shortRupees(b.paise) : ""}
-                </span>
+        {/* Horizontally scrollable on mobile: 14 bars at a readable minimum
+            width beat 14 bars squashed into 320px. */}
+        <div className="lg:col-span-3 rounded-xl border border-neutral-100 bg-neutral-50/50 p-4 overflow-x-auto">
+          <div className="min-w-[480px] lg:min-w-0">
+            <div className="flex gap-1 sm:gap-1.5">
+              {buckets.map((b) => (
                 <div
-                  className={`w-full rounded-t-md transition-colors ${
-                    b.paise > 0
-                      ? "bg-gradient-to-t from-primary-600 to-primary-400 hover:from-primary-700 hover:to-primary-500"
-                      : "bg-neutral-200"
-                  }`}
-                  style={{ height: b.paise > 0 ? Math.max((b.paise / maxPaise) * BAR_H, 8) : 3 }}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="flex gap-1 sm:gap-1.5 mt-1.5 border-t border-neutral-200 pt-1.5">
-            {buckets.map((b) => (
-              <span key={b.key} className="flex-1 text-center text-[9px] text-neutral-400 truncate">
-                {b.label}
-              </span>
-            ))}
+                  key={b.key}
+                  className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1"
+                  style={{ height: BAR_H + 16 }}
+                  title={`${b.label}: ₹${rupees(b.paise)} (${b.orders} order${b.orders === 1 ? "" : "s"})`}
+                >
+                  <span className="text-[9px] font-semibold text-neutral-500 leading-none h-3">
+                    {b.paise > 0 ? shortRupees(b.paise) : ""}
+                  </span>
+                  <div
+                    className={`w-full rounded-t-md transition-colors ${
+                      b.paise > 0
+                        ? "bg-gradient-to-t from-primary-600 to-primary-400 hover:from-primary-700 hover:to-primary-500"
+                        : "bg-neutral-200"
+                    }`}
+                    style={{ height: b.paise > 0 ? Math.max((b.paise / maxPaise) * BAR_H, 8) : 3 }}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-1 sm:gap-1.5 mt-1.5 border-t border-neutral-200 pt-1.5">
+              {buckets.map((b) => (
+                <span key={b.key} className="flex-1 text-center text-[9px] text-neutral-400 truncate">
+                  {b.label}
+                </span>
+              ))}
+            </div>
           </div>
         </div>
 
         {/* ── Half-donut by channel, same window as the bars ── */}
-        <div className="lg:col-span-2 rounded-xl border border-primary-100 bg-gradient-to-b from-primary-50/70 to-white p-4 flex flex-col">
+        <div className="lg:col-span-2 rounded-xl border border-primary-100 bg-gradient-to-b from-primary-50/70 to-white p-4 flex flex-col min-w-0">
           <p className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wide mb-2">
             By channel
           </p>
-          <div className="relative">
+          <div className="relative w-full max-w-[240px] mx-auto">
             <svg viewBox="0 0 200 112" className="w-full">
               {/* track */}
               <path
