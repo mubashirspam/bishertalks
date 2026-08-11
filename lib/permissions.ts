@@ -17,6 +17,7 @@ export const PERMISSIONS = {
   "delivery.view": "See the delivery queue",
   "delivery.print": "Print address labels",
   "delivery.status": "Mark parcels shipped and delivered",
+  "delivery.portal": "Use the delivery portal — tick off packing and delivery",
 
   "users.view": "See customers",
   "users.manage": "Add customers and grant course access",
@@ -42,7 +43,7 @@ export function isPermission(v: string): v is Permission {
 /** Grouping for the staff form — flat checkboxes for twelve items is a wall. */
 export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
   { label: "Orders", permissions: ["orders.view", "orders.edit", "orders.export"] },
-  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.status"] },
+  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.status", "delivery.portal"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Business", permissions: ["insights.view", "referrals.view", "referrals.payout", "staff.manage"] },
@@ -64,7 +65,7 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
 export const ROLE_DESCRIPTIONS: Record<StaffRole, string> = {
   owner: "Full access, including staff management. Cannot be switched off.",
   manager: "Runs the shop day to day — everything except staff management.",
-  delivery: "The delivery queue only. No customer list, no revenue, no exports.",
+  delivery: "The delivery portal only — copy addresses and tick off fulfilment. No customer list, no revenue, no exports.",
   support: "Read-mostly: can look things up, but not change or download them.",
 };
 
@@ -79,8 +80,12 @@ export const ROLE_BADGE: Record<StaffRole, string> = {
  * Starting permissions for each role.
  *
  * The delivery preset is the reason this feature exists: an agent needs to
- * work the queue and nothing else. No customer list to export, no revenue
- * figures, no way to change prices.
+ * work their own screen and nothing else. No customer list to export, no
+ * revenue figures, no way to change prices.
+ *
+ * It is `delivery.portal` alone — deliberately not the master queue at
+ * /admin/delivery, which is the owner's view of the same parcels with label
+ * printing, courier assignment and bulk actions on it.
  */
 export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
   // Owner short-circuits every check (see `can` below), so listing
@@ -89,13 +94,13 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
 
   manager: [
     "orders.view", "orders.edit", "orders.export",
-    "delivery.view", "delivery.print", "delivery.status",
+    "delivery.view", "delivery.print", "delivery.status", "delivery.portal",
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
     "insights.view", "referrals.view",
   ],
 
-  delivery: ["delivery.view", "delivery.print", "delivery.status"],
+  delivery: ["delivery.portal"],
 
   support: ["orders.view", "users.view", "delivery.view"],
 };
@@ -133,6 +138,7 @@ export function canAny(
 /** Where to send someone after login — the first screen they can actually use. */
 export function landingPage(holder: PermissionHolder): string {
   if (can(holder, "orders.view")) return "/admin/orders";
+  if (can(holder, "delivery.portal")) return "/admin/delivery-portal";
   if (can(holder, "delivery.view")) return "/admin/delivery";
   if (can(holder, "insights.view")) return "/admin/insights";
   if (can(holder, "referrals.view")) return "/admin/referrals";

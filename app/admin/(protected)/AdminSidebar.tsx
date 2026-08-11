@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, LayoutTemplate, Menu, X,
+  Shield, Gift, LayoutTemplate, Menu, X, ClipboardCheck,
 } from "lucide-react";
 import {
   can, ROLE_LABELS, ROLE_BADGE, type Permission, type StaffRole,
@@ -34,6 +34,9 @@ const NAV: {
   { href: "/admin/promos", label: "Promos", icon: Tag, permission: "promos.manage" },
   { href: "/admin/referrals", label: "Referrals", icon: Gift, permission: "referrals.view" },
   { href: "/admin/staff", label: "Staff", icon: Shield, permission: "staff.manage" },
+  // Last on purpose: for an agent it's the only item, and for everyone else
+  // it's the screen someone else works in, not part of the owner's daily run.
+  { href: "/admin/delivery-portal", label: "Delivery portal", icon: ClipboardCheck, permission: "delivery.portal" },
 ];
 
 /**
@@ -67,8 +70,16 @@ export default function AdminSidebar({
   const holder = { role, permissions };
   const items = NAV.filter((n) => !n.permission || can(holder, n.permission));
 
+  /**
+   * Match on a path segment, not a string prefix.
+   *
+   * A plain `startsWith` lit up "Delivery" whenever you were on
+   * /admin/delivery-portal, because one href is a literal prefix of the other.
+   * Requiring the next character to be a "/" means only a real child route
+   * counts — /admin/orders/ORD-1 still highlights Orders.
+   */
   const isActive = (href: string, exact?: boolean) =>
-    exact ? pathname === href : pathname.startsWith(href);
+    exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 
   const badges: Record<string, { count: number; title: string; tone: string }> = {
     "/admin/delivery": {
