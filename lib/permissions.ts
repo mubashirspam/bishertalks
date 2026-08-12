@@ -16,7 +16,7 @@ export const PERMISSIONS = {
 
   "delivery.view": "See the delivery queue",
   "delivery.print": "Print address labels",
-  "delivery.status": "Mark parcels shipped and delivered",
+  "delivery.assign": "Hand parcels to a delivery agent",
   "delivery.portal": "Use the delivery portal — tick off packing and delivery",
 
   "users.view": "See customers",
@@ -43,7 +43,7 @@ export function isPermission(v: string): v is Permission {
 /** Grouping for the staff form — flat checkboxes for twelve items is a wall. */
 export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
   { label: "Orders", permissions: ["orders.view", "orders.edit", "orders.export"] },
-  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.status", "delivery.portal"] },
+  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Business", permissions: ["insights.view", "referrals.view", "referrals.payout", "staff.manage"] },
@@ -84,8 +84,8 @@ export const ROLE_BADGE: Record<StaffRole, string> = {
  * revenue figures, no way to change prices.
  *
  * It is `delivery.portal` alone — deliberately not the master queue at
- * /admin/delivery, which is the owner's view of the same parcels with label
- * printing, courier assignment and bulk actions on it.
+ * /admin/delivery, which is the owner's view of every agent's parcels, with
+ * label printing and the assignment that decides whose portal they land in.
  */
 export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
   // Owner short-circuits every check (see `can` below), so listing
@@ -94,7 +94,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
 
   manager: [
     "orders.view", "orders.edit", "orders.export",
-    "delivery.view", "delivery.print", "delivery.status", "delivery.portal",
+    "delivery.view", "delivery.print", "delivery.assign", "delivery.portal",
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
     "insights.view", "referrals.view",

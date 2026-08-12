@@ -109,7 +109,7 @@ interface DeliveryInput {
   buyer_name: string | null;
   buyer_phone: string | null;
   status: string;
-  label_downloaded_at: string | null;
+  assigned_agent_id: string | null;
   courier_name: string | null;
   tracking_number: string | null;
 }
@@ -119,12 +119,12 @@ export function deliveryWaMessage(o: DeliveryInput): string {
   const trackingUrl = `${siteUrl()}/neuro-code/track?id=${o.order_number}`;
 
   switch (deliveryStage(o)) {
-    // Nothing has been printed yet, so from the customer's side this is still
-    // "I just paid" — the same moment the Orders list is messaging about. Same
-    // message, so it can't matter which screen the admin happens to click from.
-    case "to_print":
+    // Nobody has picked this parcel up yet, so from the customer's side this is
+    // still "I just paid" — the same moment the Orders list is messaging about.
+    // Same message, so it can't matter which screen the admin clicks from.
+    case "new":
       return paidThankYouMessage(o);
-    case "packed":
+    case "assigned":
       return `Hi ${name}, good news! 📦 Your order ${o.order_number} is packed and ready — it'll be handed to the courier shortly. Track anytime here: ${trackingUrl}`;
     case "shipped":
       return `Hi ${name}, your order ${o.order_number} is on its way! 🚚${o.courier_name ? ` Courier: ${o.courier_name}.` : ""}${o.tracking_number ? ` Tracking ID: ${o.tracking_number}.` : ""} Track it here: ${trackingUrl}`;

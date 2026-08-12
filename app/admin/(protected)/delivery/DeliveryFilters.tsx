@@ -12,6 +12,7 @@ import {
 } from "@/lib/delivery-stage";
 import { istToday, istDaysAgo } from "@/lib/format-date";
 import type { StageCounts } from "@/lib/db/delivery-query";
+import type { DeliveryAgent } from "@/lib/db/staff";
 
 const PRESETS = [
   { label: "Today", days: 0 },
@@ -34,12 +35,19 @@ const TABS: { value: string; label: string }[] = [
  * bookmarked, shared, or reloaded after a bulk action without losing place.
  * The actions themselves live in DeliveryTable.
  */
-export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
+export default function DeliveryFilters({
+  counts,
+  agents,
+}: {
+  counts: StageCounts;
+  agents: DeliveryAgent[];
+}) {
   const params = useSearchParams();
   // Shared with the table, so it dims rather than blanking while reloading.
   const { pending, navigate } = useNavigation();
 
   const stage = params.get("stage") ?? "all";
+  const agent = params.get("agent") ?? "";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   // Must match the default in parseDeliveryFilters (lib/db/delivery-query.ts).
@@ -59,7 +67,7 @@ export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
     navigate(`/admin/delivery?${next}`);
   };
 
-  const hasFilters = !!from || !!to || !!params.get("q");
+  const hasFilters = !!from || !!to || !!params.get("q") || !!agent;
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -138,6 +146,27 @@ export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
             ))}
           </div>
 
+          {/* Whose parcels. "Nobody" is the useful one — it's the pile of work
+              that hasn't been handed out yet. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              Agent
+            </label>
+            <select
+              value={agent}
+              onChange={(e) => push({ agent: e.target.value || null })}
+              className={`${field} cursor-pointer`}
+            >
+              <option value="">Everyone</option>
+              <option value="none">Nobody — unassigned</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
               Order
@@ -185,7 +214,7 @@ export default function DeliveryFilters({ counts }: { counts: StageCounts }) {
               <button
                 onClick={() => {
                   setQ("");
-                  push({ from: null, to: null, q: null });
+                  push({ from: null, to: null, q: null, agent: null });
                 }}
                 className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
               >

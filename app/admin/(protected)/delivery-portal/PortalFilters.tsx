@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { CalendarDays, X } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
 import { PORTAL_STATUSES, PORTAL_STATUS_LABELS } from "@/lib/db/delivery-portal";
+import type { DeliveryAgent } from "@/lib/db/staff";
 
 /** Today in IST as YYYY-MM-DD — the agent's browser may be in any timezone. */
 function istToday(): string {
@@ -29,12 +30,20 @@ const STATUS_ACTIVE: Record<string, string> = {
  * making someone fill two boxes to see today's parcels is friction on the most
  * common action there is.
  */
-export default function PortalFilters({ countSlot }: { countSlot?: React.ReactNode }) {
+export default function PortalFilters({
+  countSlot,
+  agents,
+}: {
+  countSlot?: React.ReactNode;
+  /** Empty for an agent — they only ever see their own parcels. */
+  agents: DeliveryAgent[];
+}) {
   const params = useSearchParams();
   const { navigate } = useNavigation();
 
   const date = params.get("date") ?? "";
   const status = params.get("status") ?? "";
+  const agent = params.get("agent") ?? "";
   const pending = params.get("pending") === "1";
 
   const push = (changes: Record<string, string | null>) => {
@@ -80,6 +89,24 @@ export default function PortalFilters({ countSlot }: { countSlot?: React.ReactNo
           Yesterday
         </button>
 
+        {/* Only rendered for someone who runs the queue — an agent has one
+            possible answer, so a dropdown would be a control that does
+            nothing. */}
+        {agents.length > 0 && (
+          <select
+            value={agent}
+            onChange={(e) => push({ agent: e.target.value || null })}
+            className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500 transition-colors"
+          >
+            <option value="">All agents</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        )}
+
         <span className="w-px h-6 bg-neutral-200 mx-1" />
 
         {/* The agent's to-do list: paid, shippable, not yet keyed into the
@@ -109,7 +136,7 @@ export default function PortalFilters({ countSlot }: { countSlot?: React.ReactNo
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || status || pending) && (
+        {(date || status || pending || agent) && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"

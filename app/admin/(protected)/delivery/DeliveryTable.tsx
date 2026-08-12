@@ -5,18 +5,17 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
-  Printer, Check, RotateCcw, X, AlertCircle, Phone, MessageCircle, Info, ChevronDown, ChevronUp,
+  Printer, Check, X, AlertCircle, Phone, MessageCircle, Info, ChevronUp, UserPlus, UserMinus,
 } from "lucide-react";
 import {
   deliveryStage,
   DELIVERY_SHORT,
   DELIVERY_BADGE,
-  BULK_STATUSES,
 } from "@/lib/delivery-stage";
-import { STATUS_LABELS, type OrderStatus } from "@/lib/types/order";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
 import { deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import type { DeliveryRow } from "@/lib/db/delivery-query";
+import type { DeliveryAgent } from "@/lib/db/staff";
 
 /** Mirrors lib/shipping-label.ts — duplicated rather than imported so the PDF
  *  writer doesn't get bundled into the browser for one number. */
@@ -26,26 +25,36 @@ const LABELS_PER_PAGE = 6;
 const MAX_LABELS = 300;
 
 /**
- * The delivery worklist.
+ * The delivery worklist — an owner's view of every agent's parcels.
  *
- * Selection is the unit of work here: tick some rows (or the header box for
- * the whole page), then print, ship, or correct them in one go. With nothing
- * ticked the toolbar offers the common case instead — print everything the
- * current filters match, which is how a day's post actually gets done.
+ * Nothing here changes a parcel's status. Shipped and delivered are ticked off
+ * in the portal by the agent actually holding the parcel, on the row in front
+ * of them; a second place to mark the same thing meant two people guessing at
+ * each other's work. What this screen does is decide *whose* parcel it is:
+ * tick some rows, choose an agent, and they appear on that agent's portal.
+ *
+ * Printing labels does the same thing — you cannot print a sheet without
+ * saying who is taking it, because a printed label belonging to nobody was
+ * exactly the state that used to look "handled" and reach no one.
  */
 export default function DeliveryTable({
   rows,
   matching,
+  agents,
+  agentNames,
 }: {
   rows: DeliveryRow[];
   matching: number;
+  /** Who parcels can be handed to — active staff with portal access. */
+  agents: DeliveryAgent[];
+  /** id → name for display, including agents since switched off. */
+  agentNames: Record<string, string>;
 }) {
   const router = useRouter();
   const params = useSearchParams();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [status, setStatus] = useState<OrderStatus>("shipped");
-  const [courier, setCourier] = useState("");
+  const [agentId, setAgentId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -84,10 +93,12 @@ export default function DeliveryTable({
     setBusy("print");
     setMessage(null);
 
-    const body =
-      scope === "selected"
+    const body = {
+      agent_id: agentId,
+      ...(scope === "selected"
         ? { order_numbers: ids }
-        : { filters: Object.fromEntries(params.entries()) };
+        : { filters: Object.fromEntries(params.entries()) }),
+    };
 
     try {
       const res = await fetch("/api/admin/delivery/labels", {
@@ -113,38 +124,43 @@ export default function DeliveryTable({
       URL.revokeObjectURL(url);
 
       done(
-        `${count} label${count === 1 ? "" : "s"} downloaded — marked as printed.`
+        `${count} label${count === 1 ? "" : "s"} downloaded — assigned to ${agentName}.`
       );
     } catch {
       done("Download failed — check your connection and try again.", true);
     }
   };
 
-  const bulk = async (action: string, extra: Record<string, unknown> = {}) => {
-    setBusy(action);
+  /** Hand the ticked parcels to an agent, or take them back with null. */
+  const assign = async (to: string | null) => {
+    setBusy(to ? "assign" : "unassign");
     setMessage(null);
 
     try {
-      const res = await fetch("/api/admin/delivery/bulk", {
+      const res = await fetch("/api/admin/delivery/assign", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, order_numbers: ids, ...extra }),
+        body: JSON.stringify({ order_numbers: ids, agent_id: to }),
       });
       const json = await res.json().catch(() => ({}));
 
-      if (!res.ok) return done(json.error ?? "Update failed", true);
+      if (!res.ok) return done(json.error ?? "Assignment failed", true);
 
       done(
-        `${json.updated} order${json.updated === 1 ? "" : "s"} updated` +
-          (json.notified ? ` · ${json.notified} notified on WhatsApp` : "")
+        to
+          ? `${json.updated} parcel${json.updated === 1 ? "" : "s"} assigned to ${json.agent_name} — now on their portal.`
+          : `${json.updated} parcel${json.updated === 1 ? "" : "s"} moved back to New.`
       );
     } catch {
-      done("Update failed — check your connection and try again.", true);
+      done("Assignment failed — check your connection and try again.", true);
     }
   };
 
+  const agentName = agents.find((a) => a.id === agentId)?.name ?? "";
+  const noAgent = !agentId;
+
   const btn =
-    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50";
+    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
 
   // A run is capped server-side; say so rather than promising more than the
   // PDF will contain.
@@ -154,19 +170,46 @@ export default function DeliveryTable({
     `Print ${printAllCount < matching ? `first ${printAllCount}` : `all ${matching}`} ` +
     `label${printAllCount === 1 ? "" : "s"} (${sheets} sheet${sheets === 1 ? "" : "s"})`;
 
+  /** The one control both actions read — printing and assigning are the same
+   *  decision made two ways, so there is one place to make it. */
+  const agentPicker = (
+    <select
+      value={agentId}
+      onChange={(e) => setAgentId(e.target.value)}
+      className="bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500"
+    >
+      <option value="">Choose delivery agent…</option>
+      {agents.map((a) => (
+        <option key={a.id} value={a.id}>
+          {a.name}
+        </option>
+      ))}
+    </select>
+  );
+
   return (
     <div>
       {/* ── Action bar ───────────────────────────────────────────────────── */}
       <div className="bg-white border border-neutral-200 rounded-2xl p-3 shadow-sm mb-4 flex flex-wrap items-center gap-2">
-        {ids.length === 0 ? (
+        {!agents.length ? (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            No delivery agents yet — add one under{" "}
+            <Link href="/admin/staff" className="underline font-semibold">
+              Staff
+            </Link>{" "}
+            with portal access before assigning parcels.
+          </p>
+        ) : ids.length === 0 ? (
           <>
             <p className="text-xs text-neutral-500 mr-auto">
               {matching} order{matching === 1 ? "" : "s"} in this view · tick rows
-              to act on them
+              to hand them to an agent
             </p>
+            {agentPicker}
             <button
               onClick={() => printLabels("filtered")}
-              disabled={!matching || !!busy}
+              disabled={!matching || !!busy || noAgent}
+              title={noAgent ? "Choose the agent these parcels are going to" : undefined}
               className={`${btn} bg-primary-500 text-white hover:bg-primary-600`}
             >
               <Printer className="w-3.5 h-3.5" />
@@ -185,61 +228,36 @@ export default function DeliveryTable({
               <X className="w-3 h-3" /> Clear
             </button>
 
+            {agentPicker}
+
+            <button
+              onClick={() => assign(agentId)}
+              disabled={!!busy || noAgent}
+              title={noAgent ? "Choose an agent first" : `Move to ${agentName}'s portal`}
+              className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              {busy === "assign" ? "Assigning…" : "Assign"}
+            </button>
+
             <button
               onClick={() => printLabels("selected")}
-              disabled={!!busy}
+              disabled={!!busy || noAgent}
+              title={noAgent ? "Choose the agent these parcels are going to" : undefined}
               className={`${btn} bg-primary-500 text-white hover:bg-primary-600`}
             >
               <Printer className="w-3.5 h-3.5" />
-              {busy === "print" ? "Building PDF…" : "Print labels"}
+              {busy === "print" ? "Building PDF…" : "Print & assign"}
             </button>
 
-            <div className="flex items-center gap-1.5 border-l border-neutral-200 pl-2 ml-1">
-              <select
-                value={status}
-                onChange={(e) => setStatus(e.target.value as OrderStatus)}
-                className="bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500"
-              >
-                {BULK_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {STATUS_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-              {/* Only useful when handing a batch to a courier. */}
-              {(status === "shipped" || status === "out_for_delivery") && (
-                <input
-                  value={courier}
-                  onChange={(e) => setCourier(e.target.value)}
-                  placeholder="Courier (optional)"
-                  className="bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs w-32 focus:outline-none focus:border-primary-500"
-                />
-              )}
-              <button
-                onClick={() => bulk("status", { status, courier_name: courier })}
-                disabled={!!busy}
-                className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
-              >
-                <Check className="w-3.5 h-3.5" />
-                {busy === "status" ? "Saving…" : "Apply"}
-              </button>
-            </div>
-
             <button
-              onClick={() => bulk("mark_printed")}
+              onClick={() => assign(null)}
               disabled={!!busy}
+              title="Take these back — they return to New"
               className={`${btn} border border-neutral-200 text-neutral-600 hover:border-neutral-400`}
-              title="Mark as printed without downloading a PDF"
             >
-              <Check className="w-3.5 h-3.5" /> Mark printed
-            </button>
-            <button
-              onClick={() => bulk("unmark_printed")}
-              disabled={!!busy}
-              className={`${btn} border border-neutral-200 text-neutral-600 hover:border-neutral-400`}
-              title="Undo — for labels that printed badly"
-            >
-              <RotateCcw className="w-3.5 h-3.5" /> Undo print
+              <UserMinus className="w-3.5 h-3.5" />
+              {busy === "unassign" ? "Removing…" : "Unassign"}
             </button>
           </>
         )}
@@ -282,7 +300,7 @@ export default function DeliveryTable({
                       className="w-4 h-4 rounded border-neutral-300 cursor-pointer accent-primary-500"
                     />
                   </th>
-                  {["Order", "Deliver to", "Stage", "Label", "Ordered"].map((h) => (
+                  {["Order", "Deliver to", "Stage", "Agent", "Confirmed", "Label", "Ordered"].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider"
@@ -374,6 +392,39 @@ export default function DeliveryTable({
                           {DELIVERY_SHORT[s]}
                         </span>
                       </td>
+
+                      {/* Whose parcel this is. The point of the whole screen. */}
+                      <td className="px-4 py-3 align-top text-xs whitespace-nowrap">
+                        {o.assigned_agent_id ? (
+                          <>
+                            <p className="text-neutral-800 font-medium">
+                              {agentNames[o.assigned_agent_id] ?? "Removed agent"}
+                            </p>
+                            {o.assigned_at && (
+                              <p className="text-neutral-400 mt-0.5">
+                                {formatISTShort(o.assigned_at)}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <span className="text-orange-600 font-medium">Unassigned</span>
+                        )}
+                      </td>
+
+                      {/* Has the agent keyed the address into the courier's
+                          system? Ticked in the portal; read-only here. */}
+                      <td className="px-4 py-3 align-top text-xs whitespace-nowrap">
+                        {o.courier_entered_at ? (
+                          <p className="text-green-700 font-medium">
+                            {formatISTShort(o.courier_entered_at)}
+                          </p>
+                        ) : o.assigned_agent_id ? (
+                          <span className="text-neutral-400">Waiting</span>
+                        ) : (
+                          <span className="text-neutral-300">—</span>
+                        )}
+                      </td>
+
                       <td className="px-4 py-3 align-top text-xs whitespace-nowrap">
                         {o.label_downloaded_at ? (
                           <>
@@ -387,9 +438,7 @@ export default function DeliveryTable({
                             )}
                           </>
                         ) : (
-                          <span className="text-orange-600 font-medium">
-                            Not printed
-                          </span>
+                          <span className="text-neutral-400">Not printed</span>
                         )}
                       </td>
                       <td className="px-4 py-3 align-top text-xs whitespace-nowrap">
@@ -402,7 +451,7 @@ export default function DeliveryTable({
                     {expanded.has(o.order_number) && (
                       <tr className="bg-neutral-50 border-b border-neutral-100 last:border-0">
                         <td />
-                        <td colSpan={5} className="px-4 py-3 text-xs text-neutral-600 leading-relaxed">
+                        <td colSpan={7} className="px-4 py-3 text-xs text-neutral-600 leading-relaxed">
                           <p>
                             {[o.address_line1, o.address_line2, o.city, o.district]
                               .filter(Boolean)

@@ -25,7 +25,12 @@ async function rpc(fn: string, args: Record<string, unknown>): Promise<string[]>
   return (data ?? []) as string[];
 }
 
-/** Record that address labels were printed. Called after the PDF is built. */
+/**
+ * Record that address labels were printed. Called after the PDF is built.
+ *
+ * Records only — it does not move the parcel's status. Printing is how a batch
+ * reaches an agent; packing it is the agent's tick in the portal (see 0020).
+ */
 export function markLabelsDownloaded(orderNumbers: string[]): Promise<string[]> {
   return rpc("mark_labels_downloaded", { p_order_numbers: orderNumbers });
 }
@@ -33,6 +38,26 @@ export function markLabelsDownloaded(orderNumbers: string[]): Promise<string[]> 
 /** Undo a print, for a label that came out of the printer unusable. */
 export function unmarkLabelsDownloaded(orderNumbers: string[]): Promise<string[]> {
   return rpc("unmark_labels_downloaded", { p_order_numbers: orderNumbers });
+}
+
+/**
+ * Hand parcels to a delivery agent — or take them back with a null agent.
+ *
+ * This is what moves a parcel out of "New" and onto one agent's portal, and it
+ * is the only way a parcel gets there. Returns the order numbers actually
+ * assigned: the RPC skips anything outside the shippable scope, and the caller
+ * needs the real count rather than the number of boxes that were ticked.
+ */
+export function assignOrders(
+  orderNumbers: string[],
+  agentId: string | null,
+  actorId: string | null
+): Promise<string[]> {
+  return rpc("assign_orders", {
+    p_order_numbers: orderNumbers,
+    p_agent_id: agentId,
+    p_actor_id: actorId,
+  });
 }
 
 /**

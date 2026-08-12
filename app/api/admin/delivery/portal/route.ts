@@ -7,8 +7,11 @@ import { auditMany } from "@/lib/audit";
 import {
   isPortalStatus,
   setCourierEntered,
+  setTrackingNumber,
+  assignedAgentOf,
   PORTAL_STATUS_STEPS,
 } from "@/lib/db/delivery-portal";
+import { can } from "@/lib/permissions";
 
 /**
  * One tick in the delivery portal.
@@ -27,9 +30,33 @@ export async function POST(request: NextRequest) {
 
   const orderNumber = typeof body.order_number === "string" ? body.order_number : "";
   const status = body.status;
+  // Optional on a shipped tick, and sendable on its own to correct one later.
+  const tracking =
+    typeof body.tracking_number === "string" ? body.tracking_number : undefined;
 
   if (!orderNumber) {
     return NextResponse.json({ error: "Missing order_number" }, { status: 400 });
+  }
+
+  // An agent may only touch parcels handed to them. Owners and managers — the
+  // people who can see the whole queue — are exempt, because they're the ones
+  // who fix an agent's mistake after the agent has gone home.
+  if (!can(auth.staff, "delivery.view")) {
+    try {
+      const agent = await assignedAgentOf(orderNumber);
+      if (agent === undefined) {
+        return NextResponse.json({ error: "Order not found" }, { status: 404 });
+      }
+      if (!agent || agent !== auth.staff.id) {
+        console.warn(`[Portal] ${auth.staff.email} touched unassigned ${orderNumber}`);
+        return NextResponse.json(
+          { error: "That parcel isn't assigned to you." },
+          { status: 403 }
+        );
+      }
+    } catch {
+      return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    }
   }
 
   // The "Confirmed" tick: the agent has keyed this address into the courier's
@@ -48,11 +75,37 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // A tracking ID on its own: the agent shipped the parcel first and got the
+  // number afterwards, or is fixing a typo. No status change, and no second
+  // WhatsApp — the customer already had the shipped message, and the number is
+  // on their tracking page from here on.
+  if (tracking !== undefined && !status) {
+    try {
+      const ok = await setTrackingNumber(orderNumber, tracking);
+      if (!ok) return NextResponse.json({ error: "Order not found" }, { status: 404 });
+
+      await auditMany(auth.staff, "order.tracking", "order", [orderNumber], {
+        tracking_number: tracking.trim() || null,
+        via: "portal",
+      });
+      return NextResponse.json({ ok: true, tracking_number: tracking.trim() || null });
+    } catch {
+      return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    }
+  }
+
   if (!isPortalStatus(status)) {
     return NextResponse.json({ error: "Unknown status" }, { status: 400 });
   }
 
   try {
+    // Before the status change, not after: notifyStatusChange re-reads the
+    // order to build the message, so this is what puts the tracking ID in the
+    // "your parcel has shipped" WhatsApp instead of a message that omits it.
+    if (tracking !== undefined) {
+      await setTrackingNumber(orderNumber, tracking);
+    }
+
     const updated = await setDeliveryStatus([orderNumber], status);
 
     if (!updated.length) {
@@ -69,6 +122,7 @@ export async function POST(request: NextRequest) {
     await auditMany(auth.staff, "order.status", "order", updated, {
       status,
       via: "portal",
+      ...(tracking !== undefined ? { tracking_number: tracking.trim() || null } : {}),
     });
 
     // Shipped and delivered are the two the customer hears about; the rest are

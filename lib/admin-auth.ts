@@ -92,7 +92,7 @@ type AuthResult =
  * a delivery agent with the browser devtools open can still POST to any
  * endpoint. This is what stops them.
  *
- *   const auth = await requirePermission("delivery.status");
+ *   const auth = await requirePermission("delivery.assign");
  *   if (!auth.ok) return auth.response;
  */
 export async function requirePermission(permission: Permission): Promise<AuthResult> {

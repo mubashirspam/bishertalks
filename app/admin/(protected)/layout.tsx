@@ -6,6 +6,7 @@ import { can } from "@/lib/permissions";
 import LogoutButton from "@/components/admin/LogoutButton";
 import PageTitle from "@/components/admin/PageTitle";
 import AdminSidebar from "./AdminSidebar";
+import AdminMain from "./AdminMain";
 
 export default async function AdminLayout({
   children,
@@ -55,7 +56,7 @@ export default async function AdminLayout({
           </Suspense>
           <LogoutButton />
         </header>
-        <main className="px-4 lg:px-8 py-4 lg:py-5 max-w-7xl">{children}</main>
+        <AdminMain>{children}</AdminMain>
       </div>
     </div>
   );

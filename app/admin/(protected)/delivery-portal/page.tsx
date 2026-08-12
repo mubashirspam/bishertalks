@@ -1,7 +1,9 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { requirePageAccess } from "@/lib/admin-auth";
+import { can } from "@/lib/permissions";
 import { fetchPortalPage } from "@/lib/db/delivery-portal";
+import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
 import { SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
 import PortalFilters from "./PortalFilters";
@@ -18,6 +20,14 @@ interface Args {
   /** "1" = only parcels not yet entered with the courier. */
   pending?: string;
   pageNum: number;
+  /**
+   * Whose parcels to show. An agent's own id, always — it is not read from the
+   * URL for them, so there is no parameter to edit. null means "everyone",
+   * which only someone who can see the whole delivery queue ever gets.
+   */
+  agentId: string | null;
+  /** Whether that id came from the filter (shareable) or from who they are. */
+  seesEveryone: boolean;
 }
 
 /**
@@ -33,19 +43,31 @@ export default async function DeliveryPortalPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  await requirePageAccess("delivery.portal");
+  const staff = await requirePageAccess("delivery.portal");
+
+  // Owners and managers hold delivery.view — they run the queue, so they see
+  // every agent's parcels and can narrow to one. Everyone else sees exactly
+  // what was handed to them, and the filter isn't offered because there is
+  // nothing for them to choose between.
+  const seesEveryone = can(staff, "delivery.view");
+  const agents = seesEveryone ? await listDeliveryAgents() : [];
 
   const params = await searchParams;
+  const picked = seesEveryone && params.agent ? params.agent : null;
+
   const args: Args = {
     date: params.date,
     status: params.status,
     pending: params.pending,
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
+    agentId: seesEveryone ? picked : staff.id,
+    seesEveryone,
   };
 
   return (
     <NavigationPending>
       <PortalFilters
+        agents={agents}
         countSlot={
           <Suspense fallback={<span className="text-neutral-400">Counting…</span>}>
             <PortalCount {...args} />
@@ -54,7 +76,7 @@ export default async function DeliveryPortalPage({
       />
 
       <StaleWhileRevalidating>
-        <Suspense fallback={<SkeletonTable rows={12} columns={7} />}>
+        <Suspense fallback={<SkeletonTable rows={12} columns={11} />}>
           <PortalRows {...args} />
         </Suspense>
       </StaleWhileRevalidating>
@@ -64,7 +86,7 @@ export default async function DeliveryPortalPage({
 
 /** Streamed into the filter bar so it can paint before the query resolves. */
 async function PortalCount(args: Args) {
-  const { count } = await fetchPortalPage(args.date, args.status, args.pending, args.pageNum, PER_PAGE);
+  const { count } = await fetchPortalPage(args.date, args.status, args.pending, args.pageNum, PER_PAGE, args.agentId);
   return (
     <>
       {count} parcel{count === 1 ? "" : "s"}
@@ -73,7 +95,14 @@ async function PortalCount(args: Args) {
 }
 
 async function PortalRows(args: Args) {
-  const { rows, count } = await fetchPortalPage(args.date, args.status, args.pending, args.pageNum, PER_PAGE);
+  const [{ rows, count }, staff] = await Promise.all([
+    fetchPortalPage(args.date, args.status, args.pending, args.pageNum, PER_PAGE, args.agentId),
+    // Every staff member, not just assignable ones: a parcel assigned to
+    // someone since switched off still has to show a name.
+    listStaff(),
+  ]);
+
+  const agentNames = Object.fromEntries(staff.map((s) => [s.id, s.name]));
   const totalPages = Math.ceil(count / PER_PAGE);
 
   if (!rows.length) {
@@ -89,6 +118,9 @@ async function PortalRows(args: Args) {
     if (args.date) sp.set("date", args.date);
     if (args.status) sp.set("status", args.status);
     if (args.pending) sp.set("pending", args.pending);
+    // Only when it's a filter someone chose. An agent's own id is who they
+    // are, not where they are, and has no business in a shareable link.
+    if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);
     if (p > 1) sp.set("page", String(p));
     const qs = sp.toString();
     return `/admin/delivery-portal${qs ? `?${qs}` : ""}`;
@@ -96,7 +128,11 @@ async function PortalRows(args: Args) {
 
   return (
     <>
-      <PortalGrid rows={rows} startIndex={args.pageNum * PER_PAGE} />
+      <PortalGrid
+        rows={rows}
+        startIndex={args.pageNum * PER_PAGE}
+        agentNames={agentNames}
+      />
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">

@@ -91,3 +91,31 @@
     animation: slide-up 0.3s ease-out forwards;
   }
 }
+
+/* ── Portal grid scrollbar ───────────────────────────────────────────────────
+   The delivery portal is a wide spreadsheet worked left to right, and on macOS
+   the overlay scrollbar fades out the moment you stop moving — so the one
+   control that tells you there is more table to the right is invisible exactly
+   when you need to find it. This forces a permanent, thick, draggable bar. */
+@layer components {
+  .portal-scroll {
+    scrollbar-width: auto;
+    scrollbar-color: #a3a3a3 #f5f5f5;
+  }
+  .portal-scroll::-webkit-scrollbar {
+    height: 14px;
+    -webkit-appearance: none;
+  }
+  .portal-scroll::-webkit-scrollbar-track {
+    background: #f5f5f5;
+    border-radius: 999px;
+  }
+  .portal-scroll::-webkit-scrollbar-thumb {
+    background: #a3a3a3;
+    border: 3px solid #f5f5f5;
+    border-radius: 999px;
+  }
+  .portal-scroll::-webkit-scrollbar-thumb:hover {
+    background: #737373;
+  }
+}

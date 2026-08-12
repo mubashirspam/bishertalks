@@ -41,15 +41,21 @@ export interface Order {
   courier_name: string | null;
   expected_delivery: string | null;
   notes: string | null;
-  // Delivery (migration 0005). The label print is what moves an order from
-  // 'confirmed' to 'processing', and these are the dates the customer sees
-  // against each step on the tracking page.
+  // Delivery (migration 0005). These are the dates the customer sees against
+  // each step on the tracking page. The label print used to move an order from
+  // 'confirmed' to 'processing'; since 0020 it only records that a sheet was
+  // printed — the agent ticks the stages in the portal.
   label_downloaded_at: string | null;
   label_download_count: number;
   shipped_at: string | null;
   delivered_at: string | null;
   /** When the parcel came back, or null (migration 0015). */
   returned_at: string | null;
+  /** When the agent keyed the address into the courier's system (0016). */
+  courier_entered_at: string | null;
+  /** The delivery agent carrying this parcel, or null for New (0019). */
+  assigned_agent_id: string | null;
+  assigned_at: string | null;
   /** When the receipt email went out, or null. */
   invoice_email_sent_at: string | null;
   /** Recovery payment link generated from admin (migration 0013). */

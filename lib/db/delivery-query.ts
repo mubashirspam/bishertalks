@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   applyDeliveryFilter,
@@ -15,6 +16,8 @@ export interface DeliveryFilters {
   to?: string;
   /** Newest first is the default, so the freshest orders surface immediately. */
   sort?: "oldest" | "newest";
+  /** A staff id, or "none" for parcels nobody is carrying yet. */
+  agent?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -35,6 +38,9 @@ export interface DeliveryRow {
   tracking_number: string | null;
   label_downloaded_at: string | null;
   label_download_count: number;
+  assigned_agent_id: string | null;
+  assigned_at: string | null;
+  courier_entered_at: string | null;
   shipped_at: string | null;
   delivered_at: string | null;
   created_at: string;
@@ -43,9 +49,13 @@ export interface DeliveryRow {
 export const DELIVERY_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district,state,pincode," +
   "amount_paise,status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
-  "shipped_at,delivered_at,created_at";
+  "assigned_agent_id,assigned_at,courier_entered_at,shipped_at,delivered_at,created_at";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
+
+/** Guards the agent filter — an id off a URL goes straight into a query. */
+const isUuid = (s?: string): s is string =>
+  !!s && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 
 /**
  * Single source of truth for the delivery queue, shared by the list, the label
@@ -58,17 +68,25 @@ const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s)
  */
 export function buildDeliveryQuery(
   filters: DeliveryFilters,
-  { countOnly = false } = {}
+  { countOnly = false, columns = DELIVERY_COLUMNS } = {}
 ) {
   let query = supabaseAdmin
     .from("orders")
-    .select(countOnly ? "id" : DELIVERY_COLUMNS, { count: "exact", head: countOnly })
+    .select(countOnly ? "id" : columns, { count: "exact", head: countOnly })
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
     .order("created_at", { ascending: filters.sort === "oldest" });
 
   if (isDeliveryStage(filters.stage)) {
     query = applyDeliveryFilter(query, filters.stage);
+  }
+
+  // "Whose parcels am I looking at" — the question the delivery page exists to
+  // answer now that several agents work the same queue.
+  if (filters.agent === "none") {
+    query = query.is("assigned_agent_id", null);
+  } else if (isUuid(filters.agent)) {
+    query = query.eq("assigned_agent_id", filters.agent);
   }
 
   // created_at is UTC; the admin thinks in IST calendar days.
@@ -95,7 +113,7 @@ export type StageCounts = Record<string, number>;
  * anyone opening this page has — and an empty tab you can see is faster than
  * one you have to click.
  */
-export async function deliveryStageCounts(
+export const deliveryStageCounts = cache(async function deliveryStageCounts(
   filters: DeliveryFilters
 ): Promise<StageCounts> {
   const stages = ["all", ...DELIVERY_STAGES];
@@ -109,7 +127,7 @@ export async function deliveryStageCounts(
   return Object.fromEntries(
     stages.map((stage, i) => [stage, results[i].count ?? 0])
   );
-}
+});
 
 /** Read filters off a URL / request, ignoring anything we don't recognise. */
 export function parseDeliveryFilters(
@@ -126,5 +144,6 @@ export function parseDeliveryFilters(
     from: get("from"),
     to: get("to"),
     sort: get("sort") === "oldest" ? "oldest" : "newest",
+    agent: get("agent"),
   };
 }

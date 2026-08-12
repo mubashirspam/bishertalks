@@ -65,7 +65,8 @@ export const fetchDeliveryPage = cache(async function fetchDeliveryPage(
   to: string | undefined,
   sort: string | undefined,
   pageNum: number,
-  perPage: number
+  perPage: number,
+  agent?: string
 ) {
   // Defaulting is `parseDeliveryFilters`' job — it's what the tab counts and
   // the label PDF already go through. This function used to re-derive the
@@ -73,7 +74,7 @@ export const fetchDeliveryPage = cache(async function fetchDeliveryPage(
   // here didn't: picking "Newest first" clears the ?sort param, the stale
   // fallback read the absent value as "oldest", and the sort silently never
   // worked. One source of truth, so it can't drift again.
-  const filters: DeliveryFilters = parseDeliveryFilters({ stage, q, from, to, sort });
+  const filters: DeliveryFilters = parseDeliveryFilters({ stage, q, from, to, sort, agent });
 
   const { data, count, error } = await buildDeliveryQuery(filters).range(
     pageNum * perPage,

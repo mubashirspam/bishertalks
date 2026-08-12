@@ -56,6 +56,37 @@ export async function listStaff(): Promise<Staff[]> {
   return (data as Staff[]) ?? [];
 }
 
+/** Who a parcel can be handed to: name and id only. */
+export interface DeliveryAgent {
+  id: string;
+  name: string;
+}
+
+/**
+ * The delivery agents parcels can be assigned to.
+ *
+ * Membership is the capability, not the role label: an owner may have given a
+ * support account the portal, and that account is then a perfectly good person
+ * to hand parcels to. Owners are excluded even though `can()` would say yes —
+ * assigning the shop's owner their own parcels is never what the picker means,
+ * and it would fill the list with people who never open the portal.
+ */
+export async function listDeliveryAgents(): Promise<DeliveryAgent[]> {
+  const { data, error } = await supabaseAdmin
+    .from("staff")
+    .select("id,name")
+    .eq("is_active", true)
+    .neq("role", "owner")
+    .contains("permissions", ["delivery.portal"])
+    .order("name", { ascending: true });
+
+  if (error) {
+    console.error("[Staff] delivery agent list failed:", error.message);
+    return [];
+  }
+  return (data as DeliveryAgent[]) ?? [];
+}
+
 /** Drop anything that isn't a real capability — the list comes from a form. */
 export function sanitizePermissions(input: unknown): Permission[] {
   if (!Array.isArray(input)) return [];

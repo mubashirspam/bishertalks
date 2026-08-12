@@ -90,37 +90,40 @@ export interface PortalRow {
   amount_paise: number;
   status: OrderStatus;
   courier_entered_at: string | null;
+  tracking_number: string | null;
+  assigned_agent_id: string | null;
   created_at: string;
 }
 
 const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
-  "state,pincode,amount_paise,status,courier_entered_at,created_at";
+  "state,pincode,amount_paise,status,courier_entered_at,tracking_number," +
+  "assigned_agent_id,created_at";
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
 
-/**
- * One page of parcels, newest first.
- *
- * Memoised per request so the header count and the grid resolve from a single
- * round trip, the same way the orders list does.
- */
-export const fetchPortalPage = cache(async function fetchPortalPage(
+/** The portal's scope and filters — the same against the view or the table. */
+function portalQuery(
+  table: "portal_orders" | "orders",
   date: string | undefined,
   status: string | undefined,
-  /** "1" = only parcels not yet entered with the courier — the to-do list. */
   pending: string | undefined,
-  pageNum: number,
-  perPage: number
+  /** Whose parcels. null = every agent's, for an owner or manager. */
+  agentId: string | null
 ) {
   let query = supabaseAdmin
-    .from("orders")
+    .from(table)
     .select(PORTAL_COLUMNS, { count: "exact" })
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
     .neq("status", "cancelled")
-    // Newest first: a parcel that just came in is the one nobody has touched.
-    .order("created_at", { ascending: false });
+    // Only parcels somebody is carrying. An unassigned order is not yet
+    // anyone's job — it sits in "New" on /admin/delivery until an owner hands
+    // it out, and showing it here would put work in front of an agent that
+    // nobody decided was theirs.
+    .not("assigned_agent_id", "is", null);
+
+  if (agentId) query = query.eq("assigned_agent_id", agentId);
 
   // created_at is UTC but the day is an IST calendar day — convert, or the
   // filter is 5h30m out and silently drops the early-morning orders.
@@ -133,14 +136,61 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   if (isPortalStatus(status)) query = query.eq("status", status);
   if (pending === "1") query = query.is("courier_entered_at", null);
 
-  const { data, count, error } = await query.range(
-    pageNum * perPage,
-    (pageNum + 1) * perPage - 1
-  );
+  return query;
+}
 
-  if (error) console.error("[Portal] query failed:", error.message);
+/**
+ * One page of parcels, in the order the work happens.
+ *
+ * Reads the `portal_orders` view (migration 0018), which exists only to give
+ * the two derived sort keys names PostgREST can order by.
+ *
+ * Memoised per request so the header count and the grid resolve from a single
+ * round trip, the same way the orders list does.
+ */
+export const fetchPortalPage = cache(async function fetchPortalPage(
+  date: string | undefined,
+  status: string | undefined,
+  /** "1" = only parcels not yet entered with the courier — the to-do list. */
+  pending: string | undefined,
+  pageNum: number,
+  perPage: number,
+  /** The signed-in agent, or null for someone who may see every agent's work. */
+  agentId: string | null = null
+) {
+  const from = pageNum * perPage;
+  const to = (pageNum + 1) * perPage - 1;
 
-  return { rows: (data ?? []) as unknown as PortalRow[], count: count ?? 0 };
+  // Newest day first — today is the day being worked. Within a day, the parcels
+  // nobody has started come before the ones already handled, so the work left is
+  // at the top of the day rather than scattered through it. Then newest first.
+  let result = await portalQuery("portal_orders", date, status, pending, agentId)
+    .order("ist_day", { ascending: false })
+    .order("needs_entry", { ascending: false })
+    .order("created_at", { ascending: false })
+    .range(from, to);
+
+  // Migrations are applied by hand, so the view can be missing on a database
+  // the code has already been deployed against. An agent seeing an empty portal
+  // would read it as "no parcels today" — far worse than the old ordering, so
+  // fall back to the plain table. Note this only saves the missing *view*: the
+  // assignment columns come from 0019 and both queries need them.
+  if (result.error) {
+    console.error(
+      "[Portal] worklist query failed — are migrations 0018 and 0019 applied?",
+      result.error.message
+    );
+    result = await portalQuery("orders", date, status, pending, agentId)
+      .order("created_at", { ascending: false })
+      .range(from, to);
+
+    if (result.error) console.error("[Portal] query failed:", result.error.message);
+  }
+
+  return {
+    rows: (result.data ?? []) as unknown as PortalRow[],
+    count: result.count ?? 0,
+  };
 });
 
 /**
@@ -170,6 +220,67 @@ export async function setCourierEntered(
 
   if (error) {
     console.error("[Portal] courier_entered update failed:", error.message);
+    throw new Error(error.message);
+  }
+  return !!data?.length;
+}
+
+/**
+ * Who is carrying this parcel — `undefined` if there is no such order.
+ *
+ * The portal's write guard. An agent's screen only ever shows their own
+ * parcels, but the screen is not the enforcement: a POST with someone else's
+ * order number is one devtools console away, and marking a colleague's parcel
+ * delivered would message that customer over a parcel still in a bag.
+ */
+export async function assignedAgentOf(
+  orderNumber: string
+): Promise<string | null | undefined> {
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select("assigned_agent_id")
+    .eq("order_number", orderNumber)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Portal] assignment lookup failed:", error.message);
+    throw new Error(error.message);
+  }
+  return data ? ((data.assigned_agent_id as string | null) ?? null) : undefined;
+}
+
+/** Longest courier AWB worth accepting — real ones run 10-20 characters. */
+export const TRACKING_MAX = 64;
+
+/**
+ * Save the courier's tracking ID against an order.
+ *
+ * Optional everywhere it's offered: plenty of parcels go out without one, and
+ * an agent shouldn't be stopped from marking a parcel shipped because the
+ * courier's screen hasn't produced a number yet. An empty string clears it,
+ * which is how a typo gets taken back.
+ *
+ * Writes the same `tracking_number` column the order detail page edits and the
+ * customer's tracking page reads, so a number entered here shows up wherever
+ * one entered by an owner would.
+ */
+export async function setTrackingNumber(
+  orderNumber: string,
+  tracking: string
+): Promise<boolean> {
+  const value = tracking.trim().slice(0, TRACKING_MAX);
+
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .update({
+      tracking_number: value || null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("order_number", orderNumber)
+    .select("order_number");
+
+  if (error) {
+    console.error("[Portal] tracking update failed:", error.message);
     throw new Error(error.message);
   }
   return !!data?.length;
