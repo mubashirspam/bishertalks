@@ -33,6 +33,8 @@ export interface Order {
   razorpay_payment_id: string | null;
   razorpay_signature: string | null;
   amount_paise: number;
+  /** Copies of the book. The bonus course is one per order regardless (0023). */
+  quantity: number;
   promo_code: string | null;
   discount_paise: number;
   payment_status: PaymentStatus;

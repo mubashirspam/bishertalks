@@ -337,6 +337,14 @@ export default function DeliveryTable({
                         >
                           {o.order_number}
                         </Link>
+                        {o.quantity > 1 && (
+                          <span
+                            title="Copies of the book in this parcel"
+                            className="ml-1.5 inline-flex px-1.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold"
+                          >
+                            ×{o.quantity}
+                          </span>
+                        )}
                         {o.tracking_number && (
                           <p className="text-neutral-400 text-[11px] mt-0.5 font-mono">
                             {o.courier_name ? `${o.courier_name} · ` : ""}

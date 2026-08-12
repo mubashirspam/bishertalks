@@ -344,6 +344,13 @@ export default function PortalGrid({
                       />
                     </div>
                     <span className="text-neutral-400">{r.order_number}</span>
+                    {/* Loud, because packing one book into a three-book parcel
+                        is a mistake nobody notices until the customer does. */}
+                    {r.quantity > 1 && (
+                      <span className="ml-1.5 inline-flex px-1.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold align-middle">
+                        {r.quantity} books
+                      </span>
+                    )}
                   </td>
 
                   <td className={`${cell} whitespace-nowrap border-r border-neutral-100`}>

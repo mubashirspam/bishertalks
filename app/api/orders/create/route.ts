@@ -14,6 +14,7 @@ import {
   ATTRIBUTION_COLUMNS,
 } from "@/lib/db/attribution";
 import { applyReferral, type AppliedReferral } from "@/lib/db/referrals";
+import { clampQuantity } from "@/lib/quantity";
 
 function generateOrderNumber(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -73,15 +74,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
     }
 
+    // How many copies. Clamped here rather than taken as sent: the browser
+    // chooses the number of books, never the price of them, and a request
+    // asking for 0 or 10,000 copies must not become an order row.
+    const quantity = clampQuantity(body.quantity ?? 1);
+
     const { payablePaise } = await getProductPricing();
-    let amountPaise = payablePaise;
+    // The course is not multiplied — one login per customer, however many
+    // books they buy. Only the book has a quantity.
+    const subtotalPaise = payablePaise * quantity;
+    let amountPaise = subtotalPaise;
     let discountPaise = 0;
     let appliedPromo: string | null = null;
 
     // Validate only. Redemption happens in /api/orders/verify once payment
     // actually succeeds, so abandoned checkouts no longer burn a redemption.
     if (promoCode) {
-      const promo = await validatePromo(promoCode, payablePaise);
+      const promo = await validatePromo(promoCode, subtotalPaise);
       if (promo.valid && promo.discountPaise > 0) {
         amountPaise = promo.finalPaise;
         discountPaise = promo.discountPaise;
@@ -158,12 +167,18 @@ export async function POST(request: NextRequest) {
             {
               type: "e-commerce",
               sku: "neuro-code-book",
+              // One line for the whole basket, priced at the final amount.
+              // Razorpay validates that line_items_total equals the sum of the
+              // lines, and a promo or referral discount doesn't divide evenly
+              // across copies — so the count is carried in the description
+              // rather than in `quantity`, where rounding could make the sum
+              // disagree with the amount actually being charged.
               price: amountPaise,
               offer_price: amountPaise,
               tax_amount: 0,
               quantity: 1,
-              name: "Neuro Code",
-              description: "Book by Bisher KC",
+              name: quantity > 1 ? `Neuro Code × ${quantity}` : "Neuro Code",
+              description: `Book by Bisher KC${quantity > 1 ? ` — ${quantity} copies` : ""}`,
               image_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/images/book_front.png`,
             },
           ],
@@ -200,6 +215,7 @@ export async function POST(request: NextRequest) {
     const row = {
       razorpay_order_id: razorpayOrder.id,
       amount_paise: amountPaise,
+      quantity,
       promo_code: appliedPromo,
       discount_paise: discountPaise,
       payment_status: "pending",

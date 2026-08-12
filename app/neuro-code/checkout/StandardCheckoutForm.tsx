@@ -1,15 +1,19 @@
 "use client";
 
-import Image from "next/image";
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, Lock, ShoppingBag, Tag, Check, User, MapPin, Loader2, Truck, Gift,
+  ArrowLeft, Lock, ShoppingBag, Tag, Check, User, MapPin, Loader2, Truck,
 } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
-
-type AppliedPromo = { code: string; discountPaise: number; finalPaise: number };
+import { clampQuantity } from "@/lib/quantity";
+import {
+  PackageItems,
+  OrderTotals,
+  PaymentTrust,
+  type AppliedPromo,
+} from "./OrderSummary";
 
 declare global {
   interface Window { Razorpay: new (options: object) => { open: () => void }; }
@@ -55,7 +59,11 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
   const [promoLoading, setPromoLoading] = useState(false);
   const [promoError, setPromoError] = useState("");
 
-  const totalPaise = promo ? promo.finalPaise : pricing.payablePaise;
+  const [quantity, setQuantity] = useState(1);
+
+  // Display only. /api/orders/create multiplies the price by its own clamped
+  // copy of the quantity, so nothing here can talk the charge down.
+  const totalPaise = promo ? promo.finalPaise : pricing.payablePaise * quantity;
   const phoneValid = /^[6-9]\d{9}$/.test(phone);
 
   useEffect(() => {
@@ -137,15 +145,15 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
     return () => { cancelled = true; };
   }, [pincode]);
 
-  const applyPromo = async () => {
-    if (!promoInput.trim()) return;
+  const applyPromo = async (code = promoInput, qty = quantity) => {
+    if (!code.trim()) return;
     setPromoError("");
     setPromoLoading(true);
     try {
       const res = await fetch("/api/promo/validate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: promoInput }),
+        body: JSON.stringify({ code, quantity: qty }),
       });
       const data = await res.json();
       if (data.success) {
@@ -159,6 +167,20 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
     } finally {
       setPromoLoading(false);
     }
+  };
+
+  /**
+   * Change the book count.
+   *
+   * A promo was validated against the basket as it stood, so its discount is
+   * stale the moment the basket changes — re-check it rather than leave a
+   * number on screen that the payment sheet will disagree with.
+   */
+  const changeQuantity = (next: number) => {
+    const q = clampQuantity(next);
+    if (q === quantity) return;
+    setQuantity(q);
+    if (promo) void applyPromo(promo.code, q);
   };
 
   const validate = () => {
@@ -194,6 +216,7 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
           address1, address2, city, district, state, pincode,
           order_number: orderNumberRef.current,
           promoCode: promo?.code ?? null,
+          quantity,
         }),
       });
       const createData = await createRes.json();
@@ -420,21 +443,12 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
               <ShoppingBag className="w-4 h-4 text-primary-500" /> Order Summary
             </h2>
 
-            <div className="flex gap-4 mb-5 pb-5 border-b border-neutral-200 dark:border-white/8">
-              <div className="relative w-14 h-18 rounded-lg overflow-hidden flex-shrink-0 bg-neutral-100 dark:bg-neutral-800">
-                <Image src="/images/book_front.png" alt="Neuro Code" fill sizes="56px" className="object-cover" />
-              </div>
-              <div>
-                <p className="font-semibold">Neuro Code</p>
-                <p className="text-neutral-500 text-xs mt-0.5">by Bisher KC</p>
-                <p className="mt-2 flex items-baseline gap-2">
-                  <span className="text-primary-600 dark:text-primary-400 font-bold">₹{pricing.payable}</span>
-                  {pricing.offerPrice != null && (
-                    <span className="text-neutral-400 line-through text-xs">₹{pricing.price}</span>
-                  )}
-                </p>
-              </div>
-            </div>
+            <PackageItems
+              pricing={pricing}
+              quantity={quantity}
+              onQuantity={changeQuantity}
+              disabled={loading}
+            />
 
             <div className="mb-5 pb-5 border-b border-neutral-200 dark:border-white/8">
               {promo ? (
@@ -463,7 +477,7 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
                       className="flex-1 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-white/10 rounded-xl px-3 py-2 text-sm font-mono tracking-wider focus:outline-none focus:border-primary-500 transition-colors"
                     />
                     <button
-                      onClick={applyPromo}
+                      onClick={() => applyPromo()}
                       disabled={promoLoading || !promoInput.trim()}
                       className="px-4 py-2 rounded-xl bg-neutral-900 dark:bg-white text-white dark:text-neutral-900 text-sm font-semibold hover:opacity-90 disabled:opacity-50"
                     >
@@ -475,22 +489,12 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
               )}
             </div>
 
-            <div className="space-y-2 text-sm">
-              <div className="flex justify-between text-neutral-500">
-                <span>Subtotal</span><span className="text-neutral-900 dark:text-white">₹{pricing.payable}</span>
-              </div>
-              {promo && (
-                <div className="flex justify-between text-green-600 dark:text-green-400">
-                  <span>Discount</span><span>−₹{rupees(promo.discountPaise)}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-neutral-500">
-                <span>Shipping</span><span className="text-green-600 font-medium">FREE</span>
-              </div>
-              <div className="flex justify-between font-bold text-base pt-2 border-t border-neutral-200 dark:border-white/8 mt-2">
-                <span>Total</span><span className="text-primary-600 dark:text-primary-400">₹{rupees(totalPaise)}</span>
-              </div>
-            </div>
+            <OrderTotals
+              pricing={pricing}
+              promo={promo}
+              totalPaise={totalPaise}
+              quantity={quantity}
+            />
 
             <button
               onClick={handlePay}
@@ -502,32 +506,19 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
             </button>
             {error && <p className="text-red-500 text-xs mt-2 text-center">{error}</p>}
 
-            <p className="text-center text-neutral-500 text-xs mt-3">
-              🔒 Powered by Razorpay · UPI · Cards · Netbanking
-            </p>
+            <PaymentTrust />
 
-            <div className="mt-5 space-y-2.5">
-              <div className="group relative flex items-center gap-3 overflow-hidden rounded-xl border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-neutral-800/60 px-3.5 py-3 text-xs text-neutral-600 dark:text-neutral-400">
-                <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/60 dark:via-white/10 to-transparent skew-x-12 animate-shimmer" />
-                <span className="relative flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-neutral-200 dark:bg-white/10">
-                  <Truck className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
-                </span>
-                <span className="relative">
-                  Delivery in <strong className="text-neutral-900 dark:text-white font-semibold">5–7 business days</strong>
-                </span>
-              </div>
-              <div className="group relative flex items-center gap-3 overflow-hidden rounded-xl border border-primary-200 dark:border-primary-500/20 bg-primary-50 dark:bg-primary-900/20 px-3.5 py-3 text-xs text-primary-700 dark:text-primary-400">
-                <span
-                  className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 to-transparent skew-x-12 animate-shimmer"
-                  style={{ animationDelay: "1.1s" }}
-                />
-                <span className="relative flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-primary-500 animate-glow-pulse">
-                  <Gift className="w-3.5 h-3.5 text-white" />
-                </span>
-                <span className="relative font-medium">
-                  Free NLP course unlocked <strong>instantly</strong> after payment
-                </span>
-              </div>
+            {/* The delivery promise stays a separate, animated line rather than
+                joining the itemised list above: there it is a price (₹0), here
+                it is a reassurance about time. */}
+            <div className="mt-2.5 group relative flex items-center gap-3 overflow-hidden rounded-xl border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-neutral-800/60 px-3.5 py-3 text-xs text-neutral-600 dark:text-neutral-400">
+              <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/60 dark:via-white/10 to-transparent skew-x-12 animate-shimmer" />
+              <span className="relative flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-neutral-200 dark:bg-white/10">
+                <Truck className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
+              </span>
+              <span className="relative">
+                Delivery in <strong className="text-neutral-900 dark:text-white font-semibold">5–7 business days</strong>
+              </span>
             </div>
           </div>
         </div>

@@ -474,6 +474,16 @@ export default function AdminOrderDetailPage() {
               <CreditCard className="w-4 h-4 text-primary-500" /> Payment
             </h2>
             <div className="space-y-2 text-sm">
+              {/* Only when it isn't one. A "Books: 1" row on every order is
+                  noise; a missing one on a three-book order is a mis-pack. */}
+              {order.quantity > 1 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Books</span>
+                  <span className="font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2">
+                    × {order.quantity}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-neutral-500">Amount</span>
                 <span className="text-primary-600 font-bold">₹{Math.round(order.amount_paise / 100)}</span>

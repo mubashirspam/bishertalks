@@ -37,6 +37,8 @@ export interface LabelOrder {
   district: string | null;
   state: string | null;
   pincode: string | null;
+  /** Copies of the book in this parcel. Absent on older rows — treat as one. */
+  quantity?: number | null;
   created_at: string;
 }
 
@@ -60,7 +62,13 @@ export function senderFromEnv(): SenderDetails {
 }
 
 /** What's in the box. One title, one copy — this is a single-product store. */
-const CONTENTS = "Neuro Code (Book) x 1";
+/**
+ * What's in the parcel.
+ *
+ * The count is the operative word: a label reading "x 1" on a three-book order
+ * is how someone packs one book and closes the box.
+ */
+const contentsLine = (quantity: number) => `Neuro Code (Book) x ${quantity}`;
 
 export function buildLabelSheet(
   orders: LabelOrder[],
@@ -126,10 +134,24 @@ function drawLabel(
   const right = x + CELL_W - PAD_X;
   let cy = y + PAD_Y + 8;
 
+  // A parcel is one book unless the order says otherwise. Rows created before
+  // the quantity column existed are all single copies.
+  const copies = Math.max(1, o.quantity ?? 1);
+
   // ── Header: prepaid marker + order number ────────────────────────────────
   doc.text(left, cy, "PREPAID", { size: 8, bold: true, gray: 0.3 });
   const num = o.order_number;
   doc.text(right - measureText(num, 9.5, true), cy, num, { size: 9.5, bold: true });
+
+  // Multi-copy orders say so in the header, at the size of the order number.
+  // The contents line at the foot carries it too, but someone working down a
+  // sheet of six labels reads the top of each one and no further.
+  if (copies > 1) {
+    doc.text(left + measureText("PREPAID   ", 8, true), cy, `${copies} BOOKS`, {
+      size: 9.5,
+      bold: true,
+    });
+  }
 
   cy += 7;
   doc.line(left, cy, right, cy, { gray: 0.7, width: 0.7 });
@@ -191,7 +213,7 @@ function drawLabel(
   const footTop = y + CELL_H - FOOTER_H;
   doc.line(left, footTop, right, footTop, { gray: 0.8, width: 0.5 });
 
-  doc.text(left, footTop + 12, `Contents: ${CONTENTS}`, {
+  doc.text(left, footTop + 12, `Contents: ${contentsLine(copies)}`, {
     size: 7.5,
     gray: 0.35,
     maxWidth: INNER_W,

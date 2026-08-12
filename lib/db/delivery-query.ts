@@ -33,6 +33,7 @@ export interface DeliveryRow {
   state: string | null;
   pincode: string | null;
   amount_paise: number;
+  quantity: number;
   status: string;
   courier_name: string | null;
   tracking_number: string | null;
@@ -48,7 +49,7 @@ export interface DeliveryRow {
 
 export const DELIVERY_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district,state,pincode," +
-  "amount_paise,status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
+  "amount_paise,quantity,status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
   "assigned_agent_id,assigned_at,courier_entered_at,shipped_at,delivered_at,created_at";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);

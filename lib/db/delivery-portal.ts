@@ -88,6 +88,7 @@ export interface PortalRow {
   state: string | null;
   pincode: string | null;
   amount_paise: number;
+  quantity: number;
   status: OrderStatus;
   courier_entered_at: string | null;
   tracking_number: string | null;
@@ -97,7 +98,7 @@ export interface PortalRow {
 
 const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
-  "state,pincode,amount_paise,status,courier_entered_at,tracking_number," +
+  "state,pincode,amount_paise,quantity,status,courier_entered_at,tracking_number," +
   "assigned_agent_id,created_at";
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
