@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentStaff } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
+import { hasNavigation } from "@/lib/admin-nav";
 import LogoutButton from "@/components/admin/LogoutButton";
 import PageTitle from "@/components/admin/PageTitle";
 import AdminSidebar from "./AdminSidebar";
@@ -20,43 +21,61 @@ export default async function AdminLayout({
   const staff = await getCurrentStaff();
   if (!staff) redirect("/admin/login");
 
+  /**
+   * A delivery agent can open exactly one screen. A sidebar whose only link is
+   * the page you are already on is a column of empty space beside the thing
+   * they came to use — and on the portal, which is a wide spreadsheet, it is
+   * space with a real cost. So they get no sidebar and the whole window.
+   *
+   * The header stays, at every size rather than desktop-only: it carries the
+   * way out. Without a sidebar there is no other logout button, and an agent
+   * works from a phone.
+   */
+  const navigable = hasNavigation(staff);
+
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 lg:flex">
       {/* Counts are streamed, not awaited. They're two more database round
           trips, and nothing on the page depends on them — waiting would delay
           every screen to render a badge. The sidebar paints immediately and the
           numbers appear a moment later. */}
-      <Suspense
-        fallback={
-          <AdminSidebar
+      {navigable && (
+        <Suspense
+          fallback={
+            <AdminSidebar
+              email={staff.email}
+              name={staff.name}
+              role={staff.role}
+              permissions={staff.permissions}
+              toPrint={0}
+            />
+          }
+        >
+          <SidebarWithCounts
             email={staff.email}
             name={staff.name}
             role={staff.role}
             permissions={staff.permissions}
-            toPrint={0}
+            canSeeDelivery={can(staff, "delivery.view")}
           />
-        }
-      >
-        <SidebarWithCounts
-          email={staff.email}
-          name={staff.name}
-          role={staff.role}
-          permissions={staff.permissions}
-          canSeeDelivery={can(staff, "delivery.view")}
-        />
-      </Suspense>
+        </Suspense>
+      )}
 
       <div className="flex-1 min-w-0">
         {/* The page heading lives here rather than at the top of each body, so
             the content starts at the top of the viewport instead of below two
             lines of text that repeat what the sidebar already highlights. */}
-        <header className="hidden lg:flex items-center justify-between gap-4 border-b border-neutral-200 bg-white px-8 py-2">
+        <header
+          className={`items-center justify-between gap-4 border-b border-neutral-200 bg-white px-4 lg:px-8 py-2 ${
+            navigable ? "hidden lg:flex" : "flex sticky top-0 z-40"
+          }`}
+        >
           <Suspense fallback={null}>
             <PageTitle />
           </Suspense>
           <LogoutButton />
         </header>
-        <AdminMain>{children}</AdminMain>
+        <AdminMain wide={!navigable}>{children}</AdminMain>
       </div>
     </div>
   );

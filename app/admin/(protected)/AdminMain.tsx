@@ -17,12 +17,19 @@ const FULL_WIDTH = ["/admin/delivery-portal"];
  * A client component purely to read the path — the layout around it is a
  * server component, and a server component can't ask which page it's holding.
  */
-export default function AdminMain({ children }: { children: React.ReactNode }) {
+export default function AdminMain({
+  children,
+  /** Set when there's no sidebar to sit beside — see the layout. */
+  wide = false,
+}: {
+  children: React.ReactNode;
+  wide?: boolean;
+}) {
   const pathname = usePathname();
-  const wide = FULL_WIDTH.some((p) => pathname.startsWith(p));
+  const full = wide || FULL_WIDTH.some((p) => pathname.startsWith(p));
 
   return (
-    <main className={`px-4 lg:px-8 py-4 lg:py-5 ${wide ? "" : "max-w-7xl"}`}>
+    <main className={`px-4 lg:px-8 py-4 lg:py-5 ${full ? "" : "max-w-7xl"}`}>
       {children}
     </main>
   );

@@ -3,50 +3,19 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import {
-  LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, LayoutTemplate, Menu, X, ClipboardCheck,
-} from "lucide-react";
-import {
-  can, ROLE_LABELS, ROLE_BADGE, type Permission, type StaffRole,
-} from "@/lib/permissions";
-
-/**
- * The dashboard is gated on `orders.view` because it shows revenue and order
- * counts — a delivery agent has no business on it, and lands on the delivery
- * queue instead. `permission: null` is left available for a genuinely
- * universal screen.
- */
-const NAV: {
-  href: string;
-  label: string;
-  icon: typeof LayoutDashboard;
-  exact?: boolean;
-  permission: Permission | null;
-}[] = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, permission: "orders.view" },
-  { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
-  { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
-  { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
-  { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },
-  { href: "/admin/courses", label: "Courses", icon: BookOpen, permission: "courses.manage" },
-  { href: "/admin/landing", label: "Landing page", icon: LayoutTemplate, permission: "landing.manage" },
-  { href: "/admin/promos", label: "Promos", icon: Tag, permission: "promos.manage" },
-  { href: "/admin/referrals", label: "Referrals", icon: Gift, permission: "referrals.view" },
-  { href: "/admin/staff", label: "Staff", icon: Shield, permission: "staff.manage" },
-  // Last on purpose: for an agent it's the only item, and for everyone else
-  // it's the screen someone else works in, not part of the owner's daily run.
-  { href: "/admin/delivery-portal", label: "Delivery portal", icon: ClipboardCheck, permission: "delivery.portal" },
-];
+import { Truck, Menu, X } from "lucide-react";
+import { ROLE_LABELS, ROLE_BADGE, type StaffRole } from "@/lib/permissions";
+import { visibleNav } from "@/lib/admin-nav";
 
 /**
  * Left navigation. Client-side so the active item can be highlighted from the
  * pathname and so it can collapse on mobile.
  *
- * Items the signed-in person can't use are not rendered — a delivery agent
- * sees a two-item sidebar, not a wall of links that bounce them. This is
- * presentation only; the actual enforcement is `requirePermission` in the API
- * routes.
+ * Items the signed-in person can't use are not rendered — this is presentation
+ * only; the actual enforcement is `requirePermission` in the API routes. Nav
+ * items live in lib/admin-nav.ts because the layout counts them before it
+ * decides whether to render this at all: someone with one screen gets no
+ * sidebar.
  *
  * `toPrint` comes from the server layout and is surfaced as a badge, so the
  * day's packing backlog is visible from every screen.
@@ -67,8 +36,7 @@ export default function AdminSidebar({
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
-  const holder = { role, permissions };
-  const items = NAV.filter((n) => !n.permission || can(holder, n.permission));
+  const items = visibleNav({ role, permissions });
 
   /**
    * Match on a path segment, not a string prefix.
