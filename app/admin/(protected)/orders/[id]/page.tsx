@@ -29,18 +29,28 @@ const NOTIFY_LABELS: Record<string, string> = {
   "course.access": "Course unlocked",
 };
 
-// 'queued' is the honest state for "Make took it but hasn't told us it went
-// out" — it is not a success, so it doesn't get a green dot.
+/**
+ * What each state means to whoever is asking "did they get it?".
+ *
+ * Sending direct through Meta means these are now facts rather than
+ * hand-overs: 'sent' is Meta accepting the message, and only 'delivered' says
+ * it reached the phone. 'queued' is the honest word for a message claimed but
+ * not yet accepted — it is not a success, so it doesn't get a green dot.
+ */
 const NOTIFY_STATUS_LABELS: Record<string, string> = {
-  queued: "handed to Make",
-  sent: "delivered",
+  queued: "queued",
+  sent: "sent to WhatsApp",
+  delivered: "delivered to phone",
+  read: "read by customer",
   failed: "failed",
   skipped: "not configured",
 };
 
 const NOTIFY_DOT: Record<string, string> = {
   queued: "bg-amber-400",
-  sent: "bg-green-500",
+  sent: "bg-lime-500",
+  delivered: "bg-green-500",
+  read: "bg-emerald-600",
   failed: "bg-red-500",
   skipped: "bg-neutral-300",
 };

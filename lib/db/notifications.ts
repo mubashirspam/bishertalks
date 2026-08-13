@@ -13,7 +13,46 @@ import type { MakeEvent } from "@/lib/make";
  * and must certainly never fail the payment that triggered it.
  */
 
-export type NotificationStatus = "queued" | "sent" | "failed" | "skipped";
+/**
+ * Where a message got to.
+ *
+ * 'delivered' and 'read' arrive from Meta's status webhook (migration 0025) —
+ * under Make.com nothing ever reported them, so a message could only be
+ * "handed over" or "not". 'queued' now means claimed but not yet accepted by
+ * Meta, and 'skipped' still means no provider is configured at all.
+ */
+export type NotificationStatus =
+  | "queued"
+  | "sent"
+  | "delivered"
+  | "read"
+  | "failed"
+  | "skipped";
+
+/**
+ * How far along each state is.
+ *
+ * Receipts do not arrive in order — a 'read' can land before the 'delivered'
+ * that preceded it, and Meta re-sends callbacks. Ranking them means a late
+ * receipt can never walk a message backwards on the admin's screen.
+ */
+const STATUS_RANK: Record<NotificationStatus, number> = {
+  skipped: -1,
+  queued: 0,
+  sent: 1,
+  delivered: 2,
+  read: 3,
+  // Terminal, and always worth recording: a failure after a delivery receipt
+  // is real (a template paused mid-batch), and it is what support needs to see.
+  failed: 4,
+};
+
+/** The states a message may be in for `next` to be an advance on it. */
+function statusesBelow(next: NotificationStatus): NotificationStatus[] {
+  return (Object.keys(STATUS_RANK) as NotificationStatus[]).filter(
+    (s) => STATUS_RANK[s] < STATUS_RANK[next]
+  );
+}
 
 export interface NotificationRow {
   id: string;
@@ -129,6 +168,40 @@ export async function markNotificationResult(
     .eq("event_id", eventId);
 
   if (error) console.error("[Notify] log update failed:", error.message);
+}
+
+/**
+ * Record a delivery receipt from Meta, found by the message id.
+ *
+ * Only ever moves a message forward: `statusesBelow` is the filter, so a
+ * 'delivered' callback that arrives after 'read' — which happens, Meta makes
+ * no ordering promise and retries freely — updates nothing rather than
+ * rewriting history. A no-op is the correct outcome, not a failure.
+ *
+ * A message id we don't recognise is also normal: anything sent from WhatsApp
+ * Manager, or by hand from the business phone, reports here too and belongs to
+ * no row in this table.
+ */
+export async function markNotificationByMessageId(
+  messageId: string,
+  result: {
+    status: NotificationStatus;
+    error?: string | null;
+    errorCode?: number | null;
+  }
+): Promise<void> {
+  const { error } = await supabaseAdmin
+    .from("notification_log")
+    .update({
+      status: result.status,
+      ...(result.error !== undefined ? { error: result.error } : {}),
+      ...(result.errorCode !== undefined ? { error_code: result.errorCode } : {}),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("provider_message_id", messageId)
+    .in("status", statusesBelow(result.status));
+
+  if (error) console.error("[Notify] receipt update failed:", error.message);
 }
 
 /** Same, for a whole batch that shared one webhook call. */

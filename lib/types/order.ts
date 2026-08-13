@@ -90,7 +90,11 @@ export interface Order {
     id: string;
     event_id: string;
     event: string;
-    status: "queued" | "sent" | "failed" | "skipped";
+    /**
+     * 'delivered' and 'read' come from Meta's status webhook (0025) — under
+     * Make.com nothing ever reported them.
+     */
+    status: "queued" | "sent" | "delivered" | "read" | "failed" | "skipped";
     error: string | null;
     created_at: string;
   }[];
