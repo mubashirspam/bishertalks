@@ -94,6 +94,10 @@ export function describeAudit(row: AuditRow): string {
       return `Status changed to ${m.status ?? "?"}${m.courier ? ` (${m.courier})` : ""}`;
     case "labels.printed":
       return `Address label printed`;
+    case "order.courier_entered":
+      return m.entered === false
+        ? `Courier entry undone`
+        : `Entered with the courier${m.via === "courier-sheet" ? " (Excel sheet)" : ""}`;
     case "labels.unprinted":
       return `Label print undone`;
     case "order.updated":

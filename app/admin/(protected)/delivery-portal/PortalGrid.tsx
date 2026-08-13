@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, Copy, Undo2 } from "lucide-react";
+import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
+import PortalExport from "./PortalExport";
 import {
   PORTAL_STATUS_STEPS,
   PORTAL_STEP_LABELS,
@@ -29,15 +32,17 @@ import { formatISTShort } from "@/lib/format-date";
 export default function PortalGrid({
   rows,
   startIndex,
-  agentNames,
 }: {
   rows: PortalRow[];
   startIndex: number;
-  /** Staff id → name, for the Agent column. Covers agents since switched off. */
-  agentNames: Record<string, string>;
 }) {
+  const router = useRouter();
   const [overrides, setOverrides] = useState<Record<string, OrderStatus>>({});
   const [entered, setEntered] = useState<Record<string, boolean>>({});
+  /** Parcels ticked for the courier sheet. Capped at a sheetful, see below. */
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  /** True while the last click was refused for hitting that limit. */
+  const [capped, setCapped] = useState(false);
   const [tracking, setTracking] = useState<Record<string, string | null>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
@@ -82,6 +87,74 @@ export default function PortalGrid({
     if (local !== undefined) return local;
     return !!row.courier_entered_at;
   };
+
+  // ── Picking parcels for the courier sheet ─────────────────────────────────
+
+  /**
+   * Can this parcel go on a sheet?
+   *
+   * Only a genuinely new one: still at Confirmed status and not yet entered
+   * with the courier. A parcel that has been sheeted up already has its
+   * Confirmed tick, and putting it on a second file would ask the courier to
+   * create a second waybill for a parcel that already has one.
+   */
+  const isNew = (r: PortalRow): boolean =>
+    statusOf(r) === "confirmed" && !enteredOf(r);
+
+  /**
+   * What the button will actually send.
+   *
+   * Read off the rows rather than out of the set, so a parcel ticked and then
+   * marked Packed drops out on its own instead of travelling as a stale id.
+   */
+  const pickedRows = rows.filter((r) => picked.has(r.order_number) && isNew(r));
+  const selectable = rows.filter(isNew);
+  const allPicked =
+    selectable.length > 0 && selectable.every((r) => picked.has(r.order_number));
+
+  function togglePicked(row: PortalRow) {
+    const n = row.order_number;
+    const next = new Set(picked);
+
+    if (next.has(n)) {
+      next.delete(n);
+      setCapped(false);
+    } else if (pickedRows.length >= COURIER_SHEET_MAX) {
+      // Refuse rather than silently swapping something out — the agent is
+      // choosing what goes on this sheet, and the next one is one click away.
+      setCapped(true);
+      return;
+    } else {
+      next.add(n);
+    }
+
+    setPicked(next);
+  }
+
+  /** Tick the whole page, or as much of it as one sheet holds. */
+  function toggleAllPicked() {
+    if (allPicked || pickedRows.length) {
+      setPicked(new Set());
+      setCapped(false);
+      return;
+    }
+    const take = selectable.slice(0, COURIER_SHEET_MAX);
+    setPicked(new Set(take.map((r) => r.order_number)));
+    setCapped(take.length < selectable.length);
+  }
+
+  /** The sheet has been downloaded: those parcels are now with the courier. */
+  function sheetDownloaded(confirmed: string[]) {
+    setEntered((e) => ({
+      ...e,
+      ...Object.fromEntries(confirmed.map((n) => [n, true])),
+    }));
+    setPicked(new Set());
+    setCapped(false);
+    // Their place in the "not yet entered first" ordering has changed, and on
+    // a New filter they have left the list entirely.
+    router.refresh();
+  }
 
   /**
    * Move a parcel to a stage, optionally carrying a tracking ID with it.
@@ -277,6 +350,52 @@ export default function PortalGrid({
         </p>
       )}
 
+      {/* The sheet bar. Only new parcels can be ticked, so it has nothing to
+          offer a page of parcels that are all already with the courier. */}
+      {(selectable.length > 0 || pickedRows.length > 0) && (
+        <div
+          className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-neutral-100 bg-neutral-50/60 ${
+            error ? "" : "rounded-t-2xl"
+          }`}
+        >
+          <span className="text-xs text-neutral-600">
+            {pickedRows.length ? (
+              <>
+                <strong className="text-neutral-900">{pickedRows.length}</strong> of{" "}
+                {COURIER_SHEET_MAX} picked for the courier sheet
+              </>
+            ) : (
+              <>Tick up to {COURIER_SHEET_MAX} new parcels to build a courier sheet</>
+            )}
+          </span>
+
+          {pickedRows.length > 0 && (
+            <button
+              onClick={() => {
+                setPicked(new Set());
+                setCapped(false);
+              }}
+              className="text-xs text-neutral-500 hover:text-neutral-900 underline underline-offset-2 transition-colors"
+            >
+              Clear
+            </button>
+          )}
+
+          {capped && (
+            <span className="text-xs text-amber-700">
+              One sheet holds {COURIER_SHEET_MAX} — download these, then pick the next lot.
+            </span>
+          )}
+
+          <span className="ml-auto flex items-center gap-2">
+            <PortalExport
+              orderNumbers={pickedRows.map((r) => r.order_number)}
+              onDone={sheetDownloaded}
+            />
+          </span>
+        </div>
+      )}
+
       {/* portal-scroll (globals.css): a permanent, thick, draggable bar. The
           macOS overlay scrollbar fades out while you read, which on a table
           this wide hides the only clue that there are more columns. */}
@@ -284,7 +403,23 @@ export default function PortalGrid({
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="bg-neutral-50 border-b border-neutral-200 text-left">
-              {["#", "Ordered", "Name", "Mobile", "Address", "Pincode", "Agent"].map((h) => (
+              <th className="px-3 py-2.5 w-9 border-r border-neutral-100">
+                <input
+                  type="checkbox"
+                  checked={allPicked}
+                  // Half a page picked is its own state, and without this the
+                  // box reads as empty while the bar says nine are chosen.
+                  ref={(el) => {
+                    if (el) el.indeterminate = !allPicked && pickedRows.length > 0;
+                  }}
+                  disabled={!selectable.length}
+                  onChange={toggleAllPicked}
+                  aria-label="Pick every new parcel on this page"
+                  title={`Pick the new parcels on this page, up to ${COURIER_SHEET_MAX}`}
+                  className="w-3.5 h-3.5 rounded border-neutral-300 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
+                />
+              </th>
+              {["#", "Ordered", "Name", "Mobile", "Address", "Pincode", "Reference"].map((h) => (
                 <th
                   key={h}
                   className="px-3 py-2.5 font-semibold text-neutral-500 uppercase tracking-wider whitespace-nowrap border-r border-neutral-100"
@@ -316,14 +451,31 @@ export default function PortalGrid({
             {rows.map((r, i) => {
               const status = statusOf(r);
               const busy = saving[r.order_number];
+              const canPick = isNew(r);
+              const isPicked = canPick && picked.has(r.order_number);
 
               return (
                 <tr
                   key={r.id}
-                  className={`border-b border-neutral-100 last:border-0 hover:bg-neutral-50/70 transition-colors ${
-                    busy ? "opacity-60" : ""
-                  }`}
+                  className={`border-b border-neutral-100 last:border-0 transition-colors ${
+                    isPicked ? "bg-emerald-50/60" : "hover:bg-neutral-50/70"
+                  } ${busy ? "opacity-60" : ""}`}
                 >
+                  {/* Blank rather than a disabled box on a parcel that has
+                      already been sheeted up: there is nothing to decide, and
+                      a greyed tick down the column reads as "not done yet". */}
+                  <td className="px-3 py-2 align-top border-r border-neutral-100">
+                    {canPick && (
+                      <input
+                        type="checkbox"
+                        checked={isPicked}
+                        onChange={() => togglePicked(r)}
+                        aria-label={`Pick ${r.order_number} for the courier sheet`}
+                        className="w-3.5 h-3.5 rounded border-neutral-300 cursor-pointer accent-emerald-600"
+                      />
+                    )}
+                  </td>
+
                   <td className={`${cell} text-neutral-400 border-r border-neutral-100`}>
                     {startIndex + i + 1}
                   </td>
@@ -392,14 +544,27 @@ export default function PortalGrid({
                     </div>
                   </td>
 
-                  {/* Whose parcel. Constant down the page on an agent's own
-                      screen, and the whole point of it on an owner's. */}
+                  {/* The number the courier knows this parcel by. Blank until
+                      it goes onto a sheet, which is also the moment it stops
+                      being pickable — so an empty cell here and a tickable box
+                      on the left are the same fact read two ways. */}
                   <td className={`${cell} whitespace-nowrap border-r border-neutral-100`}>
-                    <span className="text-neutral-600">
-                      {r.assigned_agent_id
-                        ? (agentNames[r.assigned_agent_id] ?? "Removed agent")
-                        : "—"}
-                    </span>
+                    {r.courier_reference ? (
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-mono text-neutral-700">
+                          {r.courier_reference}
+                        </span>
+                        <CopyButton
+                          title="Copy reference number"
+                          active={copied === `${r.order_number}:ref`}
+                          onClick={() =>
+                            copy(`${r.order_number}:ref`, r.courier_reference!)
+                          }
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-neutral-300">—</span>
+                    )}
                   </td>
 
                   <td className="px-2 py-2 text-center border-r border-neutral-100">
@@ -503,7 +668,10 @@ export default function PortalGrid({
         Click a box to mark that stage — it saves straight away. Clicking a
         ticked Confirmed or Packed asks before it undoes it. The tracking ID
         under Shipped is optional; entering one on a parcel that hasn&apos;t
-        gone yet ships it and sends the customer the number with it.
+        gone yet ships it and sends the customer the number with it. The
+        left-hand tick picks a new parcel for the courier&apos;s Excel sheet —
+        up to {COURIER_SHEET_MAX} at a time, and downloading the sheet ticks
+        them Confirmed.
       </p>
 
       {confirming && (

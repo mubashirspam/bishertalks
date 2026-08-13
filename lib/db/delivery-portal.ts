@@ -2,6 +2,7 @@ import { cache } from "react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
 import type { OrderStatus } from "@/lib/types/order";
+import { COURIER_SHEET_MAX, type CourierParcel } from "@/lib/courier-sheet";
 
 /**
  * The delivery portal's data.
@@ -91,6 +92,8 @@ export interface PortalRow {
   quantity: number;
   status: OrderStatus;
   courier_entered_at: string | null;
+  /** The number this parcel went to the courier under — see migration 0024. */
+  courier_reference: string | null;
   tracking_number: string | null;
   assigned_agent_id: string | null;
   created_at: string;
@@ -98,8 +101,8 @@ export interface PortalRow {
 
 const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
-  "state,pincode,amount_paise,quantity,status,courier_entered_at,tracking_number," +
-  "assigned_agent_id,created_at";
+  "state,pincode,amount_paise,quantity,status,courier_entered_at,courier_reference," +
+  "tracking_number,assigned_agent_id,created_at";
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
 
@@ -110,11 +113,12 @@ function portalQuery(
   status: string | undefined,
   pending: string | undefined,
   /** Whose parcels. null = every agent's, for an owner or manager. */
-  agentId: string | null
+  agentId: string | null,
+  columns: string = PORTAL_COLUMNS
 ) {
   let query = supabaseAdmin
     .from(table)
-    .select(PORTAL_COLUMNS, { count: "exact" })
+    .select(columns, { count: "exact" })
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
     .neq("status", "cancelled")
@@ -185,6 +189,27 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
       .order("created_at", { ascending: false })
       .range(from, to);
 
+    // Same reasoning one step further down. The view is rebuilt by 0024 to
+    // carry courier_reference, so a database still on 0023 fails both queries
+    // above on a column that only fills in the Reference cell — the entire
+    // portal would go blank over a nice-to-have. Drop the column instead.
+    if (result.error) {
+      console.error(
+        "[Portal] retrying without courier_reference — is migration 0024 applied?",
+        result.error.message
+      );
+      result = await portalQuery(
+        "orders",
+        date,
+        status,
+        pending,
+        agentId,
+        PORTAL_COLUMNS.replace("courier_reference,", "")
+      )
+        .order("created_at", { ascending: false })
+        .range(from, to);
+    }
+
     if (result.error) console.error("[Portal] query failed:", result.error.message);
   }
 
@@ -193,6 +218,95 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     count: result.count ?? 0,
   };
 });
+
+// ── The courier's bulk-upload sheet ─────────────────────────────────────────
+
+/**
+ * The picked parcels, re-read through what the sheet will actually accept.
+ *
+ * The agent ticks rows and the browser sends their order numbers, but ticked
+ * boxes are not proof of anything: the page may have been open since this
+ * morning, and a parcel someone else has since put on a sheet must not go onto
+ * a second one. So the ids are a filter, never the scope — everything the
+ * portal requires is asserted again here, and anything that no longer fits
+ * silently drops out of the batch rather than being written to the file.
+ *
+ * "New" in the strict sense the sheet needs: paid, addressed, assigned to an
+ * agent, still at 'confirmed', and not yet entered with the courier. A parcel
+ * that has been on a sheet already has a courier_entered_at and fails that
+ * last test on its own.
+ *
+ * Oldest first — the file is a queue being drained, so the customer who has
+ * waited longest is at the top of it whatever order the boxes were ticked in.
+ *
+ * Reads `orders` rather than the portal view: no derived sort key is needed
+ * here, and the fewer things this depends on the better, given it is the query
+ * whose failure would leave an agent with no way to post anything.
+ */
+export async function fetchPickedForCourierSheet(
+  orderNumbers: string[],
+  /** The signed-in agent, or null for someone who may see every agent's work. */
+  agentId: string | null,
+  limit: number = COURIER_SHEET_MAX
+): Promise<CourierParcel[]> {
+  if (!orderNumbers.length) return [];
+
+  let query = supabaseAdmin
+    .from("orders")
+    .select(
+      "order_number,buyer_name,buyer_phone,address_line1,address_line2,city," +
+        "district,state,pincode,amount_paise,quantity,courier_reference"
+    )
+    .in("order_number", orderNumbers.slice(0, limit))
+    .eq("payment_status", "paid")
+    .not("address_line1", "is", null)
+    .not("assigned_agent_id", "is", null)
+    .eq("status", "confirmed")
+    .is("courier_entered_at", null);
+
+  // An agent may only put their own parcels on a sheet. Same rule as every
+  // other portal write, and the reason the ids alone are never enough.
+  if (agentId) query = query.eq("assigned_agent_id", agentId);
+
+  const { data, error } = await query
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    // courier_reference arrives with migration 0024, and migrations are applied
+    // by hand here — say so, because "column does not exist" on a screen an
+    // agent is standing in front of is otherwise a mystery.
+    console.error(
+      "[Portal] courier sheet query failed — is migration 0024 applied?",
+      error.message
+    );
+    throw new Error(error.message);
+  }
+  return (data ?? []) as unknown as CourierParcel[];
+}
+
+/**
+ * Which of these reference numbers are already spoken for.
+ *
+ * Only the candidates for the batch in hand — a hundred-odd strings against a
+ * unique index, rather than reading every reference we have ever issued.
+ */
+export async function takenReferences(candidates: string[]): Promise<string[]> {
+  if (!candidates.length) return [];
+
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select("courier_reference")
+    .in("courier_reference", candidates);
+
+  if (error) {
+    console.error("[Portal] reference lookup failed:", error.message);
+    throw new Error(error.message);
+  }
+  return (data ?? [])
+    .map((r) => (r as { courier_reference: string | null }).courier_reference)
+    .filter((r): r is string => !!r);
+}
 
 /**
  * Record (or undo) "I've entered this into the courier's system".

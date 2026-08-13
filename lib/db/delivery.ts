@@ -35,6 +35,27 @@ export function markLabelsDownloaded(orderNumbers: string[]): Promise<string[]> 
   return rpc("mark_labels_downloaded", { p_order_numbers: orderNumbers });
 }
 
+/**
+ * Confirm a whole sheet of parcels — "these addresses are now with the
+ * courier" — and remember the reference number each one went out under.
+ *
+ * Called the moment the .xlsx is built, because building it *is* the entry:
+ * the agent uploads that exact file to the courier. One statement for the
+ * whole batch (migration 0024), so a sheet of fifty can never come back with
+ * thirty confirmed and twenty still sitting in New.
+ *
+ * The two arrays are positional — references[i] belongs to orderNumbers[i].
+ */
+export function markCourierEntered(
+  orderNumbers: string[],
+  references: string[]
+): Promise<string[]> {
+  return rpc("mark_courier_entered", {
+    p_order_numbers: orderNumbers,
+    p_references: references,
+  });
+}
+
 /** Undo a print, for a label that came out of the printer unusable. */
 export function unmarkLabelsDownloaded(orderNumbers: string[]): Promise<string[]> {
   return rpc("unmark_labels_downloaded", { p_order_numbers: orderNumbers });

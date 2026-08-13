@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
 import { fetchPortalPage } from "@/lib/db/delivery-portal";
-import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
+import { listDeliveryAgents } from "@/lib/db/staff";
 import { SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
 import PortalFilters from "./PortalFilters";
@@ -76,7 +76,7 @@ export default async function DeliveryPortalPage({
       />
 
       <StaleWhileRevalidating>
-        <Suspense fallback={<SkeletonTable rows={12} columns={11} />}>
+        <Suspense fallback={<SkeletonTable rows={12} columns={12} />}>
           <PortalRows {...args} />
         </Suspense>
       </StaleWhileRevalidating>
@@ -95,14 +95,15 @@ async function PortalCount(args: Args) {
 }
 
 async function PortalRows(args: Args) {
-  const [{ rows, count }, staff] = await Promise.all([
-    fetchPortalPage(args.date, args.status, args.pending, args.pageNum, PER_PAGE, args.agentId),
-    // Every staff member, not just assignable ones: a parcel assigned to
-    // someone since switched off still has to show a name.
-    listStaff(),
-  ]);
+  const { rows, count } = await fetchPortalPage(
+    args.date,
+    args.status,
+    args.pending,
+    args.pageNum,
+    PER_PAGE,
+    args.agentId
+  );
 
-  const agentNames = Object.fromEntries(staff.map((s) => [s.id, s.name]));
   const totalPages = Math.ceil(count / PER_PAGE);
 
   if (!rows.length) {
@@ -128,11 +129,7 @@ async function PortalRows(args: Args) {
 
   return (
     <>
-      <PortalGrid
-        rows={rows}
-        startIndex={args.pageNum * PER_PAGE}
-        agentNames={agentNames}
-      />
+      <PortalGrid rows={rows} startIndex={args.pageNum * PER_PAGE} />
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">
