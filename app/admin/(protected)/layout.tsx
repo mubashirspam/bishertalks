@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCurrentStaff } from "@/lib/admin-auth";
+import { buildDeliveryQuery } from "@/lib/db/delivery-query";
 import { can } from "@/lib/permissions";
 import { hasNavigation } from "@/lib/admin-nav";
 import LogoutButton from "@/components/admin/LogoutButton";
@@ -47,7 +47,7 @@ export default async function AdminLayout({
               name={staff.name}
               role={staff.role}
               permissions={staff.permissions}
-              toPrint={0}
+              unassigned={0}
             />
           }
         >
@@ -97,19 +97,32 @@ async function SidebarWithCounts({
   permissions: string[];
   canSeeDelivery: boolean;
 }) {
-  const toPrint = canSeeDelivery ? await countToPrint() : 0;
+  const unassigned = canSeeDelivery ? await countUnassigned() : 0;
 
-  return <AdminSidebar {...props} toPrint={toPrint} />;
+  return <AdminSidebar {...props} unassigned={unassigned} />;
 }
 
-/** Shippable and waiting for a label — the daily job. */
-async function countToPrint(): Promise<number> {
-  const { count } = await supabaseAdmin
-    .from("orders")
-    .select("id", { count: "exact", head: true })
-    .eq("payment_status", "paid")
-    .not("address_line1", "is", null)
-    .in("status", ["confirmed", "processing"])
-    .is("label_downloaded_at", null);
+/**
+ * Parcels nobody is carrying yet — the New tab of the delivery queue.
+ *
+ * This used to count parcels with no label printed, which was the same thing
+ * back when printing a sheet was how a batch got handed over. It is not any
+ * more: a parcel can be assigned to an agent straight from the list, without a
+ * PDF ever coming out, and those stayed in the badge for good — the number
+ * only ever went up, and stopped meaning anything.
+ *
+ * Built from the delivery queue's own definition of "new" so the badge and the
+ * tab it links to can never disagree.
+ */
+async function countUnassigned(): Promise<number> {
+  const { count, error } = await buildDeliveryQuery(
+    { stage: "new" },
+    { countOnly: true }
+  );
+
+  if (error) {
+    console.error("[Sidebar] new-parcel count failed:", error.message);
+    return 0;
+  }
   return count ?? 0;
 }

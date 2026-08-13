@@ -17,21 +17,21 @@ import { visibleNav } from "@/lib/admin-nav";
  * decides whether to render this at all: someone with one screen gets no
  * sidebar.
  *
- * `toPrint` comes from the server layout and is surfaced as a badge, so the
- * day's packing backlog is visible from every screen.
+ * `unassigned` comes from the server layout and is surfaced as a badge, so the
+ * parcels nobody is carrying yet are visible from every screen.
  */
 export default function AdminSidebar({
   email,
   name,
   role,
   permissions,
-  toPrint,
+  unassigned,
 }: {
   email: string;
   name: string;
   role: StaffRole;
   permissions: string[];
-  toPrint: number;
+  unassigned: number;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -51,8 +51,8 @@ export default function AdminSidebar({
 
   const badges: Record<string, { count: number; title: string; tone: string }> = {
     "/admin/delivery": {
-      count: toPrint,
-      title: "Parcels waiting for an address label",
+      count: unassigned,
+      title: "Parcels not yet handed to a delivery agent",
       tone: "bg-blue-100 text-blue-700",
     },
   };
@@ -103,12 +103,12 @@ export default function AdminSidebar({
           <span className="text-neutral-400 font-normal">Admin</span>
         </span>
         <span className="flex items-center gap-2 min-w-8 justify-end">
-          {toPrint > 0 && (
+          {unassigned > 0 && (
             <span
               className="flex items-center gap-1 text-blue-600 text-xs font-bold"
-              title="Parcels waiting for an address label"
+              title="Parcels not yet handed to a delivery agent"
             >
-              <Truck className="w-3.5 h-3.5" /> {toPrint}
+              <Truck className="w-3.5 h-3.5" /> {unassigned}
             </span>
           )}
         </span>
