@@ -15,37 +15,53 @@ import {
   markNotificationResult,
   markNotificationResults,
 } from "@/lib/db/notifications";
+import { WIRE_EVENT, type OrderEvent } from "@/lib/notify-events";
+import {
+  sendTemplate,
+  toWhatsAppNumber,
+  whatsappConfigured,
+} from "@/lib/whatsapp";
+import {
+  TEMPLATES,
+  TEMPLATE_LANGUAGE,
+  type TemplateContext,
+} from "@/lib/whatsapp-templates";
 
 /**
  * Customer notifications.
  *
- * This module builds *events*, not messages. Every WhatsApp message is written
- * and sent by the Make.com scenario; all this does is hand it the facts and an
- * idempotency key. That means message copy changes without a deploy, and a
- * change of WhatsApp provider is invisible from here.
+ * This module decides *what happened* — payment landed, parcel shipped — claims
+ * an idempotency key for it, and hands the facts to whoever is delivering
+ * messages today. It has never known the wording, and still doesn't: the
+ * Malayalam copy lives in lib/whatsapp-templates.ts, where it can be diffed and
+ * submitted to Meta from the same definition that fills it in.
  *
- * The internal event names are unchanged (`shipped`, `delivered`, …) because
- * they mirror order statuses and callers pass them straight through. WIRE_EVENT
- * maps them to the dotted names the scenario routes on.
+ * Two providers, chosen by WHATSAPP_PROVIDER:
+ *
+ *   meta   direct Meta Cloud API — one approved template per event, a wamid
+ *          back on every send, and real delivery receipts on the webhook.
+ *   make   the Make.com scenario this replaced. Kept only so a rejected
+ *          template or a throttled number is an env var away from being
+ *          rolled back, and deleted once Meta has run clean.
  *
  * Nothing here throws.
  */
 
-export type OrderEvent =
-  | "payment_received"
-  | "confirmed"
-  | "shipped"
-  | "delivered"
-  | "course_access";
+export type { OrderEvent };
 
-/** Internal name → the name the Make scenario's router matches on. */
-const WIRE_EVENT: Record<OrderEvent, string> = {
-  payment_received: "payment.received",
-  confirmed: "order.confirmed",
-  shipped: "order.shipped",
-  delivered: "order.delivered",
-  course_access: "course.access",
-};
+/** Which one is live. Defaults to Meta as soon as its credentials exist. */
+export type NotifyProvider = "meta" | "make";
+
+export function notifyProvider(): NotifyProvider {
+  const choice = process.env.WHATSAPP_PROVIDER;
+  if (choice === "meta" || choice === "make") return choice;
+  return whatsappConfigured() ? "meta" : "make";
+}
+
+/** Can anything actually be sent right now? */
+function notifyConfigured(): boolean {
+  return notifyProvider() === "meta" ? whatsappConfigured() : makeConfigured();
+}
 
 export interface NotifyResult {
   ok: boolean;
@@ -182,6 +198,85 @@ function buildOrderEvent(
   };
 }
 
+// ── Delivery ────────────────────────────────────────────────────────────────
+
+/**
+ * The event payload, read as a template's blanks.
+ *
+ * Everything is already formatted by the time it reaches here — this only
+ * picks fields out and supplies the fallbacks Meta forces on us: a template
+ * parameter may not be empty, so every value has to resolve to *something*.
+ * "—" is deliberately visible; a blank line in a customer's message is a bug
+ * you can see, and inventing plausible text would be worse.
+ */
+function templateContext(payload: MakeEvent): TemplateContext {
+  return {
+    customerName: payload.customer.name,
+    orderNumber: payload.order?.number ?? "",
+    amount: String(payload.order?.amount ?? ""),
+    addressShort: payload.order?.address.short || "—",
+    expectedDelivery: payload.order?.expected_delivery || "5–7 ദിവസം",
+    addressUrl: payload.links.address ?? payload.links.site,
+    trackingUrl: payload.links.tracking ?? payload.links.site,
+    courseTitle: payload.course?.title ?? "",
+    courseUrl: payload.course?.url ?? payload.links.course ?? payload.links.site,
+    loginPhone: payload.customer.phone_digits,
+  };
+}
+
+interface DeliveryOutcome {
+  ok: boolean;
+  error?: string;
+  /** Meta's wamid — how a status callback finds this row later. */
+  messageId?: string;
+  /** True when the provider isn't configured, which is not a failure. */
+  skipped?: boolean;
+}
+
+/**
+ * Send one message through whichever provider is live.
+ *
+ * On the Meta path this is where an event becomes an actual template: the
+ * event name picks the template, and the template picks which facts it wants
+ * and in what order. Nothing else in the app knows that mapping.
+ */
+async function deliver(
+  payload: MakeEvent,
+  event: OrderEvent
+): Promise<DeliveryOutcome> {
+  if (notifyProvider() === "make") {
+    const result = await sendMakeEvent(payload);
+    return { ok: result.ok, error: result.error, skipped: result.skipped };
+  }
+
+  const to = toWhatsAppNumber(payload.customer.phone);
+  if (!to) return { ok: false, error: "Unusable phone number" };
+
+  const template = TEMPLATES[event];
+  const result = await sendTemplate({
+    to,
+    template: template.name,
+    language: TEMPLATE_LANGUAGE,
+    params: template.params(templateContext(payload)),
+  });
+
+  return {
+    ok: result.ok,
+    error: result.error,
+    messageId: result.messageId,
+  };
+}
+
+/**
+ * How many messages are in flight to Meta at once.
+ *
+ * The Cloud API takes one message per request — there is no batch endpoint —
+ * so an admin marking fifty parcels shipped is fifty calls. A handful at a
+ * time keeps that quick without tripping the per-number rate limit, which
+ * costs far more than the seconds it saves.
+ */
+const SEND_CONCURRENCY = 5;
+
 /**
  * Idempotency key.
  *
@@ -213,10 +308,10 @@ export async function sendOrderNotification(
   opts: { resend?: boolean } = {}
 ): Promise<NotifyResult> {
   // Bail out before claiming. A claim writes the event_id, and the unique index
-  // would then suppress the real send once Make is finally configured — an
+  // would then suppress the real send once WhatsApp is finally configured — an
   // unsent message must not consume its own idempotency key.
-  if (!makeConfigured()) {
-    console.warn("[Notify] MAKE_WEBHOOK_URL not set — not sending:", orderNumber, event);
+  if (!notifyConfigured()) {
+    console.warn("[Notify] no WhatsApp provider configured — not sending:", orderNumber, event);
     return { ok: false, status: 503, error: "WhatsApp automation not configured" };
   }
 
@@ -257,7 +352,7 @@ export async function sendOrderNotification(
       return { ok: true, status: 200, duplicate: true };
     }
 
-    const result = await sendMakeEvent(payload);
+    const result = await deliver(payload, event);
 
     if (!result.ok) {
       await markNotificationResult(payload.event_id, {
@@ -269,8 +364,18 @@ export async function sendOrderNotification(
         : { ok: false, status: 502, error: result.error || "Send failed" };
     }
 
-    // Left as 'queued' on purpose: Make has accepted it, but only the callback
-    // at /api/notify/callback can say the message actually went out.
+    // Meta answers with a wamid, which means it has taken the message — record
+    // that now, and let the status webhook upgrade the row to delivered or
+    // read. On the Make path there is no id and no such certainty, so the row
+    // stays 'queued' until /api/notify/callback says otherwise.
+    if (result.messageId) {
+      await markNotificationResult(payload.event_id, {
+        status: "sent",
+        provider: "meta",
+        providerMessageId: result.messageId,
+      });
+    }
+
     if (event === "payment_received") {
       await supabaseAdmin
         .from("orders")
@@ -299,8 +404,8 @@ export async function sendOrderNotifications(
   if (!orderNumbers.length) return 0;
 
   // As above — don't burn idempotency keys on messages that can't be sent.
-  if (!makeConfigured()) {
-    console.warn("[Notify] MAKE_WEBHOOK_URL not set — not sending:", event);
+  if (!notifyConfigured()) {
+    console.warn("[Notify] no WhatsApp provider configured — not sending:", event);
     return 0;
   }
 
@@ -328,24 +433,58 @@ export async function sendOrderNotifications(
     const events = await claimNotifications(built);
     if (!events.length) return 0;
 
-    // Chunked to stay inside Make's request size limit; each chunk is still a
-    // single execution that the scenario's Iterator fans out.
-    let accepted = 0;
-    for (let i = 0; i < events.length; i += 100) {
-      const chunk = events.slice(i, i + 100);
-      const result = await sendMakeEvents(chunk);
+    // Make takes the whole batch in one call — the scenario's Iterator fans it
+    // out — and chunking is only about its request size limit.
+    if (notifyProvider() === "make") {
+      let accepted = 0;
+      for (let i = 0; i < events.length; i += 100) {
+        const chunk = events.slice(i, i + 100);
+        const result = await sendMakeEvents(chunk);
 
-      if (result.ok) {
-        accepted += chunk.length;
-      } else {
-        await markNotificationResults(
-          chunk.map((e) => e.event_id),
-          { status: result.skipped ? "skipped" : "failed", error: result.error }
-        );
+        if (result.ok) {
+          accepted += chunk.length;
+        } else {
+          await markNotificationResults(
+            chunk.map((e) => e.event_id),
+            { status: result.skipped ? "skipped" : "failed", error: result.error }
+          );
+        }
       }
+      return accepted;
     }
 
-    return accepted;
+    // Meta is one request per message, so this is a real fan-out. A few at a
+    // time: fifty sequential round trips would hold the admin's request open
+    // for the better part of a minute, and fifty at once trips the rate limit.
+    let sent = 0;
+    for (let i = 0; i < events.length; i += SEND_CONCURRENCY) {
+      const chunk = events.slice(i, i + SEND_CONCURRENCY);
+
+      const outcomes = await Promise.all(
+        chunk.map(async (payload) => ({
+          payload,
+          result: await deliver(payload, event),
+        }))
+      );
+
+      // One row per message, because each carries its own wamid and its own
+      // reason for failing. A batch that half-succeeds has to read that way in
+      // the log, or support is guessing which customer heard from us.
+      await Promise.all(
+        outcomes.map(({ payload, result }) =>
+          markNotificationResult(payload.event_id, {
+            status: result.ok ? "sent" : "failed",
+            provider: "meta",
+            providerMessageId: result.messageId ?? null,
+            error: result.error ?? null,
+          })
+        )
+      );
+
+      sent += outcomes.filter((o) => o.result.ok).length;
+    }
+
+    return sent;
   } catch (err) {
     console.error("[Notify] batch failed:", event, err);
     return 0;
@@ -377,8 +516,8 @@ export async function notifyCourseAccess(params: {
     return;
   }
 
-  if (!makeConfigured()) {
-    console.warn("[Notify] MAKE_WEBHOOK_URL not set — course unlock not sent");
+  if (!notifyConfigured()) {
+    console.warn("[Notify] no WhatsApp provider configured — course unlock not sent");
     return;
   }
 
@@ -417,11 +556,18 @@ export async function notifyCourseAccess(params: {
     // history for a purchase includes the course unlock.
     if (!(await claimNotification(payload, orderNumber))) return;
 
-    const result = await sendMakeEvent(payload);
+    const result = await deliver(payload, "course_access");
+
     if (!result.ok) {
       await markNotificationResult(payload.event_id, {
         status: result.skipped ? "skipped" : "failed",
         error: result.error,
+      });
+    } else if (result.messageId) {
+      await markNotificationResult(payload.event_id, {
+        status: "sent",
+        provider: "meta",
+        providerMessageId: result.messageId,
       });
     }
   } catch (e) {

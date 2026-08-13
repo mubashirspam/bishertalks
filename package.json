@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "check-env": "node scripts/check-env.mjs",
-    "test-make": "node scripts/test-make.mjs"
+    "test-make": "node scripts/test-make.mjs",
+    "whatsapp:templates": "node scripts/whatsapp-templates.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",

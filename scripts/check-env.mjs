@@ -134,31 +134,78 @@ if (forProd && /localhost/.test(appUrl)) {
   ok(appUrl);
 }
 
-// ── WhatsApp via Make.com ────────────────────────────────────────────────────
-console.log(`\n${BOLD}WhatsApp (Make.com)${OFF}`);
-const hook = env.MAKE_WEBHOOK_URL || "";
-if (unset(hook)) {
-  warn("MAKE_WEBHOOK_URL not set — no customer messages will send",
-       "Payments and course access still work without it. See MAKE_WHATSAPP.md.");
-} else if (!/^https:\/\/hook\.[a-z0-9-]+\.make\.com\//i.test(hook)) {
-  warn(`MAKE_WEBHOOK_URL doesn't look like a Make webhook: ${hook.slice(0, 40)}…`,
-       "Expected https://hook.<region>.make.com/<token>");
-} else {
-  ok("webhook URL looks right");
-}
+// ── WhatsApp ─────────────────────────────────────────────────────────────────
+// Two providers can be live: Meta direct (where we are going) and the Make.com
+// scenario it replaces. WHATSAPP_PROVIDER picks; with nothing set, Meta wins as
+// soon as its credentials exist. Check whichever is actually selected — warning
+// about the other one's missing variables is noise.
+const provider =
+  env.WHATSAPP_PROVIDER ||
+  (!unset(env.WHATSAPP_TOKEN) && !unset(env.WHATSAPP_PHONE_NUMBER_ID) ? "meta" : "make");
 
-if (unset(env.MAKE_WEBHOOK_SECRET)) {
-  warn("MAKE_WEBHOOK_SECRET not set — the scenario cannot verify us",
-       "Generate one with: openssl rand -hex 32");
-} else if (env.MAKE_WEBHOOK_SECRET.length < 24) {
-  warn("MAKE_WEBHOOK_SECRET is short", "Use at least 32 hex characters.");
-} else {
-  ok("shared secret is set");
-}
+console.log(`\n${BOLD}WhatsApp (${provider})${OFF}`);
 
-if (!unset(env.WHATSAPP_TOKEN) || !unset(env.WHATSAPP_PHONE_NUMBER_ID)) {
-  warn("WHATSAPP_TOKEN / WHATSAPP_PHONE_NUMBER_ID are still present",
-       "The app no longer reads them — sending moved to Make. Safe to delete.");
+if (provider === "meta") {
+  if (unset(env.WHATSAPP_TOKEN)) {
+    warn("WHATSAPP_TOKEN not set — no customer messages will send",
+         "A permanent System User token. See META_WHATSAPP.md.");
+  } else if (env.WHATSAPP_TOKEN.length < 100) {
+    warn("WHATSAPP_TOKEN looks short",
+         "A temporary 24-hour token from the API Setup page won't survive the night.");
+  } else {
+    ok("access token is set");
+  }
+
+  if (unset(env.WHATSAPP_PHONE_NUMBER_ID)) {
+    fail("WHATSAPP_PHONE_NUMBER_ID not set",
+         "WhatsApp Manager → API Setup → 'Phone number ID' (a number, not the phone number).");
+  } else if (!/^\d{10,}$/.test(env.WHATSAPP_PHONE_NUMBER_ID)) {
+    warn("WHATSAPP_PHONE_NUMBER_ID doesn't look like an id",
+         "It is a long number — not +91… and not the display name.");
+  } else {
+    ok("phone number id is set");
+  }
+
+  if (unset(env.WHATSAPP_WABA_ID)) {
+    warn("WHATSAPP_WABA_ID not set — templates cannot be submitted",
+         "Only scripts/whatsapp-templates.ts needs it; sending works without.");
+  } else {
+    ok("business account id is set");
+  }
+
+  if (unset(env.WHATSAPP_APP_SECRET)) {
+    warn("WHATSAPP_APP_SECRET not set — delivery receipts will be rejected",
+         "The webhook refuses unsigned payloads, so every message stays 'sent' forever.");
+  } else {
+    ok("app secret is set");
+  }
+
+  if (unset(env.WHATSAPP_VERIFY_TOKEN)) {
+    warn("WHATSAPP_VERIFY_TOKEN not set — Meta cannot verify the webhook URL",
+         "Any string you also paste into the webhook configuration.");
+  } else {
+    ok("webhook verify token is set");
+  }
+} else {
+  const hook = env.MAKE_WEBHOOK_URL || "";
+  if (unset(hook)) {
+    warn("MAKE_WEBHOOK_URL not set — no customer messages will send",
+         "Payments and course access still work without it. See META_WHATSAPP.md to move to Meta.");
+  } else if (!/^https:\/\/hook\.[a-z0-9-]+\.make\.com\//i.test(hook)) {
+    warn(`MAKE_WEBHOOK_URL doesn't look like a Make webhook: ${hook.slice(0, 40)}…`,
+         "Expected https://hook.<region>.make.com/<token>");
+  } else {
+    ok("webhook URL looks right");
+  }
+
+  if (unset(env.MAKE_WEBHOOK_SECRET)) {
+    warn("MAKE_WEBHOOK_SECRET not set — the scenario cannot verify us",
+         "Generate one with: openssl rand -hex 32");
+  } else if (env.MAKE_WEBHOOK_SECRET.length < 24) {
+    warn("MAKE_WEBHOOK_SECRET is short", "Use at least 32 hex characters.");
+  } else {
+    ok("shared secret is set");
+  }
 }
 
 console.log(
