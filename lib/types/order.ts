@@ -64,6 +64,15 @@ export interface Order {
   payment_link_id: string | null;
   payment_link_url: string | null;
   created_at: string;
+  /**
+   * When the delivery address was submitted (migration 0004).
+   *
+   * Not the same as `created_at`: the order row is written when checkout
+   * begins, and on the standard flow the address form comes after payment. It
+   * is the closest stand-in for "when was this paid" on an order whose receipt
+   * email never went out — there is no paid_at column.
+   */
+  address_submitted_at: string | null;
   updated_at: string;
   /** Audit trail, attached by /api/orders/[id] for the admin detail page. */
   history?: {

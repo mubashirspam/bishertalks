@@ -159,11 +159,21 @@ async function OrdersTable(props: QueryArgs) {
                     { label: "Follow-up" },
                     { label: "Came from", narrow: true },
                     { label: "Amount", narrow: true },
-                    { label: "Date & time" },
+                    // Not "Date": this column is created_at, which is when the
+                    // order row was made — the moment checkout began, lead or
+                    // not. A lead that pays three days later keeps the day it
+                    // started, and calling that the order date made the panel
+                    // look like it disagreed with Razorpay.
+                    {
+                      label: "Started",
+                      title:
+                        "When checkout began. A lead that paid days later still shows the day it started — the payment time is on the order page.",
+                    },
                     { label: "", key: "view" },
-                  ] as { label: string; narrow?: boolean; key?: string }[]).map((h) => (
+                  ] as { label: string; narrow?: boolean; key?: string; title?: string }[]).map((h) => (
                     <th
                       key={h.key ?? h.label}
+                      title={h.title}
                       className={`px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider ${
                         h.narrow ? "hidden md:table-cell" : ""
                       }`}

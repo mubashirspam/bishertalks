@@ -263,6 +263,21 @@ export default function AdminOrderDetailPage() {
 
   const date = `${formatIST(order.created_at)} (${timeAgo(order.created_at)})`;
 
+  /**
+   * Roughly when the money landed.
+   *
+   * There is no paid_at column, and created_at is the wrong answer: it is when
+   * checkout began, which for a lead that came back days later is nowhere near
+   * the payment. The receipt email goes out inside payment verification, so its
+   * timestamp is within seconds of the capture; the address submission is the
+   * next best thing on the flows that have no email address. Both are labelled
+   * as approximate, because the exact capture time lives in Razorpay.
+   */
+  const paidAt =
+    order.payment_status === "paid"
+      ? (order.invoice_email_sent_at ?? order.address_submitted_at ?? null)
+      : null;
+
   const currentStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
 
   return (
@@ -509,9 +524,25 @@ export default function AdminOrderDetailPage() {
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-neutral-500">Date</span>
+                <span
+                  className="text-neutral-500"
+                  title="When checkout began — not necessarily when it was paid"
+                >
+                  Started
+                </span>
                 <span className="text-neutral-900">{date}</span>
               </div>
+              {paidAt && (
+                <div className="flex justify-between">
+                  <span
+                    className="text-neutral-500"
+                    title="Taken from the receipt email, which is sent as the payment is verified — within a few seconds of the capture. Razorpay has the exact time."
+                  >
+                    Paid ≈
+                  </span>
+                  <span className="text-neutral-900">{formatIST(paidAt)}</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
