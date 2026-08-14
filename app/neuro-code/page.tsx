@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
-import { getProductPricing } from "@/lib/db/courses";
+import { getCachedProductPricing } from "@/lib/db/courses";
 import NeuroCodeLanding from "./NeuroCodeLanding";
 import { getLandingContent } from "@/lib/db/landing";
 import { faqs } from "./faqs";
 
-// Price is admin-editable, so this page can't be statically cached.
+// Kept dynamic on purpose. The reads below are cached now, so this no longer
+// costs a database round trip per visit — but prerendering the route would put
+// the HTML in the full route cache, and referral attribution (which decides who
+// gets paid commission) is set per request in proxy.ts. Rendering per request
+// keeps that path exactly as it is; the win here was the caching, not the
+// rendering.
 export const dynamic = "force-dynamic";
 
 const URL = "https://bishertalks.com/neuro-code";
@@ -17,7 +22,7 @@ const COVER = "https://bishertalks.com/images/book_front.png";
  * price changes in admin.
  */
 export async function generateMetadata(): Promise<Metadata> {
-  const pricing = await getProductPricing();
+  const pricing = await getCachedProductPricing();
 
   const title = "Neuro Code — The Book by Bisher KC | Free NLP Course Included";
   const description =
@@ -47,10 +52,11 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function NeuroCodePage() {
-  // Pricing and CMS content in parallel — neither depends on the other, and
-  // this page is force-dynamic so every request pays for both.
+  // Pricing and CMS content in parallel — neither depends on the other. Both
+  // are cached and tag-invalidated on admin edit, so the page still renders per
+  // request but stops paying for a database round trip on every visit.
   const [pricing, landing] = await Promise.all([
-    getProductPricing(),
+    getCachedProductPricing(),
     getLandingContent(),
   ]);
 

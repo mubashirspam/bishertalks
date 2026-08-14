@@ -26,3 +26,24 @@ export function revalidateCourses(): void {
   // mutations run in route handlers.
   revalidateTag(COURSES_TAG, { expire: 0 });
 }
+
+/**
+ * The landing CMS — testimonials and the explainer settings.
+ *
+ * Kept separate from COURSES_TAG on purpose: editing a testimonial shouldn't
+ * flush the catalogue, and re-pricing a course shouldn't flush the testimonial
+ * list. They're edited from different screens at different times.
+ */
+export const LANDING_TAG = "landing";
+
+/** Same backstop reasoning as COURSES_CACHE_SECONDS. */
+export const LANDING_CACHE_SECONDS = 300;
+
+/**
+ * Drop the cached landing content. Called from the landing DB layer after every
+ * mutation — same placement as revalidateCourses, so a new admin route can't
+ * forget it.
+ */
+export function revalidateLanding(): void {
+  revalidateTag(LANDING_TAG, { expire: 0 });
+}

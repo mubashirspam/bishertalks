@@ -213,26 +213,82 @@ export interface ProductPricing {
   payablePaise: number;
 }
 
-/**
- * Pricing for the sellable product (the book, which bundles the bonus course).
- * Sourced from the bonus course row so admins can edit it; falls back to the
- * env BOOK_PRICE_PAISE (default ₹499) when no price has been set.
- */
-export async function getProductPricing(): Promise<ProductPricing> {
+interface PricingRow {
+  price: number | null;
+  offer_price: number | null;
+}
+
+/** Turn the course row into the shape callers use. An offer only counts if it
+ *  actually undercuts the price, so a stale higher "offer" can't raise it. */
+function shapePricing(row: PricingRow | null): ProductPricing {
   const fallbackRupees = Math.round(
     parseInt(process.env.BOOK_PRICE_PAISE || "49900", 10) / 100
   );
 
-  const { data } = await supabaseAdmin
-    .from("courses")
-    .select("price,offer_price")
-    .eq("slug", BOOK_BONUS_COURSE_SLUG)
-    .maybeSingle();
-
-  const price = data?.price ?? fallbackRupees;
+  const price = row?.price ?? fallbackRupees;
   const offerPrice =
-    data?.offer_price != null && data.offer_price < price ? data.offer_price : null;
+    row?.offer_price != null && row.offer_price < price ? row.offer_price : null;
   const payable = offerPrice ?? price;
 
   return { price, offerPrice, payable, payablePaise: payable * 100 };
+}
+
+const PRICING_COLUMNS = "price,offer_price";
+
+/**
+ * Pricing for the sellable product (the book, which bundles the bonus course).
+ * Sourced from the bonus course row so admins can edit it; falls back to the
+ * env BOOK_PRICE_PAISE (default ₹499) when no price has been set.
+ *
+ * Uncached, and deliberately so: this is what /api/orders/create and
+ * /api/promo/validate charge from. A cached price that lagged an admin edit
+ * would debit a customer an amount the page never showed them. It runs once per
+ * order, so reading it live costs nothing worth optimising — use
+ * `getCachedProductPricing` for the display path instead, which is the one that
+ * runs on every visit.
+ */
+export async function getProductPricing(): Promise<ProductPricing> {
+  const { data } = await supabaseAdmin
+    .from("courses")
+    .select(PRICING_COLUMNS)
+    .eq("slug", BOOK_BONUS_COURSE_SLUG)
+    .maybeSingle();
+
+  return shapePricing(data as PricingRow | null);
+}
+
+/**
+ * Throws rather than falling back, because the result of this one gets stored.
+ * Caching the env fallback would pin the wrong price on the sales page for the
+ * next five minutes every time a read blipped.
+ */
+const readPricingCached = cached("product-pricing", async (): Promise<ProductPricing> => {
+  const { data, error } = await supabaseAdmin
+    .from("courses")
+    .select(PRICING_COLUMNS)
+    .eq("slug", BOOK_BONUS_COURSE_SLUG)
+    .maybeSingle();
+
+  if (error) throw new Error(`product pricing read failed: ${error.message}`);
+  return shapePricing(data as PricingRow | null);
+});
+
+/**
+ * Same price, for pages that only display it.
+ *
+ * The landing page renders on every visit and used to pay for this read twice —
+ * once in generateMetadata, once in the page body — which put two database
+ * round trips in front of every visitor for a number that changes when an admin
+ * edits it and not otherwise. Tagged with COURSES_TAG, so `revalidateCourses()`
+ * (already called after every course mutation) makes an edit visible at once.
+ */
+export async function getCachedProductPricing(): Promise<ProductPricing> {
+  try {
+    return await readPricingCached();
+  } catch (e) {
+    // A live read still beats showing the env fallback, and it keeps the page
+    // up if the cache layer itself is the thing that's unhappy.
+    console.error("[Pricing] cached read failed, reading live:", e);
+    return getProductPricing();
+  }
 }

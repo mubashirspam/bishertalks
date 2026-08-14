@@ -1,4 +1,16 @@
+import { unstable_cache } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import {
+  LANDING_TAG,
+  LANDING_CACHE_SECONDS,
+  revalidateLanding,
+} from "@/lib/db/cache-tags";
+import {
+  DEFAULT_SETTINGS,
+  type Testimonial,
+  type LandingSettings,
+  type LandingContent,
+} from "@/lib/types/landing";
 
 /**
  * Landing page content, from the database.
@@ -9,82 +21,73 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
  * with the layout it was written for.
  */
 
-export type TestimonialKind = "video" | "image" | "audio" | "text";
-
-export const TESTIMONIAL_KINDS: TestimonialKind[] = ["video", "image", "audio", "text"];
-
-export const KIND_LABELS: Record<TestimonialKind, string> = {
-  video: "Video",
-  image: "Screenshot",
-  audio: "Voice note",
-  text: "Written",
-};
-
-export interface Testimonial {
-  id: string;
-  kind: TestimonialKind;
-  name: string;
-  role: string | null;
-  quote: string | null;
-  youtube_id: string | null;
-  video_url: string | null;
-  image_url: string | null;
-  audio_url: string | null;
-  avatar_url: string | null;
-  duration: string | null;
-  sent_at_label: string | null;
-  rating: number | null;
-  sort_order: number;
-  is_active: boolean;
-  created_at: string;
-}
+// Shapes and labels live in lib/types/landing.ts so the client-side admin
+// editor can import them without pulling this file's server-only code with
+// them. Re-exported here so server callers can keep importing from one place.
+export {
+  TESTIMONIAL_KINDS,
+  KIND_LABELS,
+  DEFAULT_SETTINGS,
+  type TestimonialKind,
+  type Testimonial,
+  type LandingSettings,
+  type LandingContent,
+} from "@/lib/types/landing";
 
 const COLUMNS =
   "id,kind,name,role,quote,youtube_id,video_url,image_url,audio_url,avatar_url," +
   "duration,sent_at_label,rating,sort_order,is_active,created_at";
 
-export interface LandingSettings {
-  explainer_youtube_id: string | null;
-  explainer_video_url: string | null;
-  explainer_length: string | null;
-  show_placeholders: boolean;
-}
-
 const SETTINGS_COLUMNS =
   "explainer_youtube_id,explainer_video_url,explainer_length,show_placeholders";
 
-const DEFAULT_SETTINGS: LandingSettings = {
-  explainer_youtube_id: null,
-  explainer_video_url: null,
-  explainer_length: null,
-  show_placeholders: true,
-};
+/**
+ * Throws on a failed read instead of falling back, because this result is
+ * stored. An empty testimonial list cached for five minutes would strip the
+ * social proof off the sales page long after the blip that caused it.
+ */
+const readLandingContent = unstable_cache(
+  async (): Promise<LandingContent> => {
+    const [{ data: rows, error: rowsError }, { data: settings, error: settingsError }] =
+      await Promise.all([
+        supabaseAdmin
+          .from("landing_testimonials")
+          .select(COLUMNS)
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true })
+          .order("created_at", { ascending: true }),
+        supabaseAdmin
+          .from("landing_settings")
+          .select(SETTINGS_COLUMNS)
+          .eq("id", true)
+          .maybeSingle(),
+      ]);
 
-/** Everything the public page needs. Falls back to empty rather than throwing —
- *  a CMS problem must never take the sales page down. */
-export async function getLandingContent(): Promise<{
-  testimonials: Testimonial[];
-  settings: LandingSettings;
-}> {
-  try {
-    const [{ data: rows }, { data: settings }] = await Promise.all([
-      supabaseAdmin
-        .from("landing_testimonials")
-        .select(COLUMNS)
-        .eq("is_active", true)
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true }),
-      supabaseAdmin
-        .from("landing_settings")
-        .select(SETTINGS_COLUMNS)
-        .eq("id", true)
-        .maybeSingle(),
-    ]);
+    const error = rowsError ?? settingsError;
+    if (error) throw new Error(`landing content read failed: ${error.message}`);
 
     return {
       testimonials: (rows as unknown as Testimonial[]) ?? [],
+      // A missing settings row is a legitimate state, not a failure — the
+      // defaults are what the page shipped with before the CMS existed.
       settings: (settings as unknown as LandingSettings) ?? DEFAULT_SETTINGS,
     };
+  },
+  ["landing-content"],
+  { tags: [LANDING_TAG], revalidate: LANDING_CACHE_SECONDS }
+);
+
+/**
+ * Everything the public page needs. Falls back to empty rather than throwing —
+ * a CMS problem must never take the sales page down.
+ *
+ * Cached because it runs on every visit to /neuro-code and returns content that
+ * only changes when someone edits it in admin; the mutations below drop the tag,
+ * so an edit still shows up immediately.
+ */
+export async function getLandingContent(): Promise<LandingContent> {
+  try {
+    return await readLandingContent();
   } catch (e) {
     console.error("[Landing] content read failed:", e);
     return { testimonials: [], settings: DEFAULT_SETTINGS };
@@ -124,6 +127,7 @@ export async function updateLandingSettings(
     console.error("[Landing] settings update failed:", error.message);
     return null;
   }
+  revalidateLanding();
   return data as unknown as LandingSettings;
 }
 
@@ -175,6 +179,7 @@ export async function createTestimonial(
     console.error("[Landing] create failed:", error.message);
     return null;
   }
+  revalidateLanding();
   return data as unknown as Testimonial;
 }
 
@@ -187,6 +192,7 @@ export async function updateTestimonial(
     .update(fields)
     .eq("id", id);
   if (error) console.error("[Landing] update failed:", error.message);
+  else revalidateLanding();
   return !error;
 }
 
@@ -196,6 +202,7 @@ export async function deleteTestimonial(id: string): Promise<boolean> {
     .delete()
     .eq("id", id);
   if (error) console.error("[Landing] delete failed:", error.message);
+  else revalidateLanding();
   return !error;
 }
 
@@ -240,5 +247,6 @@ export async function moveTestimonial(id: string, direction: "up" | "down"): Pro
       .eq("id", neighbour.id),
   ]);
 
+  revalidateLanding();
   return true;
 }

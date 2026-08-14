@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useRef, useState } from "react";
 import { Play, Pause, Quote, X, Star, BadgeCheck, Video, ImageIcon, Mic } from "lucide-react";
 import { Card } from "./ui";
-import type { Testimonial } from "@/lib/db/landing";
+import type { Testimonial } from "@/lib/types/landing";
 
 /**
  * A dashed frame standing in for a testimonial that hasn't arrived yet.

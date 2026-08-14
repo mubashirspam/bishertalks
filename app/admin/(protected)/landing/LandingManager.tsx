@@ -11,7 +11,7 @@ import { IMAGEKIT_FOLDERS } from "@/lib/imagekit";
 import {
   KIND_LABELS, TESTIMONIAL_KINDS,
   type LandingSettings, type Testimonial, type TestimonialKind,
-} from "@/lib/db/landing";
+} from "@/lib/types/landing";
 
 const KIND_ICON: Record<TestimonialKind, typeof Video> = {
   video: Video, image: ImageIcon, audio: Mic, text: MessageSquare,
