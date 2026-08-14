@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { TrendingUp, Info } from "lucide-react";
-import { getInsights } from "@/lib/db/insights";
+import { TrendingUp, Info, ChevronDown, ChevronRight } from "lucide-react";
+import { getInsights, getLinkBreakdown } from "@/lib/db/insights";
 import { SOURCE_LABELS, SOURCE_BADGE } from "@/lib/attribution";
 import { Suspense } from "react";
 import DateRange from "./DateRange";
@@ -16,11 +16,12 @@ const rupees = (paise: number) => `₹${Math.round(paise / 100).toLocaleString("
 export default async function InsightsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; links?: string }>;
 }) {
   await requirePageAccess("insights.view");
 
-  const { from, to } = await searchParams;
+  const { from, to, links } = await searchParams;
+  const linksOpen = links === "1";
 
   return (
     <NavigationPending>
@@ -53,12 +54,58 @@ export default async function InsightsPage({
         </Suspense>
       </StaleWhileRevalidating>
 
+      {/* Campaigns and links, behind a toggle.
+
+          The toggle is a link, not a button, and that's the point: the panel
+          being shut isn't a CSS state with the data already fetched behind it,
+          it's a page that never ran the query. Opening it navigates, the server
+          reads the extra columns, and closing it stops paying for them again.
+          Most visits to this page only want the channel table at the top. */}
+      <div className="mt-5">
+        <Link
+          href={linkHref({ from, to, links: linksOpen ? undefined : "1" })}
+          scroll={false}
+          className="w-full flex items-center justify-between gap-2 bg-white border border-neutral-200 rounded-2xl px-4 py-3 shadow-sm hover:bg-neutral-50 transition-colors"
+        >
+          <span className="text-left">
+            <span className="block font-bold text-sm text-neutral-700">
+              Which links brought the orders
+            </span>
+            <span className="block text-xs text-neutral-500 mt-0.5">
+              Campaign totals, and every link that produced an order — including
+              the ones you never tagged.
+            </span>
+          </span>
+          {linksOpen ? (
+            <ChevronDown className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+          ) : (
+            <ChevronRight className="w-4 h-4 text-neutral-400 flex-shrink-0" />
+          )}
+        </Link>
+
+        {linksOpen && (
+          <Suspense fallback={<SkeletonTable rows={6} columns={5} />}>
+            <LinkBreakdownBody from={from} to={to} />
+          </Suspense>
+        )}
+      </div>
+
       {/* Needs no data — render it now, not after the aggregate. */}
       <div className="mt-5">
         <LinkBuilder />
       </div>
     </NavigationPending>
   );
+}
+
+/** Rebuild the page's own URL, keeping the date range across a toggle. */
+function linkHref(params: { from?: string; to?: string; links?: string }): string {
+  const q = new URLSearchParams();
+  if (params.from) q.set("from", params.from);
+  if (params.to) q.set("to", params.to);
+  if (params.links) q.set("links", params.links);
+  const s = q.toString();
+  return s ? `/admin/insights?${s}` : "/admin/insights";
 }
 
 /** Enough to see what's working; the tail is one-order links. */
@@ -72,7 +119,7 @@ const dayMonth = (iso: string) =>
   });
 
 async function InsightsBody({ from, to }: { from?: string; to?: string }) {
-  const { channels, campaigns, entryPoints, totals } = await getInsights({ from, to });
+  const { channels, totals } = await getInsights({ from, to });
   const maxRevenue = Math.max(...channels.map((c) => c.revenuePaise), 1);
 
   return (
@@ -152,9 +199,32 @@ async function InsightsBody({ from, to }: { from?: string; to?: string }) {
         </p>
       </div>
 
+    </div>
+  );
+}
+
+/**
+ * The half that only runs when someone opens the panel.
+ *
+ * Its own query, so a page load with the panel shut costs the three-column
+ * channel scan and nothing more.
+ */
+async function LinkBreakdownBody({ from, to }: { from?: string; to?: string }) {
+  const { campaigns, entryPoints } = await getLinkBreakdown({ from, to });
+
+  if (!campaigns.length && !entryPoints.length) {
+    return (
+      <p className="mt-3 text-sm text-neutral-500 bg-white border border-neutral-200 rounded-2xl px-4 py-6 text-center">
+        No orders in this date range.
+      </p>
+    );
+  }
+
+  return (
+    <div>
       {/* Campaigns */}
       {campaigns.length > 0 && (
-        <div className="mt-5">
+        <div className="mt-3">
           <h2 className="font-bold text-sm text-neutral-700 mb-3">By campaign</h2>
           <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
@@ -192,9 +262,7 @@ async function InsightsBody({ from, to }: { from?: string; to?: string }) {
       {/* Entry points — every real way in, tagged or not. */}
       {entryPoints.length > 0 && (
         <div className="mt-5">
-          <h2 className="font-bold text-sm text-neutral-700 mb-1">
-            Which links brought the orders
-          </h2>
+          <h2 className="font-bold text-sm text-neutral-700 mb-1">Every link</h2>
           <p className="text-xs text-neutral-500 mb-3">
             Rows marked <strong>Built</strong> came from a tagged link you made.
             Rows marked <strong>Found us</strong> arrived on their own — someone
