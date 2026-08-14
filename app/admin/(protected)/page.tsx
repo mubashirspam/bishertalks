@@ -9,6 +9,7 @@ import { requirePageAccess } from "@/lib/admin-auth";
 import { Suspense } from "react";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
 import RevenueCharts from "./RevenueCharts";
+import HourlyOrders from "./HourlyOrders";
 
 export const dynamic = "force-dynamic";
 
@@ -165,6 +166,8 @@ async function DashboardBody() {
           <ArrowRight className="w-4 h-4 text-orange-600" />
         </Link>
       )}
+
+      <HourlyOrders rows={paid} />
 
       <div className="bg-white border border-neutral-200 rounded-2xl shadow-sm overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-100">
