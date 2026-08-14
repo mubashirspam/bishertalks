@@ -45,6 +45,33 @@ function FlagDot({ className = "w-3.5 h-3.5" }: { className?: string }) {
   );
 }
 
+/**
+ * A tricolour sash behind the book cover.
+ *
+ * Sits behind the image rather than over it, so only the two ends show past
+ * the edges of the cover — the artwork and the title stay untouched, and the
+ * book still reads as the thing being sold.
+ *
+ * Out with the rest of the campaign once August 15 has passed.
+ */
+function FlagRibbon() {
+  return (
+    <div
+      // Wider than the book on both sides so the ends emerge; the negative
+      // inset is a share of the book's own width, so it stays proportional
+      // between the mobile and desktop sizes rather than needing two values.
+      className="absolute inset-x-[-30%] top-1/2 -translate-y-1/2 -rotate-12 rounded-full overflow-hidden shadow-lg"
+      aria-hidden="true"
+    >
+      <span className="block h-2.5 sm:h-3 bg-[#FF9933]" />
+      {/* Pure white would vanish on the light theme, so the middle band is the
+          same near-white the strip at the top of the page uses. */}
+      <span className="block h-2.5 sm:h-3 bg-neutral-100 dark:bg-neutral-200" />
+      <span className="block h-2.5 sm:h-3 bg-[#138808]" />
+    </div>
+  );
+}
+
 /** The celebration lands and then gets out of the way. */
 const GLITTER_RUN_SECONDS = 30;
 
@@ -228,6 +255,9 @@ export default function NeuroCodeLanding({
 
           <div className="relative w-44 sm:w-52 mx-auto my-7">
             <div className="absolute -inset-4 bg-primary-500/25 blur-3xl rounded-full" />
+            {/* Between the glow and the cover: painted over the blur, under the
+                book, which is `relative` and so wins on DOM order. */}
+            <FlagRibbon />
             <Image
               src="/images/book_front.png"
               alt="Neuro Code — ന്യൂറോ കോഡ്, ബിഷർ കെ.സി."
@@ -238,7 +268,7 @@ export default function NeuroCodeLanding({
             />
           </div>
 
-          <p className="font-anek text-[20px] font-bold leading-[2] text-neutral dark:text-neutral-300">
+          <p className="font-anek text-[18px] font-bold leading-[2] whitespace-pre-line text-neutral dark:text-neutral-300">
             {HERO.sub}
           </p>
 
