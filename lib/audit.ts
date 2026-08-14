@@ -106,6 +106,8 @@ export function describeAudit(row: AuditRow): string {
       return `Payment link generated (₹${Math.round(Number(m.amount_paise ?? 0) / 100)})`;
     case "order.address":
       return `Delivery address edited manually`;
+    case "order.phone":
+      return `Mobile number corrected to ${m.to ?? "?"}`;
     default:
       return row.action;
   }

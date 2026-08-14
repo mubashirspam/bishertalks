@@ -71,6 +71,11 @@ export default function AdminOrderDetailPage() {
   const [copied, setCopied] = useState(false);
   const [editingAddress, setEditingAddress] = useState(false);
   const [addrSaving, setAddrSaving] = useState(false);
+  const [editingPhone, setEditingPhone] = useState(false);
+  const [phoneDraft, setPhoneDraft] = useState("");
+  const [confirmingPhone, setConfirmingPhone] = useState(false);
+  const [phoneSaving, setPhoneSaving] = useState(false);
+  const [phoneMsg, setPhoneMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [addr, setAddr] = useState({
     buyer_name: "",
     address_line1: "",
@@ -286,6 +291,62 @@ export default function AdminOrderDetailPage() {
     setAddrSaving(false);
   };
 
+  const startPhoneEdit = () => {
+    setPhoneDraft(order?.buyer_phone ?? "");
+    setConfirmingPhone(false);
+    setPhoneMsg(null);
+    setEditingPhone(true);
+  };
+
+  // Same normalisation as the server: a pasted +91 or leading 0 comes off.
+  const reviewPhoneChange = () => {
+    const digits = phoneDraft.replace(/\D/g, "");
+    const normalized =
+      digits.length === 12 && digits.startsWith("91")
+        ? digits.slice(2)
+        : digits.length === 11 && digits.startsWith("0")
+          ? digits.slice(1)
+          : digits;
+    if (!/^[6-9]\d{9}$/.test(normalized)) {
+      setPhoneMsg({ text: "Enter a valid 10-digit mobile number", bad: true });
+      return;
+    }
+    if (normalized === order?.buyer_phone) {
+      setPhoneMsg({ text: "That is the current number", bad: true });
+      return;
+    }
+    setPhoneDraft(normalized);
+    setPhoneMsg(null);
+    setConfirmingPhone(true);
+  };
+
+  const savePhone = async () => {
+    setPhoneSaving(true);
+    setPhoneMsg(null);
+    try {
+      const res = await fetch("/api/orders/update", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: id, buyer_phone: phoneDraft }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPhoneMsg({ text: json.error ?? "Could not update the number", bad: true });
+        return;
+      }
+      // The number also moves the user link and course access server-side —
+      // re-read so the row and the history entry both show.
+      const fresh = await fetch(`/api/orders/${id}`).then((r) => r.json());
+      setOrder(fresh);
+      setEditingPhone(false);
+      setConfirmingPhone(false);
+    } catch {
+      setPhoneMsg({ text: "Network error", bad: true });
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64 text-neutral-500">
@@ -437,11 +498,96 @@ export default function AdminOrderDetailPage() {
                     >
                       <MessageCircle className="w-4 h-4" />
                     </a>
+                    <button
+                      onClick={startPhoneEdit}
+                      title="Correct a mistyped number"
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
+                    >
+                      <PencilLine className="w-4 h-4" />
+                    </button>
                   </span>
                 ) : (
-                  <span className="text-neutral-400">—</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-neutral-400">—</span>
+                    <button
+                      onClick={startPhoneEdit}
+                      className="text-xs text-primary-600 hover:text-primary-700 font-medium transition-colors"
+                    >
+                      Add
+                    </button>
+                  </span>
                 )}
               </div>
+
+              {/* Number correction. A wrong digit at checkout strands the
+                  course sign-in and sends WhatsApp updates to a stranger, so
+                  the save goes through a confirmation, not a blind click. */}
+              {editingPhone && (
+                <div className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 space-y-2.5">
+                  {!confirmingPhone ? (
+                    <>
+                      <label className="text-xs text-neutral-500 font-semibold block">Correct mobile number</label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-neutral-500 flex-shrink-0">+91</span>
+                        <input
+                          className={inputCls}
+                          inputMode="numeric"
+                          maxLength={12}
+                          placeholder="10-digit mobile"
+                          value={phoneDraft}
+                          onChange={(e) => setPhoneDraft(e.target.value.replace(/\D/g, ""))}
+                        />
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={reviewPhoneChange}
+                          className="flex-1 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-bold transition-colors"
+                        >
+                          Review change
+                        </button>
+                        <button
+                          onClick={() => setEditingPhone(false)}
+                          className="px-4 py-2 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:border-neutral-400 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold text-neutral-800">Change the number on this order?</p>
+                      <p className="text-sm text-neutral-900 tabular-nums">
+                        +91 {order.buyer_phone ?? "—"} → <span className="font-bold">+91 {phoneDraft}</span>
+                      </p>
+                      <p className="text-[11px] text-neutral-500 leading-relaxed">
+                        {order.payment_status === "paid"
+                          ? "Course sign-in and WhatsApp updates move to the new number, and the access granted to the old one is revoked."
+                          : "WhatsApp updates — and the course sign-in once paid — will use the new number."}
+                      </p>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={savePhone}
+                          disabled={phoneSaving}
+                          className="flex-1 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-bold disabled:opacity-50 transition-colors"
+                        >
+                          {phoneSaving ? "Saving…" : "Yes, change number"}
+                        </button>
+                        <button
+                          onClick={() => setConfirmingPhone(false)}
+                          className="px-4 py-2 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:border-neutral-400 transition-colors"
+                        >
+                          Back
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {phoneMsg && (
+                    <p className={`text-[11px] ${phoneMsg.bad ? "text-red-600" : "text-green-600"}`}>
+                      {phoneMsg.text}
+                    </p>
+                  )}
+                </div>
+              )}
               {order.buyer_email && (
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Email</span>

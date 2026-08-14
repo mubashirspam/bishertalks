@@ -4,6 +4,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/admin-auth";
 import { setDeliveryStatus, notifyStatusChange } from "@/lib/db/delivery";
+import { normalizePhone, isValidPhone, upsertUserByPhone } from "@/lib/db/users";
+import { grantCourseAccess } from "@/lib/db/access";
+import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
 import type { OrderStatus } from "@/lib/types/order";
 import { audit } from "@/lib/audit";
 
@@ -36,6 +39,9 @@ export async function PATCH(request: NextRequest) {
     district,
     state,
     pincode,
+    // A wrong number typed at checkout — the buyer can't sign in to the
+    // course and WhatsApp updates go to a stranger.
+    buyer_phone,
   } = await request.json();
 
   if (!order_number) {
@@ -43,6 +49,88 @@ export async function PATCH(request: NextRequest) {
       { error: "order_number is required" },
       { status: 400 }
     );
+  }
+
+  // A phone change is more than a field edit: the number is the buyer's
+  // course sign-in and the address every WhatsApp update goes to. So the
+  // user link and the course access move with it, or the correction would
+  // fix the label and leave the login broken.
+  if (buyer_phone !== undefined) {
+    const phone = normalizePhone(String(buyer_phone));
+    if (!isValidPhone(phone)) {
+      return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
+    }
+
+    const { data: order } = await supabaseAdmin
+      .from("orders")
+      .select("id, user_id, buyer_phone, buyer_name, buyer_email, city, state, payment_status")
+      .eq("order_number", order_number)
+      .single();
+
+    if (!order) {
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    if (order.buyer_phone !== phone) {
+      try {
+        // The user first — if the upsert fails, nothing has moved yet.
+        const user = await upsertUserByPhone({
+          phone,
+          name: order.buyer_name,
+          email: order.buyer_email,
+          city: order.city,
+          state: order.state,
+        });
+
+        await supabaseAdmin
+          .from("orders")
+          .update({ buyer_phone: phone, user_id: user.id })
+          .eq("order_number", order_number);
+
+        if (order.payment_status === "paid") {
+          const { data: course } = await supabaseAdmin
+            .from("courses")
+            .select("id")
+            .eq("slug", BOOK_BONUS_COURSE_SLUG)
+            .maybeSingle();
+
+          if (course) {
+            // Access granted through this order to the wrong number is a
+            // course a stranger keeps — revoke it, then grant the buyer.
+            // No notification: the buyer didn't ask for a message, they
+            // asked for their parcel.
+            await supabaseAdmin
+              .from("course_access")
+              .update({ status: "revoked" })
+              .eq("order_id", order.id)
+              .neq("user_id", user.id);
+            await grantCourseAccess({
+              userId: user.id,
+              courseId: course.id,
+              grantedVia: "purchase",
+              orderId: order.id,
+              orderNumber: order_number,
+              notify: false,
+            });
+          }
+        }
+      } catch (e) {
+        return NextResponse.json(
+          { error: e instanceof Error ? e.message : "Phone update failed" },
+          { status: 500 }
+        );
+      }
+
+      await audit({
+        actor: auth.staff,
+        action: "order.phone",
+        entity: "order",
+        entityId: order_number,
+        // Masked — the history panel doesn't need a second copy of anyone's
+        // full number; the order itself has the current one.
+        meta: { to: `${phone.slice(0, 2)}******${phone.slice(-2)}` },
+      });
+    }
   }
 
   const updates: Record<string, unknown> = {};
