@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail, Link2, Copy, Check, PencilLine, X } from "lucide-react";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail, Link2, Copy, Check, PencilLine, X, Receipt } from "lucide-react";
 import { formatIST, timeAgo } from "@/lib/format-date";
 import { describeAudit } from "@/lib/audit";
 import {
@@ -64,6 +64,8 @@ export default function AdminOrderDetailPage() {
   const [saved, setSaved] = useState(false);
   const [emailing, setEmailing] = useState(false);
   const [emailMsg, setEmailMsg] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [billing, setBilling] = useState(false);
+  const [billMsg, setBillMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [linkLoading, setLinkLoading] = useState(false);
   const [linkMsg, setLinkMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -155,6 +157,36 @@ export default function AdminOrderDetailPage() {
       setEmailMsg({ text: "Network error", bad: true });
     } finally {
       setEmailing(false);
+    }
+  };
+
+  // Download the bill as a PDF — nothing is emailed, messaged or recorded;
+  // the file just lands in the admin's downloads folder.
+  const downloadBill = async () => {
+    setBilling(true);
+    setBillMsg(null);
+    try {
+      const res = await fetch("/api/admin/orders/invoice", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: id }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        setBillMsg({ text: json.error ?? "Could not generate bill", bad: true });
+        return;
+      }
+      const url = URL.createObjectURL(await res.blob());
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bill-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setBillMsg({ text: "Bill downloaded." });
+    } catch {
+      setBillMsg({ text: "Network error", bad: true });
+    } finally {
+      setBilling(false);
     }
   };
 
@@ -728,6 +760,38 @@ export default function AdminOrderDetailPage() {
             {emailMsg && (
               <p className={`text-xs mt-2 ${emailMsg.bad ? "text-red-600" : "text-green-600"}`}>
                 {emailMsg.text}
+              </p>
+            )}
+          </div>
+
+          {/* Bill on request — for the customer who asks for one. Books are
+              GST-exempt, so the PDF shows GST as Nil; it downloads straight to
+              this machine and goes nowhere else. */}
+          <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm text-neutral-700 font-medium flex items-center gap-1.5">
+                  <Receipt className="w-3.5 h-3.5 text-primary-500" /> Bill / invoice
+                </p>
+                <p className="text-xs text-neutral-500 mt-0.5">
+                  {order.payment_status === "paid"
+                    ? "GST-exempt bill, downloads as a PDF"
+                    : "Available once the order is paid"}
+                </p>
+              </div>
+              {order.payment_status === "paid" && (
+                <button
+                  onClick={downloadBill}
+                  disabled={billing}
+                  className="px-3 py-1.5 rounded-lg border border-neutral-200 text-xs font-medium text-neutral-600 hover:border-neutral-400 disabled:opacity-50 whitespace-nowrap transition-colors"
+                >
+                  {billing ? "Generating…" : "Generate & download"}
+                </button>
+              )}
+            </div>
+            {billMsg && (
+              <p className={`text-xs mt-2 ${billMsg.bad ? "text-red-600" : "text-green-600"}`}>
+                {billMsg.text}
               </p>
             )}
           </div>
