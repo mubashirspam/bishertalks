@@ -61,8 +61,18 @@ export default async function InsightsPage({
   );
 }
 
+/** Enough to see what's working; the tail is one-order links. */
+const ENTRY_POINT_LIMIT = 25;
+
+const dayMonth = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    timeZone: "Asia/Kolkata",
+  });
+
 async function InsightsBody({ from, to }: { from?: string; to?: string }) {
-  const { channels, campaigns, totals } = await getInsights({ from, to });
+  const { channels, campaigns, entryPoints, totals } = await getInsights({ from, to });
   const maxRevenue = Math.max(...channels.map((c) => c.revenuePaise), 1);
 
   return (
@@ -175,6 +185,96 @@ async function InsightsBody({ from, to }: { from?: string; to?: string }) {
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Entry points — every real way in, tagged or not. */}
+      {entryPoints.length > 0 && (
+        <div className="mt-5">
+          <h2 className="font-bold text-sm text-neutral-700 mb-1">
+            Which links brought the orders
+          </h2>
+          <p className="text-xs text-neutral-500 mb-3">
+            Rows marked <strong>Built</strong> came from a tagged link you made.
+            Rows marked <strong>Found us</strong> arrived on their own — someone
+            searched, or another site linked to you. Nothing to set up, and
+            nothing missing if you don&apos;t recognise the link.
+          </p>
+          <div className="bg-white border border-neutral-200 rounded-2xl overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-neutral-200 text-left bg-neutral-50">
+                    {["Link", "Channel", "How", "Revenue", "Paid", "Leads", "Last"].map((h) => (
+                      <th key={h} className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {entryPoints.slice(0, ENTRY_POINT_LIMIT).map((e) => (
+                    <tr
+                      key={`${e.label}-${e.url ?? "none"}`}
+                      className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50 transition-colors"
+                    >
+                      <td className="px-4 py-3 max-w-[320px]">
+                        <p className="text-neutral-900 font-medium truncate">{e.label}</p>
+                        {e.url && (
+                          // rel=noreferrer because this is an untrusted URL that
+                          // arrived from a visitor's browser, not something we set.
+                          <a
+                            href={e.url}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-[11px] text-neutral-500 hover:text-primary-600 hover:underline break-all"
+                          >
+                            {e.url}
+                          </a>
+                        )}
+                        {!e.url && e.landingPath && (
+                          <p className="text-[11px] text-neutral-400">
+                            landed on {e.landingPath}
+                          </p>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border ${SOURCE_BADGE[e.source]}`}>
+                          {SOURCE_LABELS[e.source]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+                            e.tagged
+                              ? "bg-primary-50 text-primary-700 border-primary-200"
+                              : "bg-neutral-100 text-neutral-600 border-neutral-200"
+                          }`}
+                        >
+                          {e.tagged ? "Built" : "Found us"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-neutral-900 font-semibold">{rupees(e.revenuePaise)}</td>
+                      <td className="px-4 py-3 text-neutral-900">{e.paid}</td>
+                      <td className="px-4 py-3 text-neutral-500">{e.leads}</td>
+                      <td className="px-4 py-3 text-neutral-500 whitespace-nowrap">{dayMonth(e.lastSeen)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Every Meta ad creative is its own link, so this list grows fast.
+                The tail is all single orders — say it's there rather than
+                printing a hundred rows nobody scrolls to. */}
+            {entryPoints.length > ENTRY_POINT_LIMIT && (
+              <p className="px-4 py-3 text-xs text-neutral-500 border-t border-neutral-100 bg-neutral-50">
+                Showing the top {ENTRY_POINT_LIMIT} by revenue.{" "}
+                {entryPoints.length - ENTRY_POINT_LIMIT} more link
+                {entryPoints.length - ENTRY_POINT_LIMIT === 1 ? "" : "s"} brought
+                fewer orders. Narrow the date range to see them.
+              </p>
+            )}
           </div>
         </div>
       )}
