@@ -45,37 +45,64 @@ export const ENTERED_LABEL = "Confirmed";
 export const ENTERED_HINT = "Address entered in the courier's system";
 
 /**
- * Statuses the portal can filter by.
+ * The portal's filter chips, in pipeline order.
+ *
+ * "new" is not a database status — it is the agent's to-do list: still at
+ * 'confirmed' AND not yet entered into the courier's system
+ * (courier_entered_at is null). "Confirmed" is the other half of that same
+ * status: entered, but not yet packed. Splitting them is the whole point —
+ * one chip for 'confirmed' kept showing parcels the agent had already sheeted
+ * up, next to ones nobody had touched.
  *
  * No 'cancelled': a cancelled order is not a parcel, there is nothing for an
  * agent to do with one, and reversing a cancellation is an owner's decision
  * made on the order screen. They are excluded from the query outright, so the
  * filter has nothing to offer either.
  */
-export const PORTAL_STATUSES = [
+export const PORTAL_FILTERS = [
+  "new",
   "confirmed",
   ...PORTAL_STATUS_STEPS,
   "returned",
-] as const satisfies readonly OrderStatus[];
+] as const;
 
-export function isPortalStatus(v: string | undefined): v is OrderStatus {
-  return !!v && (PORTAL_STATUSES as readonly string[]).includes(v);
+export type PortalFilter = (typeof PORTAL_FILTERS)[number];
+
+export function isPortalFilter(v: string | undefined): v is PortalFilter {
+  return !!v && (PORTAL_FILTERS as readonly string[]).includes(v);
 }
 
-/**
- * Filter labels.
- *
- * 'confirmed' is shown as "New" here on purpose — now that the Confirmed tick
- * means "entered with the courier", calling the payment status the same thing
- * two inches away would be the exact confusion this change fixes.
- */
-export const PORTAL_STATUS_LABELS: Record<string, string> = {
-  confirmed: "New",
+export const PORTAL_FILTER_LABELS: Record<PortalFilter, string> = {
+  new: "New",
+  confirmed: "Confirmed",
   processing: "Packed",
   shipped: "Shipped",
   delivered: "Delivered",
   returned: "Returned",
 };
+
+/**
+ * A fulfilment status in words, for the grid's undo prompts. Only the steps
+ * past 'confirmed' ever appear there — you cannot untick your way below New.
+ */
+export const PORTAL_STATUS_LABELS: Record<string, string> = {
+  confirmed: "Confirmed",
+  processing: "Packed",
+  shipped: "Shipped",
+  delivered: "Delivered",
+  returned: "Returned",
+};
+
+/**
+ * Statuses an agent's tick may set — real order statuses only. The filters
+ * add a "new" pseudo-status on top of these (see PORTAL_FILTERS), and that
+ * one must never reach a write.
+ */
+const PORTAL_SETTABLE = ["confirmed", ...PORTAL_STATUS_STEPS, "returned"] as const;
+
+export function isPortalStatus(v: unknown): v is OrderStatus {
+  return typeof v === "string" && (PORTAL_SETTABLE as readonly string[]).includes(v);
+}
 
 export interface PortalRow {
   id: string;
@@ -111,7 +138,6 @@ function portalQuery(
   table: "portal_orders" | "orders",
   date: string | undefined,
   status: string | undefined,
-  pending: string | undefined,
   /** Whose parcels. null = every agent's, for an owner or manager. */
   agentId: string | null,
   columns: string = PORTAL_COLUMNS
@@ -138,8 +164,15 @@ function portalQuery(
       .lt("created_at", istDayEndUTC(date));
   }
 
-  if (isPortalStatus(status)) query = query.eq("status", status);
-  if (pending === "1") query = query.is("courier_entered_at", null);
+  if (status === "new") {
+    // The to-do list: not yet entered into the courier's system.
+    query = query.eq("status", "confirmed").is("courier_entered_at", null);
+  } else if (status === "confirmed") {
+    // Entered with the courier, not yet packed.
+    query = query.eq("status", "confirmed").not("courier_entered_at", "is", null);
+  } else if (isPortalFilter(status)) {
+    query = query.eq("status", status);
+  }
 
   return query;
 }
@@ -156,8 +189,6 @@ function portalQuery(
 export const fetchPortalPage = cache(async function fetchPortalPage(
   date: string | undefined,
   status: string | undefined,
-  /** "1" = only parcels not yet entered with the courier — the to-do list. */
-  pending: string | undefined,
   pageNum: number,
   perPage: number,
   /** The signed-in agent, or null for someone who may see every agent's work. */
@@ -169,7 +200,7 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   // Newest day first — today is the day being worked. Within a day, the parcels
   // nobody has started come before the ones already handled, so the work left is
   // at the top of the day rather than scattered through it. Then newest first.
-  let result = await portalQuery("portal_orders", date, status, pending, agentId)
+  let result = await portalQuery("portal_orders", date, status, agentId)
     .order("ist_day", { ascending: false })
     .order("needs_entry", { ascending: false })
     .order("created_at", { ascending: false })
@@ -185,7 +216,7 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
       "[Portal] worklist query failed — are migrations 0018 and 0019 applied?",
       result.error.message
     );
-    result = await portalQuery("orders", date, status, pending, agentId)
+    result = await portalQuery("orders", date, status, agentId)
       .order("created_at", { ascending: false })
       .range(from, to);
 
@@ -202,7 +233,6 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         "orders",
         date,
         status,
-        pending,
         agentId,
         PORTAL_COLUMNS.replace("courier_reference,", "")
       )

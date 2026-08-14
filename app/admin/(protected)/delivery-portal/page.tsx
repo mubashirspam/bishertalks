@@ -16,9 +16,8 @@ const PER_PAGE = 100;
 
 interface Args {
   date?: string;
+  /** A PORTAL_FILTERS value — "new" is the not-yet-entered to-do list. */
   status?: string;
-  /** "1" = only parcels not yet entered with the courier. */
-  pending?: string;
   pageNum: number;
   /**
    * Whose parcels to show. An agent's own id, always — it is not read from the
@@ -58,7 +57,6 @@ export default async function DeliveryPortalPage({
   const args: Args = {
     date: params.date,
     status: params.status,
-    pending: params.pending,
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
     agentId: seesEveryone ? picked : staff.id,
     seesEveryone,
@@ -86,7 +84,7 @@ export default async function DeliveryPortalPage({
 
 /** Streamed into the filter bar so it can paint before the query resolves. */
 async function PortalCount(args: Args) {
-  const { count } = await fetchPortalPage(args.date, args.status, args.pending, args.pageNum, PER_PAGE, args.agentId);
+  const { count } = await fetchPortalPage(args.date, args.status, args.pageNum, PER_PAGE, args.agentId);
   return (
     <>
       {count} parcel{count === 1 ? "" : "s"}
@@ -98,7 +96,6 @@ async function PortalRows(args: Args) {
   const { rows, count } = await fetchPortalPage(
     args.date,
     args.status,
-    args.pending,
     args.pageNum,
     PER_PAGE,
     args.agentId
@@ -118,7 +115,6 @@ async function PortalRows(args: Args) {
     const sp = new URLSearchParams();
     if (args.date) sp.set("date", args.date);
     if (args.status) sp.set("status", args.status);
-    if (args.pending) sp.set("pending", args.pending);
     // Only when it's a filter someone chose. An agent's own id is who they
     // are, not where they are, and has no business in a shareable link.
     if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);

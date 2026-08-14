@@ -3,7 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { CalendarDays, X } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
-import { PORTAL_STATUSES, PORTAL_STATUS_LABELS } from "@/lib/db/delivery-portal";
+import { PORTAL_FILTERS, PORTAL_FILTER_LABELS } from "@/lib/db/delivery-portal";
 import type { DeliveryAgent } from "@/lib/db/staff";
 
 /** Today in IST as YYYY-MM-DD — the agent's browser may be in any timezone. */
@@ -16,6 +16,8 @@ function istDaysAgo(n: number): string {
 
 /** Matches the tick colours in the grid, so a filter looks like what it picks. */
 const STATUS_ACTIVE: Record<string, string> = {
+  // New is the to-do list — the blue the old "To enter" chip wore.
+  new: "border-blue-500 bg-blue-50 text-blue-700",
   confirmed: "border-neutral-500 bg-neutral-100 text-neutral-800",
   processing: "border-amber-500 bg-amber-50 text-amber-700",
   shipped: "border-purple-500 bg-purple-50 text-purple-700",
@@ -44,7 +46,6 @@ export default function PortalFilters({
   const date = params.get("date") ?? "";
   const status = params.get("status") ?? "";
   const agent = params.get("agent") ?? "";
-  const pending = params.get("pending") === "1";
 
   const push = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params.toString());
@@ -109,34 +110,25 @@ export default function PortalFilters({
 
         <span className="w-px h-6 bg-neutral-200 mx-1" />
 
-        {/* The agent's to-do list: paid, shippable, not yet keyed into the
-            courier's system. This is the whole point of the Confirmed tick. */}
-        <button
-          onClick={() => push({ pending: pending ? null : "1" })}
-          className={chip(pending, "border-blue-500 bg-blue-50 text-blue-700")}
-        >
-          To enter
-        </button>
-
         <button
           onClick={() => push({ status: null })}
           className={chip(!status, "border-neutral-900 bg-neutral-900 text-white")}
         >
           All
         </button>
-        {PORTAL_STATUSES.map((s) => (
+        {PORTAL_FILTERS.map((s) => (
           <button
             key={s}
             onClick={() => push({ status: status === s ? null : s })}
             className={chip(status === s, STATUS_ACTIVE[s])}
           >
-            {PORTAL_STATUS_LABELS[s]}
+            {PORTAL_FILTER_LABELS[s]}
           </button>
         ))}
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || status || pending || agent) && (
+        {(date || status || agent) && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
