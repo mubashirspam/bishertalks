@@ -45,6 +45,9 @@ function FlagDot({ className = "w-3.5 h-3.5" }: { className?: string }) {
   );
 }
 
+/** The celebration lands and then gets out of the way. */
+const GLITTER_RUN_SECONDS = 30;
+
 /**
  * The flakes, laid out by arithmetic rather than chance.
  *
@@ -53,9 +56,6 @@ function FlagDot({ className = "w-3.5 h-3.5" }: { className?: string }) {
  * mismatch. These multipliers are coprime with the flake count, so positions
  * and delays keep cycling out of step and the fall never looks like a pattern.
  */
-/** The celebration lands and then gets out of the way. */
-const GLITTER_RUN_SECONDS = 30;
-
 const GLITTER = Array.from({ length: 26 }, (_, i) => {
   /** Staggered so they don't all enter at once on first paint. */
   const delaySeconds = ((i * 17) % 100) / 10;
@@ -212,7 +212,7 @@ export default function NeuroCodeLanding({
         <div className="absolute top-24 -right-24 w-56 h-56 bg-[#138808]/15 dark:bg-[#138808]/10 rounded-full blur-[90px] pointer-events-none" />
 
         <div className="relative max-w-lg mx-auto text-center">
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 text-[11px] font-black font-chilanka">
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 text-[11px] font-black font-anek">
             <FlagDot className="w-3.5 h-3.5 ring-neutral-300 dark:ring-neutral-600" />
             {INDEPENDENCE_DAY.greeting} · {INDEPENDENCE_DAY.date}
           </span>
@@ -238,7 +238,7 @@ export default function NeuroCodeLanding({
             />
           </div>
 
-          <p className="font-chilanka text-[20px] font-bold leading-[2] text-neutral dark:text-neutral-300">
+          <p className="font-anek text-[20px] font-bold leading-[2] text-neutral dark:text-neutral-300">
             {HERO.sub}
           </p>
 
@@ -264,7 +264,7 @@ export default function NeuroCodeLanding({
                   <Gift className="w-5 h-5 text-white" />
                 </span>
                 <div className="text-left min-w-0">
-                  <span className="inline-block px-2 py-0.5 rounded bg-[#FF9933] text-white text-[10px] font-black font-chilanka">
+                  <span className="inline-block px-2 py-0.5 rounded bg-[#FF9933] text-white text-[10px] font-black font-anek">
                     {INDEPENDENCE_DAY.offerBadge}
                   </span>
                   <p className="font-black text-[15px] mt-1 leading-tight">
@@ -275,7 +275,7 @@ export default function NeuroCodeLanding({
                   </p>
                 </div>
               </div>
-              <p className="font-chilanka text-[13px] font-black text-neutral-900 dark:text-white bg-white/70 dark:bg-white/10 border border-primary-200 dark:border-white/10 rounded-xl px-3 py-1.5 mt-3 text-center shadow-sm">
+              <p className="font-anek text-[13px] font-black text-neutral-900 dark:text-white bg-white/70 dark:bg-white/10 border border-primary-200 dark:border-white/10 rounded-xl px-3 py-1.5 mt-3 text-center shadow-sm">
                 {INDEPENDENCE_DAY.offerLead}
               </p>
               <div className="grid grid-cols-2 gap-2 mt-3 text-center">
@@ -298,7 +298,7 @@ export default function NeuroCodeLanding({
             <span className="w-8 h-1 rounded-full bg-[#138808]" />
           </div>
 
-          <p className="font-chilanka text-primary-600 dark:text-primary-400 text-sm font-bold mt-3 leading-relaxed">
+          <p className="font-anek text-primary-600 dark:text-primary-400 text-sm font-bold mt-3 leading-relaxed">
             {HERO.cta}
           </p>
 

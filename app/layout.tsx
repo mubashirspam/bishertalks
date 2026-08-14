@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Noto_Sans_Malayalam, Chilanka } from "next/font/google";
+import { Inter, Noto_Sans_Malayalam, Anek_Malayalam } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
 import MetaPixelRouteTracker from "@/components/MetaPixel";
@@ -27,12 +27,12 @@ const malayalam = Noto_Sans_Malayalam({
   display: "swap",
 });
 
-// The landing hero's Malayalam voice — a handwriting face for the lines that
-// should feel personal. One weight only, so bold on it is browser-synthesised.
-const chilanka = Chilanka({
-  weight: "400",
+// The landing hero's Malayalam voice, for the lines that should feel personal.
+// Variable across 100–800, so font-bold and font-black on it get real cuts
+// rather than the browser smearing a single weight to fake them.
+const anek = Anek_Malayalam({
   subsets: ["malayalam", "latin"],
-  variable: "--font-chilanka",
+  variable: "--font-anek",
   display: "swap",
 });
 
@@ -291,7 +291,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${malayalam.variable} ${chilanka.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${malayalam.variable} ${anek.variable}`} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
