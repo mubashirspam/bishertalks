@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import {
   Star, Check, ChevronDown, ChevronUp, ArrowDown, Play, Clock,
   Truck, Wallet, Gift, ShieldCheck, MessageCircle, Headphones,
@@ -42,6 +42,107 @@ function FlagDot({ className = "w-3.5 h-3.5" }: { className?: string }) {
       <span className="flex-1 bg-white" />
       <span className="flex-1 bg-[#138808]" />
     </span>
+  );
+}
+
+/**
+ * The flakes, laid out by arithmetic rather than chance.
+ *
+ * Math.random() here would pick different values on the server and in the
+ * browser, and React would tear the whole page down over the hydration
+ * mismatch. These multipliers are coprime with the flake count, so positions
+ * and delays keep cycling out of step and the fall never looks like a pattern.
+ */
+/** The celebration lands and then gets out of the way. */
+const GLITTER_RUN_SECONDS = 30;
+
+const GLITTER = Array.from({ length: 26 }, (_, i) => {
+  /** Staggered so they don't all enter at once on first paint. */
+  const delaySeconds = ((i * 17) % 100) / 10;
+  const fallSeconds = 9 + ((i * 7) % 7);
+
+  // Whole falls only, so every flake finishes on the last keyframe — which is
+  // off the bottom at zero opacity. Ending mid-fall would leave it hanging in
+  // the middle of the page.
+  const falls = Math.max(
+    1,
+    Math.floor((GLITTER_RUN_SECONDS - delaySeconds) / fallSeconds)
+  );
+
+  return {
+    leftPercent: (i * 27 + (i % 4) * 6) % 100,
+    delaySeconds,
+    fallSeconds,
+    falls,
+    // The drift cycles three times per fall, so this many keeps the two
+    // animations stopping together.
+    drifts: falls * 3,
+    driftPx: 10 + ((i * 11) % 16),
+    widthPx: 3 + (i % 3),
+    heightPx: 7 + (i % 4),
+    band: i % 3,
+  };
+});
+
+/** White needs a hairline on a white page; on dark it can stand alone. */
+const GLITTER_BANDS = [
+  "bg-[#FF9933]",
+  "bg-white ring-1 ring-neutral-300 dark:ring-0",
+  "bg-[#138808]",
+];
+
+/**
+ * Independence Day glitter, falling the height of the page.
+ *
+ * Fixed to the viewport rather than the page, so it keeps falling all the way
+ * down instead of running out below the fold. It sits in front of the content
+ * because every section here has an opaque background — behind them there would
+ * be nothing to see — and stays small and semi-transparent so it reads as
+ * atmosphere rather than something covering the words.
+ *
+ * Runs for the first 30 seconds and then stops for good. Someone reading a long
+ * sales page shouldn't have confetti in their eyes at the tenth minute, and it
+ * means the page isn't animating anything while they're deciding to buy.
+ *
+ * Take it out with the rest of the campaign once August 15 has passed.
+ */
+function IndependenceDayGlitter() {
+  return (
+    // z-5 keeps it under the sticky order bar at z-40: the price and the button
+    // are what the page is for, and nothing decorative goes in front of them.
+    <div
+      className="glitter-layer fixed inset-0 z-[5] overflow-hidden pointer-events-none"
+      aria-hidden="true"
+    >
+      {GLITTER.map((flake, i) => (
+        <span
+          key={i}
+          className="glitter-fall absolute top-0"
+          style={
+            {
+              left: `${flake.leftPercent}%`,
+              "--duration": `${flake.fallSeconds}s`,
+              "--delay": `${flake.delaySeconds}s`,
+              "--falls": flake.falls,
+            } as CSSProperties
+          }
+        >
+          {/* --delay inherits from the parent, so the drift starts with the fall. */}
+          <span
+            className={`glitter-drift block rounded-[1px] opacity-60 ${GLITTER_BANDS[flake.band]}`}
+            style={
+              {
+                width: `${flake.widthPx}px`,
+                height: `${flake.heightPx}px`,
+                "--drift": `${flake.driftPx}px`,
+                "--drift-duration": `${flake.fallSeconds / 3}s`,
+                "--drifts": flake.drifts,
+              } as CSSProperties
+            }
+          />
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -93,6 +194,7 @@ export default function NeuroCodeLanding({
 
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-malayalam-bold overflow-x-hidden pb-36 lg:pb-0">
+      <IndependenceDayGlitter />
 
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
       <section className="relative px-5 pt-8 pb-12">

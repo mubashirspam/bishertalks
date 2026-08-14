@@ -99,6 +99,69 @@
   .animate-slide-up {
     animation: slide-up 0.3s ease-out forwards;
   }
+
+  /* ── Independence Day glitter ──────────────────────────────────────────────
+     Tricolour flakes falling the height of the landing page. Take this out with
+     the rest of the campaign once August 15 has passed.
+
+     Two elements per flake, because one can't carry both animations: the outer
+     one owns the fall, the inner one the drift and spin. Sharing a single
+     `transform` would make the later animation overwrite the earlier.
+
+     Only `transform` and `opacity` are animated, so the whole layer stays on
+     the compositor and never triggers layout or paint — this sits on a sales
+     page that has to stay fast on a mid-range Android. */
+  @keyframes glitter-fall {
+    0% {
+      transform: translate3d(0, -12vh, 0);
+      opacity: 0;
+    }
+    8% {
+      opacity: 1;
+    }
+    88% {
+      opacity: 1;
+    }
+    100% {
+      transform: translate3d(0, 106vh, 0);
+      opacity: 0;
+    }
+  }
+
+  @keyframes glitter-drift {
+    0%,
+    100% {
+      transform: translateX(calc(var(--drift) * -1)) rotate(0deg);
+    }
+    50% {
+      transform: translateX(var(--drift)) rotate(180deg);
+    }
+  }
+
+  /* Both stop after about 30 seconds — the iteration counts are worked out per
+     flake in NeuroCodeLanding.tsx so each one finishes on a whole cycle.
+
+     `forwards` is what makes the stop clean: without it every flake would snap
+     back to its unanimated position, which is the top of the screen at full
+     opacity, and 26 of them would sit there frozen. Holding the last keyframe
+     instead leaves them off the bottom at zero opacity. */
+  .glitter-fall {
+    animation: glitter-fall var(--duration) linear var(--delay) var(--falls)
+      forwards;
+  }
+
+  .glitter-drift {
+    animation: glitter-drift var(--drift-duration) ease-in-out var(--delay)
+      var(--drifts) forwards;
+  }
+
+  /* Anyone who has asked for less motion gets the campaign's colour and none of
+     its movement — the flag strip and badges carry the day on their own. */
+  @media (prefers-reduced-motion: reduce) {
+    .glitter-layer {
+      display: none;
+    }
+  }
 }
 
 /* ── Portal grid scrollbar ───────────────────────────────────────────────────
