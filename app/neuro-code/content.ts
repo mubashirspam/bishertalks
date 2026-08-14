@@ -12,8 +12,17 @@
 
 export const EDITION = "3rd Edition";
 
+/** Seasonal campaign over the hero — take it out once August 15 has passed. */
+export const INDEPENDENCE_DAY = {
+  greeting: "സ്വാതന്ത്ര്യ ദിനാശംസകൾ",
+  date: "August 15",
+  /** The campaign badge on the hero's free-course card. */
+  offerBadge: "സ്വാതന്ത്ര്യ ദിന ഓഫർ",
+  /** What the campaign gives, said in one line under the course name. */
+  offerLead: "Neuro Code പുസ്തകത്തോടൊപ്പം NLP Mastery Course സൗജന്യം",
+};
+
 export const HERO = {
-  badge: "LIMITED OFFER",
   headline: "YOU ARE NOT LEADING YOUR LIFE.",
   headlineAccent: "YOUR PATTERNS ARE.",
   sub:

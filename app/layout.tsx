@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Inter, Noto_Sans_Malayalam } from "next/font/google";
+import { Inter, Noto_Sans_Malayalam, Chilanka } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
 import MetaPixelRouteTracker from "@/components/MetaPixel";
@@ -24,6 +24,15 @@ const inter = Inter({
 const malayalam = Noto_Sans_Malayalam({
   subsets: ["malayalam", "latin"],
   variable: "--font-malayalam",
+  display: "swap",
+});
+
+// The landing hero's Malayalam voice — a handwriting face for the lines that
+// should feel personal. One weight only, so bold on it is browser-synthesised.
+const chilanka = Chilanka({
+  weight: "400",
+  subsets: ["malayalam", "latin"],
+  variable: "--font-chilanka",
   display: "swap",
 });
 
@@ -282,7 +291,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} ${malayalam.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${inter.variable} ${malayalam.variable} ${chilanka.variable}`} suppressHydrationWarning>
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />

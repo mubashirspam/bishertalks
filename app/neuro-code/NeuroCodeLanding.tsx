@@ -16,12 +16,12 @@ import {
   VideoTestimonials, ImageTestimonials, AudioTestimonials, TextTestimonials,
 } from "./Testimonials";
 import {
-  EDITION, HERO, PROBLEMS, PROBLEMS_HEADING, PROBLEMS_LEAD, PROBLEMS_TITLE,
+  EDITION, HERO, INDEPENDENCE_DAY, PROBLEMS, PROBLEMS_HEADING, PROBLEMS_LEAD, PROBLEMS_TITLE,
   PROBLEMS_CLOSER, CHAIN_HEADING, CODE_CHAIN, CHAIN_NOTE, PATTERN_TRIAD, STEPS,
   VIDEO_HEADING, VIDEO_NOTE, INSIDE, INSIDE_HEADING,
   OFFER, NLP_COURSE, AUTHOR, SECTION_TITLES, FINAL_CTA, TESTIMONIAL_HEADING, AUDIO_HEADING,
 } from "./content";
-import type { LandingSettings, Testimonial } from "@/lib/db/landing";
+import type { LandingSettings, Testimonial } from "@/lib/types/landing";
 
 /** Problem icons, keyed by the name in content.ts. */
 const ICONS: Record<string, typeof Target> = {
@@ -30,6 +30,20 @@ const ICONS: Record<string, typeof Target> = {
 };
 
 const STEP_ICONS = [Search, Lightbulb, PencilLine];
+
+/** The flag as a dot — no emoji font to depend on. Ring colour comes from the caller. */
+function FlagDot({ className = "w-3.5 h-3.5" }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex flex-col rounded-full overflow-hidden flex-shrink-0 ring-1 ${className}`}
+      aria-hidden="true"
+    >
+      <span className="flex-1 bg-[#FF9933]" />
+      <span className="flex-1 bg-white" />
+      <span className="flex-1 bg-[#138808]" />
+    </span>
+  );
+}
 
 /**
  * The Neuro Code landing page.
@@ -78,15 +92,27 @@ export default function NeuroCodeLanding({
   )}`;
 
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-malayalam overflow-x-hidden pb-36 lg:pb-0">
+    <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-malayalam-bold overflow-x-hidden pb-36 lg:pb-0">
 
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
       <section className="relative px-5 pt-8 pb-12">
+        {/* Independence Day — the flag as a strip across the very top, the
+            middle band a whisper on light, clear on dark. */}
+        <div className="absolute top-0 inset-x-0 h-1.5 grid grid-cols-3" aria-hidden="true">
+          <span className="bg-[#FF9933]" />
+          <span className="bg-neutral-100 dark:bg-neutral-200" />
+          <span className="bg-[#138808]" />
+        </div>
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[420px] h-[420px] bg-primary-500/20 dark:bg-primary-500/15 rounded-full blur-[110px] pointer-events-none" />
+        {/* Saffron and green breathing at the edges — the flag carried into
+            the hero's glow, faint enough to stay a backdrop. */}
+        <div className="absolute top-10 -left-24 w-56 h-56 bg-[#FF9933]/15 dark:bg-[#FF9933]/10 rounded-full blur-[90px] pointer-events-none" />
+        <div className="absolute top-24 -right-24 w-56 h-56 bg-[#138808]/15 dark:bg-[#138808]/10 rounded-full blur-[90px] pointer-events-none" />
 
         <div className="relative max-w-lg mx-auto text-center">
-          <span className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full border-2 border-primary-500 text-primary-600 dark:text-primary-400 text-[11px] font-black tracking-widest">
-            <Clock className="w-3.5 h-3.5" /> {HERO.badge}
+          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 text-[11px] font-black font-chilanka">
+            <FlagDot className="w-3.5 h-3.5 ring-neutral-300 dark:ring-neutral-600" />
+            {INDEPENDENCE_DAY.greeting} · {INDEPENDENCE_DAY.date}
           </span>
 
           <h1 className="text-[30px] leading-[1.08] sm:text-[42px] font-black mt-5 tracking-tight">
@@ -110,7 +136,7 @@ export default function NeuroCodeLanding({
             />
           </div>
 
-          <p className="text-[15px] leading-[2] text-neutral-600 dark:text-neutral-300">
+          <p className="font-chilanka text-[20px] font-bold leading-[2] text-neutral dark:text-neutral-300">
             {HERO.sub}
           </p>
 
@@ -124,40 +150,53 @@ export default function NeuroCodeLanding({
             <span className="text-neutral-500 dark:text-neutral-400 text-sm">· {HERO.readers}</span>
           </div>
 
-          {/* Free video course — the hook that sells the book */}
-          <div className="relative mt-7 rounded-2xl border border-primary-300 dark:border-primary-500/30 bg-gradient-to-br from-primary-50 to-amber-50 dark:from-primary-500/10 dark:to-amber-500/5 p-4 overflow-hidden">
-            <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 dark:via-white/5 to-transparent skew-x-12 animate-shimmer" />
-            <div className="flex items-center gap-3">
-              <span className="relative flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-primary-500 animate-glow-pulse">
-                <Gift className="w-5 h-5 text-white" />
-              </span>
-              <div className="text-left min-w-0">
-                <span className="inline-block px-2 py-0.5 rounded bg-primary-500 text-white text-[10px] font-black tracking-wider">
-                  FREE — ₹{OFFER.mrpRupees} മൂല്യം
+          {/* Free video course — the hook that sells the book, framed as the
+              Independence Day campaign: a tricolor edge, saffron badge, green
+              FREE stamp. The mechanics of the offer don't change, the dress
+              does. */}
+          <div className="relative mt-7 rounded-2xl p-[2px] bg-gradient-to-br from-[#FF9933] via-neutral-200 dark:via-neutral-700 to-[#138808]">
+            <div className="relative rounded-[14px] bg-gradient-to-br from-orange-50 via-white to-green-50 dark:from-[#FF9933]/10 dark:via-neutral-950 dark:to-[#138808]/10 p-4 overflow-hidden">
+              <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 dark:via-white/5 to-transparent skew-x-12 animate-shimmer" />
+              <div className="flex items-center gap-3">
+                <span className="relative flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-primary-500 animate-glow-pulse">
+                  <Gift className="w-5 h-5 text-white" />
                 </span>
-                <p className="font-black text-[15px] mt-1 leading-tight">
-                  {OFFER.bonusTitle}
-                </p>
-                <p className="text-primary-700 dark:text-primary-400 text-[12px] font-semibold mt-0.5">
-                  {NLP_COURSE.modules} Modules · {NLP_COURSE.videos} Videos · 30 Days
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mt-3.5 text-center">
-              {[
-                { icon: Play, label: "Video Lessons" },
-                { icon: Brain, label: "Practical NLP" },
-                { icon: Headphones, label: "Lifetime Access" },
-              ].map((f) => (
-                <div key={f.label} className="rounded-lg bg-white/70 dark:bg-white/5 border border-primary-100 dark:border-white/10 py-2 px-1">
-                  <f.icon className="w-4 h-4 text-primary-500 mx-auto" />
-                  <p className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 mt-1">{f.label}</p>
+                <div className="text-left min-w-0">
+                  <span className="inline-block px-2 py-0.5 rounded bg-[#FF9933] text-white text-[10px] font-black font-chilanka">
+                    {INDEPENDENCE_DAY.offerBadge}
+                  </span>
+                  <p className="font-black text-[15px] mt-1 leading-tight">
+                    {OFFER.bonusTitle}
+                  </p>
+                  <p className="text-primary-700 dark:text-primary-400 text-[12px] font-semibold mt-0.5">
+                    {NLP_COURSE.modules} Modules · {NLP_COURSE.videos} Videos · 30 Days
+                  </p>
                 </div>
-              ))}
+              </div>
+              <p className="font-chilanka text-[13px] font-black text-neutral-900 dark:text-white bg-white/70 dark:bg-white/10 border border-primary-200 dark:border-white/10 rounded-xl px-3 py-1.5 mt-3 text-center shadow-sm">
+                {INDEPENDENCE_DAY.offerLead}
+              </p>
+              <div className="grid grid-cols-2 gap-2 mt-3 text-center">
+                {[
+                  { icon: Play, label: "Video Lessons" },
+                  { icon: Brain, label: "Practical NLP" },
+                ].map((f) => (
+                  <div key={f.label} className="rounded-lg bg-white/70 dark:bg-white/5 border border-primary-100 dark:border-white/10 py-2 px-1">
+                    <f.icon className="w-4 h-4 text-primary-500 mx-auto" />
+                    <p className="text-[10px] font-bold text-neutral-700 dark:text-neutral-300 mt-1">{f.label}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
-          <p className="text-primary-600 dark:text-primary-400 text-sm font-bold mt-6 leading-relaxed">
+          <div className="flex justify-center gap-1 mt-6" aria-hidden="true">
+            <span className="w-8 h-1 rounded-full bg-[#FF9933]" />
+            <span className="w-8 h-1 rounded-full bg-neutral-200 dark:bg-neutral-600" />
+            <span className="w-8 h-1 rounded-full bg-[#138808]" />
+          </div>
+
+          <p className="font-chilanka text-primary-600 dark:text-primary-400 text-sm font-bold mt-3 leading-relaxed">
             {HERO.cta}
           </p>
 
@@ -570,17 +609,21 @@ export default function NeuroCodeLanding({
       {/* ── STICKY BAR ───────────────────────────────────────────────────── */}
       {/* Mobile only; the page reserves pb-36 so it can't cover the last CTA. */}
       <div className="fixed bottom-0 inset-x-0 z-40 lg:hidden border-t border-neutral-200 dark:border-white/10 bg-white/95 dark:bg-neutral-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
-        {/* Urgency strip: the free course is what closes, not a price. */}
+        {/* The flag at the bar's top edge, mirroring the hero. */}
+        <div className="h-1 grid grid-cols-3" aria-hidden="true">
+          <span className="bg-[#FF9933]" />
+          <span className="bg-neutral-100 dark:bg-neutral-200" />
+          <span className="bg-[#138808]" />
+        </div>
+        {/* Campaign strip: the free course is what closes, not a price. */}
         <a
           href="#offer"
-          className="relative flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-primary-600 via-primary-500 to-amber-500 text-white text-[11px] font-bold overflow-hidden"
+          className="relative flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-[#FF9933] to-[#138808] text-white text-[11px] font-bold overflow-hidden"
         >
           <span className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 animate-shimmer" />
-          <span className="relative flex-shrink-0 flex items-center justify-center w-5 h-5 rounded-full bg-white/25 animate-glow-pulse">
-            <Gift className="w-3 h-3 text-white" />
-          </span>
+          <FlagDot className="relative w-5 h-5 ring-white/50" />
           <span className="relative truncate">
-            ഓഫർ ഉടൻ അവസാനിക്കും — ₹{OFFER.mrpRupees}-ന്റെ NLP Video Course <span className="underline underline-offset-2">സൗജന്യം</span>
+            {INDEPENDENCE_DAY.offerBadge} — ₹{OFFER.mrpRupees}-ന്റെ NLP Video Course <span className="underline underline-offset-2">സൗജന്യം</span>
           </span>
         </a>
         <div className="flex items-stretch gap-2 px-3 py-2.5 max-w-lg mx-auto">
@@ -596,10 +639,11 @@ export default function NeuroCodeLanding({
           <a
             href="/neuro-code/checkout"
             onClick={order}
-            className="group relative flex-1 flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 active:scale-[0.97] text-white font-black transition-all shadow-lg shadow-primary-500/40 animate-glow-pulse"
+            className="group relative flex-1 flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-[#FF9933] to-primary-600 active:scale-[0.97] text-white font-black transition-all shadow-lg shadow-primary-500/40 animate-glow-pulse"
           >
             <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/50 to-transparent skew-x-12 animate-shimmer" />
             <span className="relative flex items-center gap-2">
+              <FlagDot className="w-4 h-4 ring-white/50" />
               Order Now — ₹{pricing.payable}
               <ArrowDown className="w-4 h-4 rotate-[-90deg] group-hover:translate-x-1 transition-transform" />
             </span>

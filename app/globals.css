@@ -62,6 +62,15 @@
     text-wrap: balance;
   }
 
+  /* The landing voice: every Malayalam line sits at bold, not regular. Noto
+     Sans Malayalam is a variable font, so the heavier cut costs no extra
+     download. Elements with their own font-black/font-semibold still win —
+     they set the weight on themselves. */
+  .font-malayalam-bold {
+    font-family: var(--font-malayalam), var(--font-inter), system-ui, sans-serif;
+    font-weight: 700;
+  }
+
   @keyframes float {
     0%,
     100% {
