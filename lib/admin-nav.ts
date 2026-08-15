@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, LayoutTemplate, ClipboardCheck,
+  Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -31,6 +31,7 @@ export const NAV: NavItem[] = [
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
   { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
   { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
+  { href: "/admin/reports", label: "Profit & targets", icon: Calculator, permission: "reports.view" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },
   { href: "/admin/courses", label: "Courses", icon: BookOpen, permission: "courses.manage" },
   { href: "/admin/landing", label: "Landing page", icon: LayoutTemplate, permission: "landing.manage" },

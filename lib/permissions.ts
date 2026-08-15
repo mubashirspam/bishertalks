@@ -27,6 +27,11 @@ export const PERMISSIONS = {
   "promos.manage": "Create and edit promo codes",
 
   "insights.view": "See sales figures and traffic sources",
+  // Deliberately separate from insights.view. That screen shows what came in;
+  // this one shows what it costs to earn, what each book actually makes, and
+  // the salary line divided by the month's volume. Someone can be trusted with
+  // revenue without being handed the margin structure.
+  "reports.view": "See unit economics, profit and milestone projections",
   "referrals.view": "See referrers and what they've earned",
   "referrals.payout": "Settle referral commissions",
   "staff.manage": "Add, edit and remove staff",
@@ -46,7 +51,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
-  { label: "Business", permissions: ["insights.view", "referrals.view", "referrals.payout", "staff.manage"] },
+  { label: "Business", permissions: ["insights.view", "reports.view", "referrals.view", "referrals.payout", "staff.manage"] },
 ];
 
 // ── Roles ───────────────────────────────────────────────────────────────────
@@ -97,7 +102,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "delivery.view", "delivery.print", "delivery.assign", "delivery.portal",
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
-    "insights.view", "referrals.view",
+    "insights.view", "reports.view", "referrals.view",
   ],
 
   delivery: ["delivery.portal"],
@@ -141,6 +146,7 @@ export function landingPage(holder: PermissionHolder): string {
   if (can(holder, "delivery.portal")) return "/admin/delivery-portal";
   if (can(holder, "delivery.view")) return "/admin/delivery";
   if (can(holder, "insights.view")) return "/admin/insights";
+  if (can(holder, "reports.view")) return "/admin/reports";
   if (can(holder, "referrals.view")) return "/admin/referrals";
   if (can(holder, "users.view")) return "/admin/users";
   if (can(holder, "courses.manage")) return "/admin/courses";
