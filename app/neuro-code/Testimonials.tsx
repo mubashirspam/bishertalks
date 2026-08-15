@@ -39,9 +39,32 @@ function Placeholder({
 /* ── Video ──────────────────────────────────────────────────────────────── */
 
 /**
- * Loads the YouTube player only when tapped. Embedding several iframes up
- * front pulls a few hundred KB each before anyone asks — on 4G that's the
- * difference between a page that opens and one that gets abandoned.
+ * ImageKit renders a still from any video it hosts at `<url>/ik-thumbnail.jpg`.
+ * That gives the <video> a poster without a second field to fill in — and the
+ * poster is what sizes the element before any of the file is fetched, so a
+ * portrait clip reserves portrait space and the page doesn't jump when it loads.
+ *
+ * Only for ImageKit URLs: anywhere else the path is meaningless and would 404.
+ */
+function posterFor(videoUrl: string): string | undefined {
+  return videoUrl.includes("ik.imagekit.io")
+    ? `${videoUrl}/ik-thumbnail.jpg`
+    : undefined;
+}
+
+/**
+ * Video testimonials, from either source.
+ *
+ * These arrive two ways and the difference matters. A YouTube one is an iframe
+ * costing a few hundred KB the moment it exists, so it stays behind a tap.
+ * A file we host is a plain <video preload="none">, which fetches nothing until
+ * the reader hits play — the tap-to-load dance buys nothing there and only puts
+ * a fake play button in front of the real controls.
+ *
+ * They also arrive shaped differently. YouTube is 16:9; the clips people send
+ * are filmed on a phone and are portrait. A fixed aspect-video box letterboxes
+ * those into a thin strip between two black slabs, so the hosted branch lets the
+ * file state its own proportions and just caps the height.
  */
 export function VideoTestimonials({
   items,
@@ -50,9 +73,15 @@ export function VideoTestimonials({
   items: Testimonial[];
   showPlaceholders: boolean;
 }) {
+  // Keyed on the row id, never on youtube_id: that column is null for a hosted
+  // video, and `playing === null` matched every such card on first render —
+  // which loaded an iframe pointed at /embed/null instead of the video.
   const [playing, setPlaying] = useState<string | null>(null);
 
-  if (!items.length) {
+  // A row with neither source has nothing to show but its name.
+  const playable = items.filter((t) => t.video_url || t.youtube_id);
+
+  if (!playable.length) {
     return showPlaceholders ? (
       <Placeholder
         icon={Video}
@@ -64,45 +93,68 @@ export function VideoTestimonials({
 
   return (
     <div className="space-y-4">
-      {items.map((t) => (
+      {playable.map((t) => (
         <Card key={t.id} glow className="overflow-hidden p-0">
-          <div className="relative aspect-video bg-black rounded-t-2xl overflow-hidden">
-            {playing === t.youtube_id ? (
-              <iframe
-                className="absolute inset-0 w-full h-full"
-                src={`https://www.youtube-nocookie.com/embed/${t.youtube_id}?autoplay=1`}
+          {t.video_url ? (
+            // Centred rather than stretched, so a portrait clip keeps its shape
+            // against black instead of being cropped to a letterbox.
+            <div className="bg-black rounded-t-2xl overflow-hidden flex justify-center">
+              <video
+                src={t.video_url}
+                poster={posterFor(t.video_url)}
+                controls
+                playsInline
+                preload="none"
+                className="max-h-[70vh] w-auto max-w-full"
                 title={`${t.name} — Neuro Code`}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
               />
-            ) : (
-              <button
-                onClick={() => setPlaying(t.youtube_id)}
-                className="absolute inset-0 w-full h-full group"
-                aria-label={`${t.name} — വീഡിയോ പ്ലേ ചെയ്യുക`}
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={`https://i.ytimg.com/vi/${t.youtube_id}/hqdefault.jpg`}
-                  alt=""
-                  loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover"
+            </div>
+          ) : (
+            <div className="relative aspect-video bg-black rounded-t-2xl overflow-hidden">
+              {playing === t.id ? (
+                <iframe
+                  className="absolute inset-0 w-full h-full"
+                  src={`https://www.youtube-nocookie.com/embed/${t.youtube_id}?autoplay=1`}
+                  title={`${t.name} — Neuro Code`}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
                 />
-                <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <span className="w-16 h-16 rounded-full bg-primary-500 shadow-xl shadow-primary-500/40 flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Play className="w-7 h-7 text-white fill-white ml-1" />
+              ) : (
+                <button
+                  onClick={() => setPlaying(t.id)}
+                  className="absolute inset-0 w-full h-full group"
+                  aria-label={`${t.name} — വീഡിയോ പ്ലേ ചെയ്യുക`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`https://i.ytimg.com/vi/${t.youtube_id}/hqdefault.jpg`}
+                    alt=""
+                    loading="lazy"
+                    className="absolute inset-0 w-full h-full object-cover"
+                  />
+                  <span className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <span className="w-16 h-16 rounded-full bg-primary-500 shadow-xl shadow-primary-500/40 flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <Play className="w-7 h-7 text-white fill-white ml-1" />
+                    </span>
                   </span>
-                </span>
-                {t.quote && (
-                  <span className="absolute left-4 right-4 bottom-4 text-left text-white font-bold text-[15px] leading-[1.6]">
-                    {t.quote}
-                  </span>
-                )}
-              </button>
-            )}
-          </div>
+                  {t.quote && (
+                    <span className="absolute left-4 right-4 bottom-4 text-left text-white font-bold text-[15px] leading-[1.6]">
+                      {t.quote}
+                    </span>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
           <div className="px-4 py-3">
+            {/* On the YouTube card the quote is burned over the thumbnail; a
+                hosted video has real controls there, so it reads here instead. */}
+            {t.video_url && t.quote && (
+              <p className="text-neutral-700 dark:text-neutral-300 text-[13.5px] leading-[1.9] mb-2">
+                {t.quote}
+              </p>
+            )}
             <p className="text-neutral-900 dark:text-white text-sm font-bold">{t.name}</p>
             {t.role && (
               <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5">{t.role}</p>
