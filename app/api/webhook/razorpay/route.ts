@@ -48,12 +48,43 @@ export async function POST(request: NextRequest) {
   const razorpayOrderId = payment.order_id;
 
   if (event.event === "payment.captured") {
-    await claimPaidTransition({ razorpayOrderId }, payment.id);
+    const claimed = await claimPaidTransition({ razorpayOrderId }, payment.id);
+
+    // razorpay_order_id is not a stable handle on the row — a customer who
+    // re-enters checkout gets a fresh Razorpay order written over it, and this
+    // event, arriving late, then matches nothing and the capture is lost in
+    // silence. Our own order_number is in the payment's notes and never moves,
+    // so fall back to it and drag the row back onto the order that actually
+    // paid. Re-running against an already-paid row is a no-op.
+    if (!claimed && payment.notes?.order_number) {
+      console.error(
+        "[Webhook] payment.captured did not match on razorpay_order_id — falling back to notes:",
+        { razorpayOrderId, paymentId: payment.id, orderNumber: payment.notes.order_number }
+      );
+      await claimPaidTransition(
+        { orderNumber: payment.notes.order_number, razorpayOrderId },
+        payment.id
+      );
+    }
   } else if (event.event === "payment.failed") {
-    await supabaseAdmin
+    // Razorpay allows several attempts against one order_id, and this event can
+    // arrive after the retry that succeeded — webhooks lag and get redelivered,
+    // and payment.failed is not ordered against payment.captured. Without the
+    // paid guard a failed first attempt demotes an order the customer already
+    // saw succeed, and the money sits captured against a "failed" row.
+    const { data: demoted } = await supabaseAdmin
       .from("orders")
       .update({ payment_status: "failed" })
-      .eq("razorpay_order_id", razorpayOrderId);
+      .eq("razorpay_order_id", razorpayOrderId)
+      .neq("payment_status", "paid")
+      .select("order_number");
+
+    if (!demoted?.length) {
+      console.error(
+        "[Webhook] payment.failed ignored — order already paid or unknown:",
+        { razorpayOrderId, paymentId: payment.id }
+      );
+    }
   }
 
   return NextResponse.json({ ok: true });

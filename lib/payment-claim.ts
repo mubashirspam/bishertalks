@@ -20,7 +20,10 @@ import { notifyAfterResponse } from "@/lib/notify";
  * was already paid (or doesn't exist).
  */
 export async function claimPaidTransition(
-  lookup: { razorpayOrderId: string } | { paymentLinkId: string },
+  lookup:
+    | { razorpayOrderId: string }
+    | { paymentLinkId: string }
+    | { orderNumber: string; razorpayOrderId: string },
   razorpayPaymentId: string
 ): Promise<string | null> {
   const query = supabaseAdmin
@@ -29,14 +32,27 @@ export async function claimPaidTransition(
       payment_status: "paid",
       status: "confirmed",
       razorpay_payment_id: razorpayPaymentId,
+      // Only on the order_number fallback below, where the row is pointing at
+      // some other Razorpay order and needs moving back to the one that paid.
+      ...("orderNumber" in lookup
+        ? { razorpay_order_id: lookup.razorpayOrderId }
+        : {}),
     })
     .neq("payment_status", "paid")
     .select("order_number, promo_code, status");
 
-  const { data: claimed } =
-    "razorpayOrderId" in lookup
-      ? await query.eq("razorpay_order_id", lookup.razorpayOrderId)
-      : await query.eq("payment_link_id", lookup.paymentLinkId);
+  const { data: claimed, error } =
+    "orderNumber" in lookup
+      ? await query.eq("order_number", lookup.orderNumber)
+      : "razorpayOrderId" in lookup
+        ? await query.eq("razorpay_order_id", lookup.razorpayOrderId)
+        : await query.eq("payment_link_id", lookup.paymentLinkId);
+
+  // Swallowing this is how a captured payment goes quietly unclaimed.
+  if (error) {
+    console.error("[Paid] Claim update failed:", { lookup, razorpayPaymentId, error });
+    return null;
+  }
 
   const order = claimed?.[0];
   if (!order) return null;

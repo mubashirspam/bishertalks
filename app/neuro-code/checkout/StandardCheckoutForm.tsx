@@ -222,6 +222,13 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
       const createData = await createRes.json();
       if (createData.error) throw new Error(createData.error);
 
+      // A previous attempt on this order had already gone through — the server
+      // just confirmed it. Don't open checkout again and charge them twice.
+      if (createData.already_paid) {
+        router.push(`/neuro-code/thank-you?id=${createData.order_number}`);
+        return;
+      }
+
       const { razorpay_order_id, order_number, amount, key_id } = createData;
 
       const rzp = new window.Razorpay({

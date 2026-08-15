@@ -51,10 +51,25 @@ export async function POST(request: NextRequest) {
         order_number,
       });
       
-      await supabaseAdmin
+      // Same two guards the paid claim below needs, for the same reasons.
+      // order_number arrives in the request body and is attacker-controlled, so
+      // without the razorpay_order_id match anyone could post a junk signature
+      // against someone else's order and mark it failed; without the paid guard
+      // a stale or replayed call could demote an order that really did pay.
+      const { data: demoted } = await supabaseAdmin
         .from("orders")
         .update({ payment_status: "failed" })
-        .eq("order_number", order_number);
+        .eq("order_number", order_number)
+        .eq("razorpay_order_id", razorpay_order_id)
+        .neq("payment_status", "paid")
+        .select("order_number");
+
+      if (!demoted?.length) {
+        console.error(
+          "[Verify] Signature mismatch not recorded — order already paid, or the id pair doesn't match:",
+          { order_number, razorpay_order_id }
+        );
+      }
 
       return NextResponse.json(
         { success: false, error: "Payment verification failed" },

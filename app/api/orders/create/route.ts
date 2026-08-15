@@ -15,6 +15,7 @@ import {
 } from "@/lib/db/attribution";
 import { applyReferral, type AppliedReferral } from "@/lib/db/referrals";
 import { clampQuantity } from "@/lib/quantity";
+import { claimPaidTransition } from "@/lib/payment-claim";
 
 function generateOrderNumber(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -111,9 +112,56 @@ export async function POST(request: NextRequest) {
     if (existingOrderNumber) {
       const { data: lead } = await supabaseAdmin
         .from("orders")
-        .select(`order_number, buyer_phone, payment_status, ${ATTRIBUTION_COLUMNS}`)
+        .select(
+          `order_number, buyer_phone, payment_status, razorpay_order_id, ${ATTRIBUTION_COLUMNS}`
+        )
         .eq("order_number", existingOrderNumber)
         .maybeSingle();
+
+      // "Not marked paid" is not the same as "not paid". A UPI customer who
+      // app-switches to pay never comes back to fire the verify handler, so the
+      // row can still read pending minutes after the money was captured. If we
+      // reuse it here we mint a second Razorpay order, overwrite
+      // razorpay_order_id below, and orphan the captured payment — no row
+      // points at it any more, so even a webhook replay can't find it. Ask
+      // Razorpay what actually happened before touching the row.
+      if (lead && lead.payment_status !== "paid" && lead.razorpay_order_id) {
+        try {
+          const { items } = await getRazorpay()
+            .orders.fetchPayments(lead.razorpay_order_id);
+          const settled = items?.find(
+            (p) => p.status === "captured" || p.status === "authorized"
+          );
+          if (settled) {
+            console.error(
+              "[Create] Re-checkout blocked — prior attempt already settled:",
+              { order_number: lead.order_number, payment_id: settled.id, status: settled.status }
+            );
+            // Marks it paid and runs the side effects the missed verify owed
+            // the customer: receipt, course grant, WhatsApp. Idempotent.
+            await claimPaidTransition(
+              { razorpayOrderId: lead.razorpay_order_id },
+              settled.id
+            );
+            return NextResponse.json({
+              already_paid: true,
+              order_number: lead.order_number,
+            });
+          }
+        } catch (e) {
+          // Razorpay unreachable. Falling through re-opens the orphaning race,
+          // so refuse rather than risk taking a second payment.
+          console.error("[Create] Could not check prior attempt:", e);
+          return NextResponse.json(
+            {
+              error:
+                "We're still confirming your last payment attempt. Please wait a moment and refresh before trying again.",
+            },
+            { status: 503 }
+          );
+        }
+      }
+
       // Never reattach to an order that's already been paid for.
       if (lead && lead.payment_status !== "paid") {
         orderNumber = lead.order_number;
