@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import {
   Star, Check, ChevronDown, ChevronUp, ArrowDown, Play, Clock,
   Truck, Wallet, Gift, ShieldCheck, MessageCircle, Headphones,
@@ -72,107 +72,6 @@ function FlagRibbon() {
   );
 }
 
-/** The celebration lands and then gets out of the way. */
-const GLITTER_RUN_SECONDS = 30;
-
-/**
- * The flakes, laid out by arithmetic rather than chance.
- *
- * Math.random() here would pick different values on the server and in the
- * browser, and React would tear the whole page down over the hydration
- * mismatch. These multipliers are coprime with the flake count, so positions
- * and delays keep cycling out of step and the fall never looks like a pattern.
- */
-const GLITTER = Array.from({ length: 26 }, (_, i) => {
-  /** Staggered so they don't all enter at once on first paint. */
-  const delaySeconds = ((i * 17) % 100) / 10;
-  const fallSeconds = 9 + ((i * 7) % 7);
-
-  // Whole falls only, so every flake finishes on the last keyframe — which is
-  // off the bottom at zero opacity. Ending mid-fall would leave it hanging in
-  // the middle of the page.
-  const falls = Math.max(
-    1,
-    Math.floor((GLITTER_RUN_SECONDS - delaySeconds) / fallSeconds)
-  );
-
-  return {
-    leftPercent: (i * 27 + (i % 4) * 6) % 100,
-    delaySeconds,
-    fallSeconds,
-    falls,
-    // The drift cycles three times per fall, so this many keeps the two
-    // animations stopping together.
-    drifts: falls * 3,
-    driftPx: 10 + ((i * 11) % 16),
-    widthPx: 3 + (i % 3),
-    heightPx: 7 + (i % 4),
-    band: i % 3,
-  };
-});
-
-/** White needs a hairline on a white page; on dark it can stand alone. */
-const GLITTER_BANDS = [
-  "bg-[#FF9933]",
-  "bg-white ring-1 ring-neutral-300 dark:ring-0",
-  "bg-[#138808]",
-];
-
-/**
- * Independence Day glitter, falling the height of the page.
- *
- * Fixed to the viewport rather than the page, so it keeps falling all the way
- * down instead of running out below the fold. It sits in front of the content
- * because every section here has an opaque background — behind them there would
- * be nothing to see — and stays small and semi-transparent so it reads as
- * atmosphere rather than something covering the words.
- *
- * Runs for the first 30 seconds and then stops for good. Someone reading a long
- * sales page shouldn't have confetti in their eyes at the tenth minute, and it
- * means the page isn't animating anything while they're deciding to buy.
- *
- * Take it out with the rest of the campaign once August 15 has passed.
- */
-function IndependenceDayGlitter() {
-  return (
-    // z-5 keeps it under the sticky order bar at z-40: the price and the button
-    // are what the page is for, and nothing decorative goes in front of them.
-    <div
-      className="glitter-layer fixed inset-0 z-[5] overflow-hidden pointer-events-none"
-      aria-hidden="true"
-    >
-      {GLITTER.map((flake, i) => (
-        <span
-          key={i}
-          className="glitter-fall absolute top-0"
-          style={
-            {
-              left: `${flake.leftPercent}%`,
-              "--duration": `${flake.fallSeconds}s`,
-              "--delay": `${flake.delaySeconds}s`,
-              "--falls": flake.falls,
-            } as CSSProperties
-          }
-        >
-          {/* --delay inherits from the parent, so the drift starts with the fall. */}
-          <span
-            className={`glitter-drift block rounded-[1px] opacity-60 ${GLITTER_BANDS[flake.band]}`}
-            style={
-              {
-                width: `${flake.widthPx}px`,
-                height: `${flake.heightPx}px`,
-                "--drift": `${flake.driftPx}px`,
-                "--drift-duration": `${flake.fallSeconds / 3}s`,
-                "--drifts": flake.drifts,
-              } as CSSProperties
-            }
-          />
-        </span>
-      ))}
-    </div>
-  );
-}
-
 /**
  * The Neuro Code landing page.
  *
@@ -221,8 +120,6 @@ export default function NeuroCodeLanding({
 
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-malayalam-bold overflow-x-hidden pb-36 lg:pb-0">
-      <IndependenceDayGlitter />
-
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
       <section className="relative px-5 pt-8 pb-12">
         {/* Independence Day — the flag as a strip across the very top, the
@@ -290,7 +187,7 @@ export default function NeuroCodeLanding({
             <div className="relative rounded-[14px] bg-gradient-to-br from-orange-50 via-white to-green-50 dark:from-[#FF9933]/10 dark:via-neutral-950 dark:to-[#138808]/10 p-4 overflow-hidden">
               <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 dark:via-white/5 to-transparent skew-x-12 animate-shimmer" />
               <div className="flex items-center gap-3">
-                <span className="relative flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-primary-500 animate-glow-pulse">
+                <span className="relative flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-primary-500 shadow-md shadow-primary-500/40">
                   <Gift className="w-5 h-5 text-white" />
                 </span>
                 <div className="text-left min-w-0">
@@ -740,7 +637,12 @@ export default function NeuroCodeLanding({
 
       {/* ── STICKY BAR ───────────────────────────────────────────────────── */}
       {/* Mobile only; the page reserves pb-36 so it can't cover the last CTA. */}
-      <div className="fixed bottom-0 inset-x-0 z-40 lg:hidden border-t border-neutral-200 dark:border-white/10 bg-white/95 dark:bg-neutral-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+      {/* Opaque on purpose: a translucent background here needs backdrop-blur to
+          stay readable, and a backdrop filter on a fixed element re-filters the
+          viewport behind it on every scroll frame — the one thing guaranteed to
+          make a long sales page stutter on a mid-range Android. At 95% opacity
+          the blur was doing nothing visible anyway. */}
+      <div className="fixed bottom-0 inset-x-0 z-40 lg:hidden border-t border-neutral-200 dark:border-white/10 bg-white dark:bg-neutral-950 pb-[env(safe-area-inset-bottom)]">
         {/* The flag at the bar's top edge, mirroring the hero. */}
         <div className="h-1 grid grid-cols-3" aria-hidden="true">
           <span className="bg-[#FF9933]" />
@@ -771,7 +673,7 @@ export default function NeuroCodeLanding({
           <a
             href="/neuro-code/checkout"
             onClick={order}
-            className="group relative flex-1 flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-[#FF9933] to-primary-600 active:scale-[0.97] text-white font-black transition-all shadow-lg shadow-primary-500/40 animate-glow-pulse"
+            className="group relative flex-1 flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-[#FF9933] to-primary-600 active:scale-[0.97] text-white font-black transition-transform shadow-lg shadow-primary-500/40"
           >
             <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/50 to-transparent skew-x-12 animate-shimmer" />
             <span className="relative flex items-center gap-2">

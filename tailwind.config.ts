@@ -46,7 +46,6 @@ const config: Config = {
         "slide-in-left": "slideInLeft 0.6s ease-out",
         "slide-in-right": "slideInRight 0.6s ease-out",
         shimmer: "shimmer 2.2s ease-in-out infinite",
-        "glow-pulse": "glowPulse 2.4s ease-in-out infinite",
       },
       keyframes: {
         fadeIn: {
@@ -74,10 +73,6 @@ const config: Config = {
         revalidate: {
           "0%": { transform: "translateX(-100%)" },
           "100%": { transform: "translateX(400%)" },
-        },
-        glowPulse: {
-          "0%, 100%": { boxShadow: "0 0 0 0 rgba(249, 115, 22, 0.35)" },
-          "50%": { boxShadow: "0 0 0 10px rgba(249, 115, 22, 0)" },
         },
       },
     },
