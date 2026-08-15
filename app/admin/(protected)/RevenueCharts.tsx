@@ -17,6 +17,8 @@ import {
 export interface RevenueRow {
   created_at: string;
   amount_paise: number | null;
+  /** Copies in the order. Null on rows written before the column existed. */
+  quantity: number | null;
   source: string | null;
 }
 
@@ -79,6 +81,8 @@ interface Bucket {
   label: string;
   paise: number;
   orders: number;
+  /** Copies, which is what the money is proportional to — see the tooltip. */
+  books: number;
 }
 
 function bucketize(rows: RevenueRow[], grain: Grain): Bucket[] {
@@ -108,6 +112,7 @@ function bucketize(rows: RevenueRow[], grain: Grain): Bucket[] {
       label: grain === "monthly" ? fmtMonth(k) : fmtDay(k),
       paise: 0,
       orders: 0,
+      books: 0,
     }])
   );
 
@@ -116,6 +121,7 @@ function bucketize(rows: RevenueRow[], grain: Grain): Bucket[] {
     if (b) {
       b.paise += row.amount_paise ?? 0;
       b.orders += 1;
+      b.books += row.quantity ?? 1;
     }
   }
   return [...map.values()];
@@ -201,7 +207,12 @@ export default function RevenueCharts({ rows }: { rows: RevenueRow[] }) {
                   key={b.key}
                   className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1"
                   style={{ height: BAR_H + 16 }}
-                  title={`${b.label}: ₹${rupees(b.paise)} (${b.orders} order${b.orders === 1 ? "" : "s"})`}
+                  title={`${b.label}: ₹${rupees(b.paise)} (${b.orders} order${b.orders === 1 ? "" : "s"}${
+                    // Only when they disagree — a multi-copy order is the one
+                    // case where fewer orders can still mean more money, and
+                    // without this the bar looks like it lost a sale.
+                    b.books === b.orders ? "" : `, ${b.books} books`
+                  })`}
                 >
                   <span className="text-[9px] font-semibold text-neutral-500 leading-none h-3">
                     {b.paise > 0 ? shortRupees(b.paise) : ""}
