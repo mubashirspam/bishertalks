@@ -65,12 +65,14 @@ export function OrderNow({
   onClick,
   label = "Order Now",
   showPrice = false,
+  comparePrice,
   className = "",
 }: {
   price: number;
   onClick?: () => void;
   label?: string;
   showPrice?: boolean;
+  comparePrice?: number;
   className?: string;
 }) {
   return (
@@ -80,9 +82,19 @@ export function OrderNow({
       className={`group relative flex items-center justify-center gap-3 w-full rounded-full bg-primary-500 hover:bg-primary-600 active:scale-[0.985] px-5 py-4 text-white font-black text-[17px] tracking-wide shadow-lg shadow-primary-500/30 transition-all ${className}`}
     >
       <ShoppingCart className="w-5 h-5 absolute left-5 opacity-90 hidden sm:block" />
-      <span>
+      <span className="flex items-baseline gap-1.5">
         {label}
-        {showPrice ? ` — ₹${price}` : ""}
+        {showPrice && (
+          <>
+            <span className="text-[13px] font-semibold opacity-80">at</span>
+            {comparePrice !== undefined && (
+              <span className="line-through decoration-white/70 text-white/70 text-[14px] font-semibold">
+                ₹{comparePrice}
+              </span>
+            )}
+            <span className="text-[19px]">₹{price}</span>
+          </>
+        )}
       </span>
       <span className="absolute right-3 w-8 h-8 rounded-full bg-white/95 flex items-center justify-center">
         <ArrowRight className="w-4 h-4 text-primary-600 group-hover:translate-x-0.5 transition-transform" />

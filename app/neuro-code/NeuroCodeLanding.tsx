@@ -197,9 +197,23 @@ export default function NeuroCodeLanding({
                   <p className="font-black text-[15px] mt-1 leading-tight">
                     {OFFER.bonusTitle}
                   </p>
-                  <p className="text-primary-700 dark:text-primary-400 text-[12px] font-semibold mt-0.5">
-                    {NLP_COURSE.modules} Modules · {NLP_COURSE.videos} Videos · 30 Days
-                  </p>
+                  {/* The three numbers are what make the free course feel like
+                      a real product, so they get pills instead of a grey
+                      subtitle nobody stops on. */}
+                  <div className="flex flex-wrap items-center gap-1 mt-1.5">
+                    {[
+                      `${NLP_COURSE.modules} Modules`,
+                      `${NLP_COURSE.videos} Videos`,
+                      `${NLP_COURSE.materials} Materials`,
+                    ].map((stat) => (
+                      <span
+                        key={stat}
+                        className="font-anek rounded-md border border-primary-300 dark:border-primary-400/30 bg-primary-500/15 dark:bg-primary-400/15 px-1.5 py-0.5 text-[11px] font-black text-primary-700 dark:text-primary-300"
+                      >
+                        {stat}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
               <p className="font-anek text-[13px] font-black text-neutral-900 dark:text-white bg-white/70 dark:bg-white/10 border border-primary-200 dark:border-white/10 rounded-xl px-3 py-1.5 mt-3 text-center shadow-sm">
@@ -229,8 +243,14 @@ export default function NeuroCodeLanding({
             {HERO.cta}
           </p>
 
-          <div className="mt-3 max-w-xs mx-auto">
-            <OrderNow price={pricing.payable} onClick={order} showPrice />
+          {/* max-w-sm, not xs: the ₹999 → ₹699 comparison needs the width. */}
+          <div className="mt-3 max-w-sm mx-auto">
+            <OrderNow
+              price={pricing.payable}
+              onClick={order}
+              showPrice
+              comparePrice={OFFER.compareAtRupees}
+            />
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mt-4 text-[11px] text-neutral-500 dark:text-neutral-400">
@@ -656,30 +676,30 @@ export default function NeuroCodeLanding({
         >
           <span className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 animate-shimmer" />
           <FlagDot className="relative w-5 h-5 ring-white/50" />
-          <span className="relative truncate">
+          <span>
             {INDEPENDENCE_DAY.offerBadge} — ₹{OFFER.mrpRupees}-ന്റെ NLP Video Course <span className="underline underline-offset-2">സൗജന്യം</span>
           </span>
         </a>
-        <div className="flex items-stretch gap-2 px-3 py-2.5 max-w-lg mx-auto">
-          <a
-            href="#offer"
-            className="flex flex-col items-center justify-center px-4 py-2 rounded-xl border border-neutral-300 dark:border-white/15"
-          >
-            <span className="text-[10px] text-neutral-400 leading-none line-through">
-              ₹{OFFER.mrpRupees}
-            </span>
-            <span className="text-sm font-black leading-tight mt-0.5">OFFERS</span>
-          </a>
+        {/* One full-width target. The old ₹3000 "OFFERS" box split the thumb's
+            attention between two prices and left the buy button too narrow to
+            show the ₹999 → ₹699 comparison, which is the thing that sells. */}
+        <div className="px-3 py-2.5 max-w-lg mx-auto">
           <a
             href="/neuro-code/checkout"
             onClick={order}
-            className="group relative flex-1 flex items-center justify-center gap-2 overflow-hidden rounded-xl bg-gradient-to-r from-[#FF9933] to-primary-600 active:scale-[0.97] text-white font-black transition-transform shadow-lg shadow-primary-500/40"
+            className="group relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-r from-[#FF9933] to-primary-600 px-4 py-3.5 active:scale-[0.98] text-white font-black transition-transform shadow-lg shadow-primary-500/40"
           >
             <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/50 to-transparent skew-x-12 animate-shimmer" />
-            <span className="relative flex items-center gap-2">
-              <FlagDot className="w-4 h-4 ring-white/50" />
-              Order Now — ₹{pricing.payable}
-              <ArrowDown className="w-4 h-4 rotate-[-90deg] group-hover:translate-x-1 transition-transform" />
+            <span className="relative flex items-baseline gap-2">
+              <FlagDot className="w-4 h-4 ring-white/50 self-center" />
+              <span className="text-[16px]">Order Now at</span>
+              <span className="line-through decoration-white/70 text-white/70 text-[14px] font-semibold">
+                ₹{OFFER.compareAtRupees}
+              </span>
+              <span className="text-[20px] leading-none">₹{pricing.payable}</span>
+            </span>
+            <span className="absolute right-3 w-8 h-8 rounded-full bg-white/95 flex items-center justify-center">
+              <ArrowDown className="w-4 h-4 rotate-[-90deg] text-primary-600 group-hover:translate-x-0.5 transition-transform" />
             </span>
           </a>
         </div>

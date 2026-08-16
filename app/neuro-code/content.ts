@@ -16,8 +16,12 @@ export const EDITION = "3rd Edition";
 export const INDEPENDENCE_DAY = {
   greeting: "സ്വാതന്ത്ര്യ ദിനാശംസകൾ",
   date: "August 15",
-  /** The campaign badge on the hero's free-course card. */
-  offerBadge: "സ്വാതന്ത്ര്യ ദിന ഓഫർ",
+  /**
+   * The campaign badge on the hero's free-course card. Says the occasion, not
+   * "offer" — the free course is the gift, and calling it an offer reads like
+   * a discount coupon.
+   */
+  offerBadge: "സ്വാതന്ത്ര്യ ദിനത്തോടനുബന്ധിച്ച്",
   /** What the campaign gives, said in one line under the course name. */
   offerLead: "Neuro Code പുസ്തകത്തോടൊപ്പം NLP Mastery Course സൗജന്യം",
 };
@@ -138,6 +142,7 @@ export const INSIDE: string[] = [
 export const NLP_COURSE = {
   modules: 14,
   videos: 42,
+  materials: 15,
 };
 
 export const OFFER = {
@@ -147,6 +152,8 @@ export const OFFER = {
   bookLine: "NEURO CODE BOOK",
   courseLine: "30 DAYS NLP COURSE",
   mrpRupees: 3000,
+  /** The struck-through price every "Order Now" button compares against. */
+  compareAtRupees: 999,
   delivery: "FREE ALL INDIA DELIVERY",
   bonusTitle: "NLP Mastery Course",
   bonusMeta: "30 Days · Online · Structured Learning",
