@@ -15,6 +15,19 @@ const STAGES = [
   { label: "Payment failed", value: "failed" },
 ];
 
+/**
+ * Copies in the order.
+ *
+ * "2 or more" is the one people actually come here for: it's the gift buyers,
+ * the resellers and the trainers ordering for a batch, and they're worth a call
+ * that a single-copy buyer isn't.
+ */
+const BOOK_COUNTS = [
+  { label: "Any copies", value: "all" },
+  { label: "2 or more books", value: "multi" },
+  { label: "Single copy", value: "single" },
+];
+
 const PRESETS = [
   { label: "Today", days: 0 },
   { label: "7 days", days: 6 },
@@ -42,6 +55,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
   const stage = params.get("stage") ?? "all";
   const source = params.get("source") ?? "all";
   const followUp = params.get("followUp") ?? "all";
+  const books = params.get("books") ?? "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const [q, setQ] = useState(params.get("q") ?? "");
@@ -61,6 +75,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
     if (stage !== "all") p.set("stage", stage);
     if (source !== "all") p.set("source", source);
     if (followUp !== "all") p.set("followUp", followUp);
+    if (books !== "all") p.set("books", books);
     if (from) p.set("from", from);
     if (to) p.set("to", to);
     if (params.get("q")) p.set("q", params.get("q")!);
@@ -69,7 +84,8 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
   };
 
   const hasFilters =
-    stage !== "all" || source !== "all" || followUp !== "all" || !!from || !!to || !!params.get("q");
+    stage !== "all" || source !== "all" || followUp !== "all" || books !== "all" ||
+    !!from || !!to || !!params.get("q");
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -116,6 +132,20 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
             <option value="all">All sources</option>
             {TRAFFIC_SOURCES.map((s) => (
               <option key={s} value={s}>{SOURCE_LABELS[s]}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Copies — finds the bulk buyers */}
+        <div className="min-w-[150px]">
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Books</label>
+          <select
+            value={books}
+            onChange={(e) => push({ books: e.target.value === "all" ? null : e.target.value })}
+            className={`${field} w-full cursor-pointer`}
+          >
+            {BOOK_COUNTS.map((b) => (
+              <option key={b.value} value={b.value}>{b.label}</option>
             ))}
           </select>
         </div>

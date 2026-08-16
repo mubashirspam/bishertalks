@@ -134,6 +134,7 @@ const SOURCE_COLORS: Record<TrafficSource, string> = {
   youtube: "#ef4444",
   google: "#f59e0b",
   referral: "#a855f7",
+  qr: "#6366f1",
   direct: "#f97316",
   other: "#a3a3a3",
 };

@@ -20,6 +20,7 @@ interface QueryArgs {
   to?: string;
   source?: string;
   followUp?: string;
+  books?: string;
   pageNum: number;
 }
 import { requirePageAccess } from "@/lib/admin-auth";
@@ -34,6 +35,7 @@ interface Row {
   buyer_name: string | null;
   buyer_phone: string | null;
   amount_paise: number;
+  quantity: number;
   payment_status: string;
   address_line1: string | null;
   razorpay_order_id: string | null;
@@ -53,18 +55,19 @@ export default async function AdminOrdersPage({
     stage?: string; q?: string; page?: string; from?: string; to?: string;
     source?: string;
     followUp?: string;
+    books?: string;
   }>;
 }) {
   // Cached per request and shared with the layout, so this no longer costs a
   // second round trip to Supabase auth.
   await requirePageAccess("orders.view");
 
-  const { stage, q, page = "1", from, to, source, followUp } = await searchParams;
+  const { stage, q, page = "1", from, to, source, followUp, books } = await searchParams;
   const pageNum = Math.max(0, parseInt(page) - 1);
 
   // Nothing is awaited past this point: the shell renders now and the two
   // sections below stream in when the (single, shared) query resolves.
-  const queryArgs: QueryArgs = { stage, q, from, to, source, followUp, pageNum };
+  const queryArgs: QueryArgs = { stage, q, from, to, source, followUp, books, pageNum };
 
   return (
     <NavigationPending>
@@ -95,10 +98,12 @@ export default async function AdminOrdersPage({
 /** Just the count, so the filter bar can paint before the query resolves. */
 async function OrderCount(props: QueryArgs) {
   const { count } = await fetchOrdersPage(
-    props.stage, props.q, props.from, props.to, props.source, props.followUp, props.pageNum, PER_PAGE
+    props.stage, props.q, props.from, props.to, props.source, props.followUp, props.books,
+    props.pageNum, PER_PAGE
   );
   const filtered =
-    !!props.stage || !!props.q || !!props.from || !!props.to || !!props.source || !!props.followUp;
+    !!props.stage || !!props.q || !!props.from || !!props.to || !!props.source ||
+    !!props.followUp || !!props.books;
 
   return (
     <>
@@ -111,7 +116,8 @@ async function OrderCount(props: QueryArgs) {
 /** The table itself. Shares one query with OrderCount via React cache. */
 async function OrdersTable(props: QueryArgs) {
   const { rows, count } = await fetchOrdersPage(
-    props.stage, props.q, props.from, props.to, props.source, props.followUp, props.pageNum, PER_PAGE
+    props.stage, props.q, props.from, props.to, props.source, props.followUp, props.books,
+    props.pageNum, PER_PAGE
   );
   const orders = rows as unknown as Row[];
   const pageNum = props.pageNum;
@@ -134,6 +140,7 @@ async function OrdersTable(props: QueryArgs) {
     if (props.to) sp.set("to", props.to);
     if (props.source) sp.set("source", props.source);
     if (props.followUp) sp.set("followUp", props.followUp);
+    if (props.books) sp.set("books", props.books);
     if (p > 1) sp.set("page", String(p));
     const qs = sp.toString();
     return `/admin/orders${qs ? `?${qs}` : ""}`;
@@ -268,7 +275,18 @@ async function OrdersTable(props: QueryArgs) {
                         )}
                       </td>
                       <td className="px-4 py-3 text-neutral-900 hidden md:table-cell">
-                        ₹{Math.round((o.amount_paise ?? 0) / 100)}
+                        <p>₹{Math.round((o.amount_paise ?? 0) / 100)}</p>
+                        {/* How many copies that ₹ actually is. Without it a
+                            ₹2,097 row looks like a pricing bug rather than
+                            three books, and the multi-copy buyers — the ones
+                            worth calling — are invisible in the list. */}
+                        {(o.quantity ?? 1) > 1 ? (
+                          <span className="inline-flex mt-0.5 px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[11px] font-semibold whitespace-nowrap">
+                            {o.quantity} books
+                          </span>
+                        ) : (
+                          <span className="text-neutral-400 text-[11px]">1 book</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
                         <p className="text-neutral-700 font-medium">

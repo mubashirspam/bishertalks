@@ -12,6 +12,8 @@ export interface OrderFilters {
   source?: string;
   /** Follow-up state: a FollowUpStatus, "none" for untouched, or "all". */
   followUp?: string;
+  /** Copies in the order: "multi" for 2+, "single" for exactly one, or "all". */
+  books?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -22,6 +24,8 @@ export interface OrderRow {
   buyer_phone: string | null;
   buyer_email: string | null;
   amount_paise: number;
+  /** Copies of the book. NOT NULL DEFAULT 1 in the schema — see 0023. */
+  quantity: number;
   discount_paise: number;
   promo_code: string | null;
   payment_status: string;
@@ -46,7 +50,7 @@ export interface OrderRow {
 }
 
 export const ORDER_COLUMNS =
-  "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,discount_paise,promo_code," +
+  "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,quantity,discount_paise,promo_code," +
   "payment_status,status,address_line1,address_line2,city,district,state,pincode," +
   "razorpay_order_id,razorpay_payment_id,checkout_type,created_at,address_submitted_at," +
   "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note";
@@ -87,6 +91,13 @@ export function buildOrdersQuery(filters: OrderFilters) {
         ? query.is("follow_up_status", null)
         : query.eq("follow_up_status", filters.followUp);
   }
+
+  // Multi-copy buyers are the ones worth a call: they're gifting, reselling or
+  // running a session, and that's a different conversation from a single copy.
+  // `quantity` is NOT NULL DEFAULT 1, so a plain comparison catches every old
+  // row correctly without an `or (quantity is null)` arm.
+  if (filters.books === "multi") query = query.gte("quantity", 2);
+  else if (filters.books === "single") query = query.eq("quantity", 1);
 
   if (filters.q) {
     const q = filters.q.replace(/[%,()]/g, "");

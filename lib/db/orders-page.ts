@@ -26,11 +26,12 @@ export const fetchOrdersPage = cache(async function fetchOrdersPage(
   to: string | undefined,
   source: string | undefined,
   followUp: string | undefined,
+  books: string | undefined,
   pageNum: number,
   perPage: number
 ) {
   const { data, count, error } = await buildOrdersQuery({
-    stage, q, from, to, source, followUp,
+    stage, q, from, to, source, followUp, books,
   }).range(
     pageNum * perPage,
     (pageNum + 1) * perPage - 1
@@ -47,6 +48,7 @@ export interface OrdersPageRow {
   buyer_name: string | null;
   buyer_phone: string | null;
   amount_paise: number;
+  quantity: number;
   payment_status: string;
   address_line1: string | null;
   razorpay_order_id: string | null;

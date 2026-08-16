@@ -16,6 +16,11 @@ export type TrafficSource =
   | "youtube"
   | "google"
   | "referral"
+  // A printed QR code — inside a book, on the back cover, a flyer, a poster, a
+  // stall banner. It is its own channel and not "other" because it is the one
+  // source we pay for in ink: knowing a book insert outsells a poster is what
+  // decides the next print run.
+  | "qr"
   | "direct"
   | "other";
 
@@ -26,6 +31,7 @@ export const TRAFFIC_SOURCES: TrafficSource[] = [
   "youtube",
   "google",
   "referral",
+  "qr",
   "direct",
   "other",
 ];
@@ -37,6 +43,7 @@ export const SOURCE_LABELS: Record<TrafficSource, string> = {
   youtube: "YouTube",
   google: "Google",
   referral: "Referral",
+  qr: "QR code (print)",
   direct: "Direct / unknown",
   other: "Other",
 };
@@ -48,6 +55,7 @@ export const SOURCE_BADGE: Record<TrafficSource, string> = {
   youtube: "bg-red-50 text-red-700 border-red-200",
   google: "bg-amber-50 text-amber-700 border-amber-200",
   referral: "bg-purple-50 text-purple-700 border-purple-200",
+  qr: "bg-indigo-50 text-indigo-700 border-indigo-200",
   direct: "bg-neutral-100 text-neutral-600 border-neutral-200",
   other: "bg-neutral-100 text-neutral-600 border-neutral-200",
 };
@@ -70,6 +78,11 @@ const UTM_ALIASES: Record<string, TrafficSource> = {
   yt: "youtube", youtube: "youtube", shorts: "youtube",
   google: "google", googleads: "google", gads: "google", adwords: "google", search: "google",
   ref: "referral", referral: "referral", affiliate: "referral",
+  // Anything printed and scanned. The builder always writes "qr", but a QR made
+  // by hand from a phone is as likely to say "book" or "flyer", and all of it
+  // is the same channel: paper.
+  qr: "qr", qrcode: "qr", scan: "qr", print: "qr", book: "qr", bookqr: "qr",
+  flyer: "qr", poster: "qr", sticker: "qr", banner: "qr", card: "qr",
 };
 
 /** Referrer hostnames, matched as suffixes so subdomains fall through. */
