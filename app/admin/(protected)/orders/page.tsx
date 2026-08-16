@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, Phone, MessageCircle, ArrowRight } from "lucide-react";
+import { AlertCircle, Phone, MessageCircle, ArrowRight, Gift } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
@@ -36,6 +36,7 @@ interface Row {
   buyer_phone: string | null;
   amount_paise: number;
   quantity: number;
+  is_gift: boolean;
   payment_status: string;
   address_line1: string | null;
   razorpay_order_id: string | null;
@@ -205,6 +206,18 @@ async function OrdersTable(props: QueryArgs) {
                         >
                           {o.order_number}
                         </Link>
+                        {/* On the order number rather than beside the amount:
+                            this decides how the parcel is packed, so it has to
+                            be visible on the narrow view where the money
+                            column is hidden. */}
+                        {o.is_gift && (
+                          <span
+                            title="Gift — wrap and write the card"
+                            className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-200 text-[10px] font-bold align-middle"
+                          >
+                            <Gift className="w-2.5 h-2.5" /> Gift
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <p className="text-neutral-900 font-medium">

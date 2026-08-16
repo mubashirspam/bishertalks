@@ -2,6 +2,7 @@ import Image from "next/image";
 import { Gift, ShieldCheck, Minus, Plus, Check } from "lucide-react";
 import { OFFER, NLP_COURSE } from "@/app/neuro-code/content";
 import { MAX_BOOKS } from "@/lib/quantity";
+import { GIFT_WRAP_RUPEES, MAX_GIFT_MESSAGE } from "@/lib/gift";
 import type { ProductPricing } from "@/lib/db/courses";
 
 /**
@@ -160,6 +161,98 @@ function Stepper({
 }
 
 /**
+ * "Make it a gift" — wrapping plus a written card.
+ *
+ * Collapsed to a single line until it's ticked, because most orders aren't
+ * gifts and a message box sitting open above the pay button is one more thing
+ * to read past. The price is on the label rather than revealed after ticking:
+ * a charge that appears only once you've committed is the kind of surprise
+ * people abandon a checkout over.
+ *
+ * The message is optional even when the box is ticked. Someone may just want
+ * the paper.
+ */
+export function GiftOption({
+  checked,
+  onChange,
+  message,
+  onMessage,
+  disabled,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  message: string;
+  onMessage: (next: string) => void;
+  disabled?: boolean;
+}) {
+  const left = MAX_GIFT_MESSAGE - message.length;
+
+  return (
+    <div
+      className={`mb-5 rounded-2xl border transition-colors ${
+        checked
+          ? "border-primary-300 dark:border-primary-500/40 bg-primary-50/60 dark:bg-primary-900/10"
+          : "border-neutral-200 dark:border-white/8 bg-neutral-50 dark:bg-neutral-800/40"
+      }`}
+    >
+      <label className="flex items-start gap-3 p-4 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.checked)}
+          className="mt-0.5 w-4 h-4 flex-shrink-0 accent-primary-500 cursor-pointer disabled:cursor-not-allowed"
+        />
+        <span className="flex-1 min-w-0">
+          <span className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-sm text-neutral-900 dark:text-white flex items-center gap-1.5">
+              <Gift className="w-4 h-4 text-primary-500" /> Make it a gift
+            </span>
+            <span className="font-bold text-sm text-neutral-900 dark:text-white flex-shrink-0">
+              +₹{inr(GIFT_WRAP_RUPEES)}
+            </span>
+          </span>
+          <span className="block text-neutral-500 dark:text-neutral-400 text-xs mt-1 leading-relaxed">
+            Wrapped by hand, with your message written on a card inside
+          </span>
+        </span>
+      </label>
+
+      {checked && (
+        <div className="px-4 pb-4">
+          <label
+            htmlFor="gift-message"
+            className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-1.5"
+          >
+            Message on the card{" "}
+            <span className="font-normal normal-case tracking-normal">(optional)</span>
+          </label>
+          <textarea
+            id="gift-message"
+            value={message}
+            disabled={disabled}
+            // Hard-capped as well as counted: the card is a fixed size, and a
+            // message we silently trim later is one the customer never agreed to.
+            maxLength={MAX_GIFT_MESSAGE}
+            onChange={(e) => onMessage(e.target.value)}
+            rows={2}
+            placeholder="Happy birthday Rahul — break the patterns!"
+            className="w-full bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-white/10 rounded-xl px-3 py-2 text-sm text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:border-primary-500 transition-colors resize-none"
+          />
+          <p
+            className={`text-[11px] mt-1 text-right ${
+              left <= 15 ? "text-amber-600 dark:text-amber-400" : "text-neutral-400"
+            }`}
+          >
+            {left} characters left
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The arithmetic, with every line the customer was promised.
  *
  * The zero rows stay visible rather than being folded into the total: a bill
@@ -170,11 +263,14 @@ export function OrderTotals({
   promo,
   totalPaise,
   quantity,
+  giftPaise = 0,
 }: {
   pricing: ProductPricing;
   promo: AppliedPromo | null;
   totalPaise: number;
   quantity: number;
+  /** Wrapping, when it was asked for. Zero on an ordinary order. */
+  giftPaise?: number;
 }) {
   // What the offer takes off: the book's own discount on every copy, the whole
   // course, and any promo on top. The course counts once however many books are
@@ -216,6 +312,19 @@ export function OrderTotals({
         <div className="flex justify-between text-green-600 dark:text-green-400">
           <span>Discount ({promo.code})</span>
           <span>−₹{inr(rupees(promo.discountPaise))}</span>
+        </div>
+      )}
+
+      {/* Below the discount, because it is the one line here that adds. Sitting
+          it among the ₹0 rows above would read as another thing included. */}
+      {giftPaise > 0 && (
+        <div className="flex justify-between text-neutral-500 dark:text-neutral-400">
+          <span className="flex items-center gap-1.5">
+            <Gift className="w-3.5 h-3.5 text-primary-500" /> Gift wrapping
+          </span>
+          <span className="text-neutral-900 dark:text-white">
+            ₹{inr(rupees(giftPaise))}
+          </span>
         </div>
       )}
 

@@ -29,6 +29,7 @@ export async function GET(
       `order_number, buyer_name, buyer_phone, buyer_email, city, district, state,
        address_line1, address_line2, pincode, status, payment_status,
        amount_paise, quantity, discount_paise, promo_code, notes,
+       is_gift, gift_message, gift_charge_paise,
        tracking_number, courier_name, expected_delivery,
        label_downloaded_at, label_download_count, shipped_at, delivered_at,
        courier_entered_at, assigned_agent_id, assigned_at,

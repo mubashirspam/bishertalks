@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     .select(
       `order_number, buyer_name, buyer_phone, buyer_email,
        address_line1, address_line2, city, district, state, pincode,
-       amount_paise, quantity, discount_paise, promo_code,
+       amount_paise, quantity, gift_charge_paise, discount_paise, promo_code,
        razorpay_payment_id, payment_status,
        created_at, invoice_email_sent_at, address_submitted_at`
     )

@@ -6,8 +6,10 @@ import Link from "next/link";
 import { ArrowLeft, Lock, ShoppingBag, Tag, Check, Truck } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 import { clampQuantity } from "@/lib/quantity";
+import { giftChargePaise, sanitizeGiftMessage } from "@/lib/gift";
 import {
   PackageItems,
+  GiftOption,
   OrderTotals,
   PaymentTrust,
   type AppliedPromo,
@@ -42,10 +44,19 @@ export default function CheckoutForm({ pricing }: { pricing: ProductPricing }) {
 
   const [quantity, setQuantity] = useState(1);
 
+  const [isGift, setIsGift] = useState(false);
+  const [giftMessage, setGiftMessage] = useState("");
+
   // Display only. /api/orders/create multiplies the price by its own clamped
-  // copy of the quantity, so nothing here can talk the charge down.
+  // copy of the quantity and adds its own copy of the gift fee, so nothing here
+  // can talk the charge down.
+  //
+  // Wrapping is added after the promo, not before: a discount code is for the
+  // book, and letting it eat into the wrapping fee would sell the paper at a
+  // loss on every code that happens to be a percentage.
   const basePaise = pricing.payablePaise * quantity;
-  const totalPaise = promo ? promo.finalPaise : basePaise;
+  const giftPaise = giftChargePaise(isGift);
+  const totalPaise = (promo ? promo.finalPaise : basePaise) + giftPaise;
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -105,7 +116,15 @@ export default function CheckoutForm({ pricing }: { pricing: ProductPricing }) {
       const createRes = await fetch("/api/orders/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ promoCode: promo?.code ?? null, quantity }),
+        body: JSON.stringify({
+          promoCode: promo?.code ?? null,
+          quantity,
+          is_gift: isGift,
+          // Only when it's actually a gift — a message left behind after
+          // unticking the box must not be stored, or someone packs a card for
+          // an order the customer didn't pay wrapping on.
+          gift_message: isGift ? sanitizeGiftMessage(giftMessage) : null,
+        }),
       });
       const createData = await createRes.json();
       if (createData.error) throw new Error(createData.error);
@@ -226,11 +245,20 @@ export default function CheckoutForm({ pricing }: { pricing: ProductPricing }) {
             )}
           </div>
 
+          <GiftOption
+            checked={isGift}
+            onChange={setIsGift}
+            message={giftMessage}
+            onMessage={setGiftMessage}
+            disabled={loading}
+          />
+
           <OrderTotals
             pricing={pricing}
             promo={promo}
             totalPaise={totalPaise}
             quantity={quantity}
+            giftPaise={giftPaise}
           />
 
           <button

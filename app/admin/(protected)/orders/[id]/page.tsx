@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail, Link2, Copy, Check, PencilLine, X, Receipt } from "lucide-react";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail, Link2, Copy, Check, PencilLine, X, Receipt, Gift } from "lucide-react";
 import { formatIST, timeAgo } from "@/lib/format-date";
 import { describeAudit } from "@/lib/audit";
 import {
@@ -393,6 +393,37 @@ export default function AdminOrderDetailPage() {
         <span className="font-mono text-primary-600 text-sm">{id}</span>
       </div>
 
+      {/* Full width and above both columns, because it changes what physically
+          goes in the parcel. Buried in the payment card on the right, it would
+          be found after the box was taped shut. */}
+      {order.is_gift && (
+        <div className="mb-6 bg-primary-50 border border-primary-200 rounded-2xl p-5 shadow-sm">
+          <h2 className="font-semibold text-sm text-primary-900 flex items-center gap-2">
+            <Gift className="w-4 h-4 text-primary-600" /> Gift order — wrap before shipping
+          </h2>
+          {order.gift_message ? (
+            <>
+              <p className="text-xs font-semibold text-primary-700 uppercase tracking-wider mt-4 mb-1.5">
+                Write this on the card
+              </p>
+              {/* Serif and large: this gets copied out by hand onto a card, and
+                  a mis-read name is the one mistake a gift cannot survive. */}
+              <p className="font-serif text-lg text-neutral-900 bg-white border border-primary-200 rounded-xl px-4 py-3 leading-snug">
+                {order.gift_message}
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-primary-800 mt-2">
+              Wrapping only — the customer left no message, so send a blank card.
+            </p>
+          )}
+          <p className="text-xs text-primary-700 mt-3">
+            No invoice or price goes in the parcel. Charged ₹
+            {Math.round(order.gift_charge_paise / 100)} for wrapping.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left col */}
         <div className="space-y-5">
@@ -684,6 +715,14 @@ export default function AdminOrderDetailPage() {
                   <span className="text-neutral-500">Books</span>
                   <span className="font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2">
                     × {order.quantity}
+                  </span>
+                </div>
+              )}
+              {order.gift_charge_paise > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Gift wrapping</span>
+                  <span className="text-neutral-900">
+                    ₹{Math.round(order.gift_charge_paise / 100)}
                   </span>
                 </div>
               )}

@@ -15,6 +15,7 @@ import {
 } from "@/lib/db/attribution";
 import { applyReferral, type AppliedReferral } from "@/lib/db/referrals";
 import { clampQuantity } from "@/lib/quantity";
+import { giftChargePaise, sanitizeGiftMessage } from "@/lib/gift";
 import { claimPaidTransition } from "@/lib/payment-claim";
 
 function generateOrderNumber(): string {
@@ -79,6 +80,14 @@ export async function POST(request: NextRequest) {
     // chooses the number of books, never the price of them, and a request
     // asking for 0 or 10,000 copies must not become an order row.
     const quantity = clampQuantity(body.quantity ?? 1);
+
+    // Gift wrapping. The browser sends a boolean and a message; the price comes
+    // from lib/gift.ts here. A request naming its own gift charge — or a
+    // message on an order that isn't a gift, which is a card nobody was paid to
+    // write — gets neither.
+    const isGift = body.is_gift === true;
+    const giftPaise = giftChargePaise(isGift);
+    const giftMessage = isGift ? sanitizeGiftMessage(body.gift_message) : null;
 
     const { payablePaise } = await getProductPricing();
     // The course is not multiplied — one login per customer, however many
@@ -202,6 +211,15 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Wrapping goes on last, after every discount has been taken off the book.
+    //
+    // Order matters twice over. A percentage promo applied to a basket that
+    // already included the fee would discount the paper as well as the book,
+    // and `applyReferral` above priced its commission off the amount as it
+    // stood — a referrer earning a cut of the wrapping charge is money paid out
+    // against a cost, not a sale.
+    amountPaise += giftPaise;
+
     // Magic Checkout fields are only accepted once Razorpay has provisioned the
     // feature. Sending them to an unprovisioned account fails the whole order
     // with "one_click_checkout is/are not required and should not be sent".
@@ -226,7 +244,13 @@ export async function POST(request: NextRequest) {
               tax_amount: 0,
               quantity: 1,
               name: quantity > 1 ? `Neuro Code × ${quantity}` : "Neuro Code",
-              description: `Book by Bisher KC${quantity > 1 ? ` — ${quantity} copies` : ""}`,
+              // Gift wrapping rides in the description for the same reason the
+              // copy count does: it is inside `price` already, and a second
+              // line item would have to be reconciled against
+              // line_items_total on an amount a discount doesn't divide evenly.
+              description:
+                `Book by Bisher KC${quantity > 1 ? ` — ${quantity} copies` : ""}` +
+                (isGift ? " — gift wrapped" : ""),
               image_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/images/book_front.png`,
             },
           ],
@@ -264,6 +288,14 @@ export async function POST(request: NextRequest) {
       razorpay_order_id: razorpayOrder.id,
       amount_paise: amountPaise,
       quantity,
+      // Written unconditionally, unlike the optional fields below. This row may
+      // be an update to a lead that was gift-wrapped on a previous attempt, and
+      // a spread that skipped `false` would leave the old flag standing —
+      // wrapping an order the customer just unticked and wasn't charged for.
+      is_gift: isGift,
+      gift_message: giftMessage,
+      // Snapshotted, so raising the fee later can't rewrite this order.
+      gift_charge_paise: giftPaise,
       promo_code: appliedPromo,
       discount_paise: discountPaise,
       payment_status: "pending",

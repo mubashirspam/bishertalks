@@ -117,6 +117,9 @@ export interface PortalRow {
   pincode: string | null;
   amount_paise: number;
   quantity: number;
+  /** Wrap it before it goes out (0027). The message stays on the order page. */
+  is_gift: boolean;
+  gift_message: string | null;
   status: OrderStatus;
   courier_entered_at: string | null;
   /** The number this parcel went to the courier under — see migration 0024. */
@@ -128,7 +131,8 @@ export interface PortalRow {
 
 const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
-  "state,pincode,amount_paise,quantity,status,courier_entered_at,courier_reference," +
+  "state,pincode,amount_paise,quantity,is_gift,gift_message," +
+  "status,courier_entered_at,courier_reference," +
   "tracking_number,assigned_agent_id,created_at";
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");

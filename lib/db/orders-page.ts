@@ -49,6 +49,7 @@ export interface OrdersPageRow {
   buyer_phone: string | null;
   amount_paise: number;
   quantity: number;
+  is_gift: boolean;
   payment_status: string;
   address_line1: string | null;
   razorpay_order_id: string | null;

@@ -35,6 +35,12 @@ export interface Order {
   amount_paise: number;
   /** Copies of the book. The bonus course is one per order regardless (0023). */
   quantity: number;
+  /** Wrap it and write the card before it ships (migration 0027). */
+  is_gift: boolean;
+  /** What to write on the card, or null for wrapping with no message. */
+  gift_message: string | null;
+  /** What they were charged for wrapping, snapshotted at checkout. */
+  gift_charge_paise: number;
   promo_code: string | null;
   discount_paise: number;
   payment_status: PaymentStatus;

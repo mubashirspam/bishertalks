@@ -503,6 +503,22 @@ export default function PortalGrid({
                         {r.quantity} books
                       </span>
                     )}
+                    {/* Same reasoning as the copy count: a parcel that went out
+                        unwrapped can't be fixed after the fact. The message
+                        itself is on the order page — it is private, and this
+                        grid is open on a shared screen while packing. */}
+                    {r.is_gift && (
+                      <span
+                        title={
+                          r.gift_message
+                            ? "Gift — wrap it, and write the card (message on the order page)"
+                            : "Gift — wrap it. No message; send a blank card."
+                        }
+                        className="ml-1.5 inline-flex px-1.5 rounded-full bg-primary-100 text-primary-800 text-[10px] font-bold align-middle"
+                      >
+                        🎁 gift
+                      </span>
+                    )}
                   </td>
 
                   <td className={`${cell} whitespace-nowrap border-r border-neutral-100`}>

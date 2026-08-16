@@ -91,6 +91,15 @@ export default function BookCTA() {
                 Learn More
               </Link>
             </div>
+
+            {/* One line, below the buttons rather than among the perks above.
+                Gift buyers are a minority, and a perk row that mentions a paid
+                extra alongside the free ones reads as an upsell — here it is
+                only found by someone who has already decided to buy and is
+                wondering whether they can send it to someone else. */}
+            <p className="mt-4 text-center md:text-left text-xs text-neutral-500 dark:text-neutral-400">
+              🎁 Gift wrapping and a personal message available at checkout
+            </p>
           </div>
         </div>
       </div>

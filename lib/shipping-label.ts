@@ -39,6 +39,16 @@ export interface LabelOrder {
   pincode: string | null;
   /** Copies of the book in this parcel. Absent on older rows — treat as one. */
   quantity?: number | null;
+  /**
+   * Wrap it before it goes in the box (0027).
+   *
+   * The flag belongs here; the message deliberately does not. This sheet is
+   * stuck to the outside of the parcel, and a private note to the recipient
+   * printed where the courier and the whole household can read it is the one
+   * way to ruin a gift while getting every other detail right. The message is
+   * on the admin order page, for whoever writes the card.
+   */
+  is_gift?: boolean | null;
   created_at: string;
 }
 
@@ -68,7 +78,8 @@ export function senderFromEnv(): SenderDetails {
  * The count is the operative word: a label reading "x 1" on a three-book order
  * is how someone packs one book and closes the box.
  */
-const contentsLine = (quantity: number) => `Neuro Code (Book) x ${quantity}`;
+const contentsLine = (quantity: number, isGift: boolean) =>
+  `Neuro Code (Book) x ${quantity}${isGift ? " — GIFT WRAPPED" : ""}`;
 
 export function buildLabelSheet(
   orders: LabelOrder[],
@@ -143,15 +154,25 @@ function drawLabel(
   const num = o.order_number;
   doc.text(right - measureText(num, 9.5, true), cy, num, { size: 9.5, bold: true });
 
-  // Multi-copy orders say so in the header, at the size of the order number.
-  // The contents line at the foot carries it too, but someone working down a
-  // sheet of six labels reads the top of each one and no further.
-  if (copies > 1) {
-    doc.text(left + measureText("PREPAID   ", 8, true), cy, `${copies} BOOKS`, {
-      size: 9.5,
-      bold: true,
-    });
-  }
+  // Anything that changes how the parcel is packed says so in the header, at
+  // the size of the order number. The contents line at the foot carries it too,
+  // but someone working down a sheet of six labels reads the top of each one
+  // and no further.
+  //
+  // Laid out left to right with a running cursor, and dropped entirely rather
+  // than allowed to collide with the right-aligned order number — an overlap
+  // makes both unreadable, which is worse than either alone.
+  let markerX = left + measureText("PREPAID   ", 8, true);
+  const numberEdge = right - measureText(num, 9.5, true) - 6;
+  const marker = (text: string) => {
+    const w = measureText(text, 9.5, true);
+    if (markerX + w > numberEdge) return;
+    doc.text(markerX, cy, text, { size: 9.5, bold: true });
+    markerX += w + measureText("  ", 9.5, true);
+  };
+
+  if (copies > 1) marker(`${copies} BOOKS`);
+  if (o.is_gift) marker("GIFT");
 
   cy += 7;
   doc.line(left, cy, right, cy, { gray: 0.7, width: 0.7 });
@@ -213,7 +234,7 @@ function drawLabel(
   const footTop = y + CELL_H - FOOTER_H;
   doc.line(left, footTop, right, footTop, { gray: 0.8, width: 0.5 });
 
-  doc.text(left, footTop + 12, `Contents: ${contentsLine(copies)}`, {
+  doc.text(left, footTop + 12, `Contents: ${contentsLine(copies, !!o.is_gift)}`, {
     size: 7.5,
     gray: 0.35,
     maxWidth: INNER_W,

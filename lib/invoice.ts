@@ -27,6 +27,8 @@ export interface InvoiceOrder {
   pincode: string | null;
   amount_paise: number;
   quantity: number | null;
+  /** Gift wrapping charged on this order, or 0 / null (migration 0027). */
+  gift_charge_paise: number | null;
   discount_paise: number;
   promo_code: string | null;
   razorpay_payment_id: string | null;
@@ -61,9 +63,16 @@ export function buildInvoice(order: InvoiceOrder): Buffer {
   const sender = senderFromEnv();
 
   const copies = Math.max(1, order.quantity ?? 1);
-  // The pre-discount basket total, derived from what was actually charged so
-  // the maths always adds up to amount_paise — the figure Razorpay captured.
-  const subtotalPaise = order.amount_paise + (order.discount_paise || 0);
+
+  // Wrapping is a separate line, not part of the book. Folding it into the
+  // subtotal would divide it across the copies and quote a per-book rate the
+  // customer was never charged — on a two-copy gift, ₹779.50 a book for a book
+  // that costs ₹699.
+  const giftPaise = Math.max(0, order.gift_charge_paise ?? 0);
+
+  // The pre-discount book total, derived from what was actually charged so the
+  // maths always adds up to amount_paise — the figure Razorpay captured.
+  const subtotalPaise = order.amount_paise - giftPaise + (order.discount_paise || 0);
   const ratePaise = subtotalPaise / copies;
 
   // Roughly when the money landed — same stand-ins the admin page uses; there
@@ -142,6 +151,23 @@ export function buildInvoice(order: InvoiceOrder): Buffer {
   right(doc, COL_RATE, y, money(ratePaise), { size: 10 });
   right(doc, RIGHT - 8, y, money(subtotalPaise), { size: 10 });
 
+  // Its own line, because it is a service and not a book — the GST note at the
+  // foot of this page is about HSN 4901, and it would be quietly wrong if the
+  // wrapping charge were hidden inside that row.
+  if (giftPaise > 0) {
+    y += 30;
+    doc.text(MARGIN + 8, y, "Gift wrapping", {
+      size: 10.5,
+      bold: true,
+      maxWidth: COL_HSN - MARGIN - 20,
+    });
+    doc.text(MARGIN + 8, y + 13, "wrapped by hand, with card", { size: 8.5, gray: 0.45 });
+    doc.text(COL_HSN, y, "-", { size: 10, gray: 0.45 });
+    right(doc, COL_QTY, y, "1", { size: 10 });
+    right(doc, COL_RATE, y, money(giftPaise), { size: 10 });
+    right(doc, RIGHT - 8, y, money(giftPaise), { size: 10 });
+  }
+
   y += 34;
   doc.line(MARGIN, y, RIGHT, y, { gray: 0.85, width: 0.6 });
 
@@ -155,6 +181,12 @@ export function buildInvoice(order: InvoiceOrder): Buffer {
     y += 15;
     doc.text(labelX, y, `Discount${order.promo_code ? ` (${order.promo_code})` : ""}`, { size: 10 });
     right(doc, RIGHT, y, `- ${money(order.discount_paise)}`, { size: 10 });
+  }
+
+  if (giftPaise > 0) {
+    y += 15;
+    doc.text(labelX, y, "Gift wrapping", { size: 10 });
+    right(doc, RIGHT, y, money(giftPaise), { size: 10 });
   }
 
   y += 15;
