@@ -105,6 +105,29 @@ export function isPortalStatus(v: unknown): v is OrderStatus {
 }
 
 /**
+ * Whether the courier actually has the parcel.
+ *
+ * A separate question from fulfilment status, and the one the Excel channel
+ * could never answer: a sheet being downloaded stamped courier_entered_at and
+ * looked exactly like success, whether or not anyone uploaded it. Having a
+ * waybill is the only proof the courier ever received it.
+ *
+ *   "with"     the courier has it — a waybill came back
+ *   "without"  we marked it handed over and the courier has no record
+ */
+export const PORTAL_TRACKING = ["with", "without"] as const;
+
+export type PortalTracking = (typeof PORTAL_TRACKING)[number];
+
+export const PORTAL_TRACKING_LABELS: Record<PortalTracking, string> = {
+  with: "With the courier",
+  without: "Not with them",
+};
+
+export const portalTracking = (v: string | undefined): PortalTracking | null =>
+  v === "with" || v === "without" ? v : null;
+
+/**
  * Which end of the queue is at the top.
  *
  * "newest" is the default and the day's job — today's parcels first. "oldest"
@@ -169,7 +192,9 @@ function portalQuery(
   agentId: string | null,
   columns: string = PORTAL_COLUMNS,
   /** Which courier's parcels. null = all of them. */
-  courierId: string | null = null
+  courierId: string | null = null,
+  /** Whether the courier has a record of it. null = don't care. */
+  tracking: PortalTracking | null = null
 ) {
   let query = supabaseAdmin
     .from(table)
@@ -188,6 +213,14 @@ function portalQuery(
 
   if (agentId) query = query.eq("assigned_agent_id", agentId);
   if (courierId) query = query.eq("courier_id", courierId);
+
+  // An empty string counts as no waybill: an agent saving a blank tracking box
+  // stores "", which is not the same as the courier having given us a number.
+  if (tracking === "with") {
+    query = query.not("tracking_number", "is", null).neq("tracking_number", "");
+  } else if (tracking === "without") {
+    query = query.or("tracking_number.is.null,tracking_number.eq.");
+  }
 
   // created_at is UTC but the day is an IST calendar day — convert, or the
   // filter is 5h30m out and silently drops the early-morning orders.
@@ -230,7 +263,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   agentId: string | null = null,
   sort: PortalSort = "newest",
   /** Which courier's parcels, or null for every one. */
-  courierId: string | null = null
+  courierId: string | null = null,
+  /** Whether the courier has a record of it, or null for either. */
+  tracking: PortalTracking | null = null
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
@@ -248,7 +283,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     status,
     agentId,
     PORTAL_COLUMNS,
-    courierId
+    courierId,
+    tracking
   )
     .order("ist_day", { ascending })
     .order("needs_entry", { ascending: false })
@@ -271,7 +307,7 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         "added to orders needs the view rebuilt (migration 0028).",
       result.error.message
     );
-    result = await portalQuery("orders", date, status, agentId, PORTAL_COLUMNS, courierId)
+    result = await portalQuery("orders", date, status, agentId, PORTAL_COLUMNS, courierId, tracking)
       .order("created_at", { ascending })
       .range(from, to);
 
@@ -290,7 +326,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         status,
         agentId,
         PORTAL_COLUMNS.replace("courier_reference,", ""),
-        courierId
+        courierId,
+        tracking
       )
         .order("created_at", { ascending })
         .range(from, to);

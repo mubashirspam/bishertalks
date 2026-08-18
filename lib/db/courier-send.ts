@@ -62,6 +62,13 @@ export async function claimForSend(
     // The claim itself. A parcel already sent has a timestamp here, and this
     // is what stops a second send.
     .is("courier_sent_at", null)
+    // And a parcel that already carries a waybill is already with the courier,
+    // however it got there. Without this, the 571 parcels KKR uploaded on a
+    // spreadsheet — which have waybills but no courier_sent_at, because we
+    // never made that call — could be manifested a second time and come back
+    // with a second waybill for one book. courier_sent_at alone only knows
+    // about sends *we* made.
+    .or("tracking_number.is.null,tracking_number.eq.")
     .select(PARCEL_COLUMNS);
 
   if (error) {

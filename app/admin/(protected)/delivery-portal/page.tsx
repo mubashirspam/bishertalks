@@ -2,7 +2,13 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
-import { fetchPortalPage, portalSort, type PortalSort } from "@/lib/db/delivery-portal";
+import {
+  fetchPortalPage,
+  portalSort,
+  portalTracking,
+  type PortalSort,
+  type PortalTracking,
+} from "@/lib/db/delivery-portal";
 import { listDeliveryAgents } from "@/lib/db/staff";
 import { listCouriers } from "@/lib/db/couriers";
 import { canTrack } from "@/lib/couriers";
@@ -25,6 +31,8 @@ interface Args {
   sort: PortalSort;
   /** Which courier's parcels, or null for all of them. */
   courierId: string | null;
+  /** Whether the courier has a record of it, or null for either. */
+  tracking: PortalTracking | null;
   pageNum: number;
   /**
    * Whose parcels to show. An agent's own id, always — it is not read from the
@@ -69,6 +77,7 @@ export default async function DeliveryPortalPage({
     status: params.status,
     sort: portalSort(params.sort),
     courierId: params.courier || null,
+    tracking: portalTracking(params.tracking),
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
     agentId: seesEveryone ? picked : staff.id,
     seesEveryone,
@@ -79,6 +88,7 @@ export default async function DeliveryPortalPage({
       <PortalFilters
         agents={agents}
         couriers={couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))}
+        trackedCourierIds={couriers.filter(canTrack).map((c) => c.id)}
         countSlot={
           <Suspense fallback={<span className="text-neutral-400">Counting…</span>}>
             <PortalCount {...args} />
@@ -106,7 +116,8 @@ async function PortalCount(args: Args) {
     PER_PAGE,
     args.agentId,
     args.sort,
-    args.courierId
+    args.courierId,
+    args.tracking
   );
   return (
     <>
@@ -123,7 +134,8 @@ async function PortalRows(args: Args) {
     PER_PAGE,
     args.agentId,
     args.sort,
-    args.courierId
+    args.courierId,
+    args.tracking
   );
 
   // Names only — the grid shows which courier a parcel is routed to, so an
@@ -156,6 +168,7 @@ async function PortalRows(args: Args) {
     // filter bar writes it, or Next would treat the two as different pages.
     if (args.sort === "oldest") sp.set("sort", args.sort);
     if (args.courierId) sp.set("courier", args.courierId);
+    if (args.tracking) sp.set("tracking", args.tracking);
     // Only when it's a filter someone chose. An agent's own id is who they
     // are, not where they are, and has no business in a shareable link.
     if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);

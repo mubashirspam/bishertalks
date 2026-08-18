@@ -3,7 +3,12 @@
 import { useSearchParams } from "next/navigation";
 import { ArrowDownUp, CalendarDays, Truck, X } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
-import { PORTAL_FILTERS, PORTAL_FILTER_LABELS } from "@/lib/db/delivery-portal";
+import {
+  PORTAL_FILTERS,
+  PORTAL_FILTER_LABELS,
+  PORTAL_TRACKING,
+  PORTAL_TRACKING_LABELS,
+} from "@/lib/db/delivery-portal";
 import type { DeliveryAgent } from "@/lib/db/staff";
 
 /** Today in IST as YYYY-MM-DD — the agent's browser may be in any timezone. */
@@ -36,6 +41,7 @@ export default function PortalFilters({
   countSlot,
   agents,
   couriers,
+  trackedCourierIds,
 }: {
   countSlot?: React.ReactNode;
   /** Empty for an agent — they only ever see their own parcels. */
@@ -46,6 +52,8 @@ export default function PortalFilters({
    * it stays the copy-and-tick spreadsheet it has always been.
    */
   couriers: { id: string; name: string }[];
+  /** Couriers that report their own scans — the rest have nothing to compare. */
+  trackedCourierIds: string[];
 }) {
   const params = useSearchParams();
   const { navigate } = useNavigation();
@@ -54,6 +62,7 @@ export default function PortalFilters({
   const status = params.get("status") ?? "";
   const agent = params.get("agent") ?? "";
   const courier = params.get("courier") ?? "";
+  const tracking = params.get("tracking") ?? "";
   const sort = params.get("sort") === "oldest" ? "oldest" : "newest";
 
   const push = (changes: Record<string, string | null>) => {
@@ -101,6 +110,35 @@ export default function PortalFilters({
             <span className="text-xs text-neutral-400">
               Pick one to see its live tracking
             </span>
+          )}
+
+          {/* Only meaningful for a courier that reports its own scans. For
+              anyone else there is no waybill to be missing, so the question
+              has no answer and the control is not offered. */}
+          {trackedCourierIds.includes(courier) && (
+            <>
+              <span className="w-px h-5 bg-neutral-200 mx-1" />
+              <button
+                onClick={() => push({ tracking: null })}
+                className={chip(!tracking, "border-neutral-900 bg-neutral-900 text-white")}
+              >
+                All
+              </button>
+              {PORTAL_TRACKING.map((t) => (
+                <button
+                  key={t}
+                  onClick={() => push({ tracking: tracking === t ? null : t })}
+                  className={chip(
+                    tracking === t,
+                    t === "with"
+                      ? "border-green-600 bg-green-50 text-green-700"
+                      : "border-amber-500 bg-amber-50 text-amber-800"
+                  )}
+                >
+                  {PORTAL_TRACKING_LABELS[t]}
+                </button>
+              ))}
+            </>
           )}
         </div>
       )}
@@ -184,7 +222,7 @@ export default function PortalFilters({
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || status || agent || courier || sort === "oldest") && (
+        {(date || status || agent || courier || tracking || sort === "oldest") && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
