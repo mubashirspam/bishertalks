@@ -19,6 +19,19 @@ export interface TrackedParcel {
   /** Our order number, which they echo back as ReferenceNo. */
   reference: string | null;
   scan: DelhiveryScan;
+  /**
+   * Facts about the shipment itself, for checking that a *speculative* match
+   * really is this order — see lib/delhivery/legacy.ts. Never needed when the
+   * reference is one we minted, since that is unique by construction.
+   *
+   * Note their shape: `Destination` comes back empty and the real pincode is
+   * on `Consignee`, and consignee telephone numbers are masked to "". A fact
+   * they do not return cannot corroborate anything, which the matcher expects.
+   */
+  invoiceAmount: number | null;
+  destinationPin: string | null;
+  consigneePhone: string | null;
+  consigneeName: string | null;
 }
 
 interface TrackResponse {
@@ -34,6 +47,13 @@ interface TrackResponse {
         StatusDateTime?: string;
         StatusLocation?: string;
         Instructions?: string;
+      };
+      InvoiceAmount?: number | string;
+      Consignee?: {
+        Name?: string;
+        PinCode?: number | string;
+        Telephone1?: string;
+        Telephone2?: string;
       };
     };
   }[];
@@ -103,6 +123,9 @@ async function track(
     if (!shipment?.AWB) continue;
 
     const status = shipment.Status ?? {};
+    const consignee = shipment.Consignee ?? {};
+    const amount = Number(shipment.InvoiceAmount);
+
     out.push({
       waybill: String(shipment.AWB),
       reference: shipment.ReferenceNo ? String(shipment.ReferenceNo) : null,
@@ -113,6 +136,10 @@ async function track(
         location: status.StatusLocation ?? null,
         instructions: status.Instructions ?? null,
       },
+      invoiceAmount: Number.isFinite(amount) ? amount : null,
+      destinationPin: consignee.PinCode ? String(consignee.PinCode) : null,
+      consigneePhone: consignee.Telephone1 || consignee.Telephone2 || null,
+      consigneeName: consignee.Name || null,
     });
   }
 

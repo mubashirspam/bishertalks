@@ -12,6 +12,7 @@ import {
 import { listDeliveryAgents } from "@/lib/db/staff";
 import { listCouriers } from "@/lib/db/couriers";
 import { canTrack } from "@/lib/couriers";
+import { isHandoverState } from "@/lib/delivery/handover";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
 import { SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
@@ -33,6 +34,8 @@ interface Args {
   courierId: string | null;
   /** Whether the courier has a record of it, or null for either. */
   tracking: PortalTracking | null;
+  /** A handover state to narrow to, or null for all of them. */
+  handover: string | null;
   pageNum: number;
   /**
    * Whose parcels to show. An agent's own id, always — it is not read from the
@@ -78,6 +81,7 @@ export default async function DeliveryPortalPage({
     sort: portalSort(params.sort),
     courierId: params.courier || null,
     tracking: portalTracking(params.tracking),
+    handover: isHandoverState(params.handover) ? params.handover : null,
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
     agentId: seesEveryone ? picked : staff.id,
     seesEveryone,
@@ -117,7 +121,8 @@ async function PortalCount(args: Args) {
     args.agentId,
     args.sort,
     args.courierId,
-    args.tracking
+    args.tracking,
+    args.handover
   );
   return (
     <>
@@ -135,7 +140,8 @@ async function PortalRows(args: Args) {
     args.agentId,
     args.sort,
     args.courierId,
-    args.tracking
+    args.tracking,
+    args.handover
   );
 
   // Names only — the grid shows which courier a parcel is routed to, so an
@@ -169,6 +175,7 @@ async function PortalRows(args: Args) {
     if (args.sort === "oldest") sp.set("sort", args.sort);
     if (args.courierId) sp.set("courier", args.courierId);
     if (args.tracking) sp.set("tracking", args.tracking);
+    if (args.handover) sp.set("handover", args.handover);
     // Only when it's a filter someone chose. An agent's own id is who they
     // are, not where they are, and has no business in a shareable link.
     if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);

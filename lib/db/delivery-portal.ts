@@ -164,6 +164,8 @@ export interface PortalRow {
   courier_reference: string | null;
   /** Which logistics partner carries it, or null if undecided (0030). */
   courier_id: string | null;
+  /** The derived state — see migration 0035 and lib/delivery/handover.ts. */
+  handover_state: string | null;
   /** When their API accepted it — the parcel is out of the agent's hands. */
   courier_sent_at: string | null;
   /** The courier's own latest scan, and when they recorded it. */
@@ -178,7 +180,7 @@ const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
   "state,pincode,amount_paise,quantity,is_gift,gift_message," +
   "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
-  "courier_last_scan,courier_last_scan_at," +
+  "courier_last_scan,courier_last_scan_at,handover_state," +
   "tracking_number,assigned_agent_id,created_at";
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
@@ -194,7 +196,9 @@ function portalQuery(
   /** Which courier's parcels. null = all of them. */
   courierId: string | null = null,
   /** Whether the courier has a record of it. null = don't care. */
-  tracking: PortalTracking | null = null
+  tracking: PortalTracking | null = null,
+  /** A handover_state value (migration 0035), or null for all of them. */
+  handover: string | null = null
 ) {
   let query = supabaseAdmin
     .from(table)
@@ -216,6 +220,13 @@ function portalQuery(
 
   // An empty string counts as no waybill: an agent saving a blank tracking box
   // stores "", which is not the same as the courier having given us a number.
+  // Only the view carries handover_state. On the fallback path below there is
+  // no such column, so the filter is skipped rather than throwing — a degraded
+  // screen beats a blank one.
+  if (handover && table === "portal_orders") {
+    query = query.eq("handover_state", handover);
+  }
+
   if (tracking === "with") {
     query = query.not("tracking_number", "is", null).neq("tracking_number", "");
   } else if (tracking === "without") {
@@ -265,7 +276,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   /** Which courier's parcels, or null for every one. */
   courierId: string | null = null,
   /** Whether the courier has a record of it, or null for either. */
-  tracking: PortalTracking | null = null
+  tracking: PortalTracking | null = null,
+  /** A handover_state value, or null for all of them. */
+  handover: string | null = null
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
@@ -284,7 +297,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     agentId,
     PORTAL_COLUMNS,
     courierId,
-    tracking
+    tracking,
+    handover
   )
     .order("ist_day", { ascending })
     .order("needs_entry", { ascending: false })
@@ -307,7 +321,7 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         "added to orders needs the view rebuilt (migration 0028).",
       result.error.message
     );
-    result = await portalQuery("orders", date, status, agentId, PORTAL_COLUMNS, courierId, tracking)
+    result = await portalQuery("orders", date, status, agentId, PORTAL_COLUMNS, courierId, tracking, handover)
       .order("created_at", { ascending })
       .range(from, to);
 
@@ -327,7 +341,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         agentId,
         PORTAL_COLUMNS.replace("courier_reference,", ""),
         courierId,
-        tracking
+        tracking,
+        handover
       )
         .order("created_at", { ascending })
         .range(from, to);

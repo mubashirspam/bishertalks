@@ -72,63 +72,47 @@ export const HANDOVER_NEEDS_ACTION: readonly HandoverState[] = [
   "legacy_unmatched",
 ];
 
-/** Only the columns the derivation reads — deliberately a narrow contract. */
-export interface HandoverInput {
-  courier_id: string | null;
-  courier_reference: string | null;
-  courier_entered_at: string | null;
-  courier_sent_at: string | null;
-  courier_send_error: string | null;
-  courier_checked_at: string | null;
-  tracking_number: string | null;
-  pincode_serviceable: boolean | null;
-}
-
-const has = (v: string | null | undefined) => !!v && v.trim() !== "";
-
 /**
- * The single decision. Order matters, and each branch is exclusive.
+ * Read off the row, never recomputed.
  *
- * `courier` is the row this parcel is routed to, or null. It is needed because
- * the same columns mean different things for different handoffs: a manual
- * courier will never produce a waybill, so "no waybill" is normal for it and a
- * problem for Delhivery.
+ * The derivation lives in SQL (migration 0035, the `handover_state` column on
+ * `portal_orders`) so that it can be filtered, counted and paged natively —
+ * a state you can only compute in application code is a state you cannot work
+ * from, because finding the seven parcels that need attention would mean
+ * loading all of them.
+ *
+ * Keeping a second copy here would be a copy that drifts, so there is none.
  */
-export function handoverState(
-  order: HandoverInput,
-  courier: Courier | null,
-  { canTrack = false }: { canTrack?: boolean } = {}
-): HandoverState {
-  // A waybill is proof the courier has it. Checked first because it settles
-  // the question outright, whatever else the row says.
-  if (has(order.tracking_number)) return "with_courier";
-
-  if (!order.courier_id || !courier) return "unrouted";
-
-  // Cannot be delivered by this courier — nothing else about the row matters
-  // until someone re-routes it.
-  if (order.pincode_serviceable === false) return "unserviceable";
-
-  // A send we started and could not confirm. Above every other error state,
-  // because it is the only one where doing the obvious thing (retry) is wrong.
-  if (has(order.courier_send_error) && has(order.courier_sent_at)) return "held";
-  if (has(order.courier_send_error)) return "send_failed";
-
-  // A courier that never reports back. Its parcels are done from our side the
-  // moment they are handed over, so they must not sit in "awaiting" forever.
-  if (!canTrack) {
-    return has(order.courier_entered_at) ? "handed_over" : "ready";
-  }
-
-  // Trackable courier, no waybill. Three different reasons, three actions.
-  if (!has(order.courier_entered_at)) {
-    // Not handed over yet. Unrouted-but-serviceable is the normal resting
-    // state of a fresh assignment; "checking" only if nobody has looked.
-    if (order.pincode_serviceable === null) return "checking";
-    return "ready";
-  }
-
-  // Handed over, and the courier has no waybill for us.
-  if (!has(order.courier_reference)) return "legacy_unmatched";
-  return has(order.courier_checked_at) ? "not_received" : "unconfirmed";
+export function isHandoverState(v: unknown): v is HandoverState {
+  return typeof v === "string" && (HANDOVER_STATES as readonly string[]).includes(v);
 }
+
+/** The subset worth surfacing as chips — the rest are reachable via "All". */
+export const HANDOVER_CHIPS: readonly HandoverState[] = [
+  "unrouted",
+  "checking",
+  "ready",
+  "unconfirmed",
+  "with_courier",
+  "not_received",
+  "unserviceable",
+  "send_failed",
+  "held",
+  "handed_over",
+  "legacy_unmatched",
+];
+
+/** Colours matching what each state means: green fine, amber waiting, red stuck. */
+export const HANDOVER_TONE: Record<HandoverState, string> = {
+  unrouted: "border-neutral-500 bg-neutral-100 text-neutral-800",
+  checking: "border-blue-500 bg-blue-50 text-blue-700",
+  ready: "border-blue-500 bg-blue-50 text-blue-700",
+  unconfirmed: "border-amber-500 bg-amber-50 text-amber-800",
+  with_courier: "border-green-600 bg-green-50 text-green-700",
+  not_received: "border-red-600 bg-red-50 text-red-700",
+  unserviceable: "border-red-600 bg-red-50 text-red-700",
+  send_failed: "border-red-600 bg-red-50 text-red-700",
+  held: "border-red-600 bg-red-50 text-red-700",
+  handed_over: "border-neutral-500 bg-neutral-100 text-neutral-800",
+  legacy_unmatched: "border-amber-500 bg-amber-50 text-amber-800",
+};

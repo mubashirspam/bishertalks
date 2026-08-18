@@ -10,6 +10,12 @@ import {
   PORTAL_TRACKING_LABELS,
 } from "@/lib/db/delivery-portal";
 import type { DeliveryAgent } from "@/lib/db/staff";
+import {
+  HANDOVER_CHIPS,
+  HANDOVER_LABELS,
+  HANDOVER_HINTS,
+  HANDOVER_TONE,
+} from "@/lib/delivery/handover";
 
 /** Today in IST as YYYY-MM-DD — the agent's browser may be in any timezone. */
 function istToday(): string {
@@ -63,6 +69,7 @@ export default function PortalFilters({
   const agent = params.get("agent") ?? "";
   const courier = params.get("courier") ?? "";
   const tracking = params.get("tracking") ?? "";
+  const handover = params.get("handover") ?? "";
   const sort = params.get("sort") === "oldest" ? "oldest" : "newest";
 
   const push = (changes: Record<string, string | null>) => {
@@ -143,6 +150,30 @@ export default function PortalFilters({
         </div>
       )}
 
+      {/* What is happening to the parcel — a different question from where it
+          is in the customer's journey, and the one that says whether anybody
+          needs to do something. Above the fulfilment chips because it is the
+          coarser cut. */}
+      <div className="flex flex-wrap items-center gap-2 pb-3 mb-3 border-b border-neutral-100">
+        <span className="text-xs font-medium text-neutral-500">State</span>
+        <button
+          onClick={() => push({ handover: null })}
+          className={chip(!handover, "border-neutral-900 bg-neutral-900 text-white")}
+        >
+          Any
+        </button>
+        {HANDOVER_CHIPS.map((hs) => (
+          <button
+            key={hs}
+            title={HANDOVER_HINTS[hs]}
+            onClick={() => push({ handover: handover === hs ? null : hs })}
+            className={chip(handover === hs, HANDOVER_TONE[hs])}
+          >
+            {HANDOVER_LABELS[hs]}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <CalendarDays className="w-4 h-4 text-neutral-400" />
 
@@ -222,7 +253,7 @@ export default function PortalFilters({
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || status || agent || courier || tracking || sort === "oldest") && (
+        {(date || status || agent || courier || tracking || handover || sort === "oldest") && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
