@@ -195,7 +195,26 @@ if (provider === "meta") {
     warn(`MAKE_WEBHOOK_URL doesn't look like a Make webhook: ${hook.slice(0, 40)}…`,
          "Expected https://hook.<region>.make.com/<token>");
   } else {
-    ok("webhook URL looks right");
+    // Shape is not health. This webhook has been answering 410 "There is no
+    // scenario listening" while looking perfectly well-formed, which is the
+    // whole reason messages stopped without anything appearing to be wrong.
+    try {
+      const probe = await fetch(hook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ping: true }),
+      });
+      if (probe.status === 410) {
+        fail("the Make scenario is gone (HTTP 410)",
+             "Nothing is listening on that webhook. Rebuild the scenario, or move to Meta and drop these variables.");
+      } else if (!probe.ok) {
+        warn(`Make webhook answered ${probe.status}`);
+      } else {
+        ok("webhook is live");
+      }
+    } catch {
+      warn("could not reach the Make webhook");
+    }
   }
 
   if (unset(env.MAKE_WEBHOOK_SECRET)) {
@@ -257,6 +276,24 @@ if (unset(env.DELHIVERY_API_TOKEN)) {
     warn("CRON_SECRET not set — the tracking poller can't run",
          "Without it, statuses only update if Delhivery's push webhook is live.");
   }
+}
+
+// ── WhatsApp via Meta ────────────────────────────────────────────────────────
+// The token is the thing that breaks, and it breaks quietly: Meta's app
+// dashboard offers a 24-hour token that works right up until it doesn't, and
+// the only symptom is that customers stop hearing from you.
+console.log(`\n${BOLD}WhatsApp (Meta)${OFF}`);
+
+if (unset(env.WHATSAPP_TOKEN)) {
+  warn("WHATSAPP_TOKEN not set — Meta is not in use",
+       "docs/whatsapp-meta-setup.md. It must be a permanent System User token, not the 24-hour one.");
+} else {
+  ok("token is set");
+  if (unset(env.WHATSAPP_PHONE_NUMBER_ID)) {
+    fail("WHATSAPP_PHONE_NUMBER_ID is not set", "WhatsApp Manager -> API Setup -> Phone number ID.");
+  }
+  if (unset(env.WHATSAPP_APP_SECRET)) warn("WHATSAPP_APP_SECRET not set — incoming webhooks cannot be verified");
+  if (unset(env.WHATSAPP_VERIFY_TOKEN)) warn("WHATSAPP_VERIFY_TOKEN not set — Meta cannot verify the webhook URL");
 }
 
 console.log(
