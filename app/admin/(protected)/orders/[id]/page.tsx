@@ -76,6 +76,8 @@ export default function AdminOrderDetailPage() {
   const [confirmingPhone, setConfirmingPhone] = useState(false);
   const [phoneSaving, setPhoneSaving] = useState(false);
   const [phoneMsg, setPhoneMsg] = useState<{ text: string; bad?: boolean } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [courierMsg, setCourierMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [addr, setAddr] = useState({
     buyer_name: "",
     address_line1: "",
@@ -363,6 +365,48 @@ export default function AdminOrderDetailPage() {
 
   const inputCls =
     "w-full bg-white border border-neutral-300 rounded-xl px-4 py-2.5 text-neutral-900 placeholder-neutral-400 text-sm focus:outline-none focus:border-primary-500 transition-colors";
+
+  /**
+   * Cancel the shipment with the courier.
+   *
+   * The real undo for a send — clearing our own columns would leave the two
+   * systems describing different journeys while a van still came. The route
+   * calls the courier first and only changes anything here if they agree, so a
+   * refusal (usually "already out for delivery") leaves the parcel untouched.
+   */
+  const cancelWithCourier = async () => {
+    const sure = window.confirm(
+      `Cancel ${id} with the courier?\n\n` +
+        `Only possible while they still have it on the shelf. If they refuse, ` +
+        `nothing changes and the parcel carries on.`
+    );
+    if (!sure) return;
+
+    setCancelling(true);
+    setCourierMsg(null);
+    try {
+      const res = await fetch("/api/admin/delivery/courier-cancel", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: id }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        setCourierMsg({ text: data.error ?? "Could not cancel.", bad: true });
+        return;
+      }
+
+      setCourierMsg({ text: data.message ?? "Cancelled with the courier." });
+      const fresh = await fetch(`/api/orders/${id}`).then((r) => r.json());
+      if (!fresh.error) setOrder(fresh);
+      router.refresh();
+    } catch {
+      setCourierMsg({ text: "Could not reach the server.", bad: true });
+    } finally {
+      setCancelling(false);
+    }
+  };
 
   const date = `${formatIST(order.created_at)} (${timeAgo(order.created_at)})`;
 
@@ -980,6 +1024,73 @@ export default function AdminOrderDetailPage() {
               </p>
             )}
           </div>
+
+          {/* What the courier has done with this parcel. Read-only: sending and
+              cancelling are the only two actions, and everything else about a
+              parcel's journey is ticked off in the portal. */}
+          {(order.courier_sent_at || order.courier_send_error || order.courier_last_scan) && (
+            <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
+              <h2 className="font-semibold text-sm text-neutral-700 mb-3 flex items-center gap-2">
+                <Truck className="w-4 h-4 text-primary-500" /> With the courier
+              </h2>
+
+              <dl className="space-y-2 text-sm">
+                {order.courier_sent_at && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-neutral-500">Sent</dt>
+                    <dd className="text-neutral-900 text-right">
+                      {formatIST(order.courier_sent_at)}
+                    </dd>
+                  </div>
+                )}
+                {order.tracking_number && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-neutral-500">Waybill</dt>
+                    <dd className="font-mono text-neutral-900 text-right break-all">
+                      {order.tracking_number}
+                    </dd>
+                  </div>
+                )}
+                {order.courier_last_scan && (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-neutral-500">Last scan</dt>
+                    <dd className="text-neutral-900 text-right">
+                      {order.courier_last_scan}
+                      {order.courier_last_scan_at && (
+                        <span className="block text-xs text-neutral-400">
+                          {formatIST(order.courier_last_scan_at)}
+                        </span>
+                      )}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+
+              {/* The held state. Says what to do, because "unknown" is only
+                  useful if it comes with the next step. */}
+              {order.courier_send_error && (
+                <p className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-xs text-red-800">
+                  {order.courier_send_error}
+                </p>
+              )}
+
+              {order.courier_sent_at && order.tracking_number && (
+                <button
+                  onClick={cancelWithCourier}
+                  disabled={cancelling}
+                  className="mt-3 w-full px-3 py-2 rounded-xl border border-neutral-200 text-xs font-medium text-neutral-600 hover:border-red-300 hover:text-red-700 transition-colors disabled:opacity-40"
+                >
+                  {cancelling ? "Cancelling…" : "Cancel with the courier"}
+                </button>
+              )}
+
+              {courierMsg && (
+                <p className={`text-xs mt-2 ${courierMsg.bad ? "text-red-600" : "text-green-600"}`}>
+                  {courierMsg.text}
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Tracking link */}
           <div className="bg-white border border-neutral-200 rounded-2xl p-4 flex items-center justify-between shadow-sm">

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Undo2 } from "lucide-react";
+import { Check, Copy, RefreshCw, Undo2 } from "lucide-react";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import PortalExport from "./PortalExport";
 import {
@@ -32,11 +32,28 @@ import { formatISTShort } from "@/lib/format-date";
 export default function PortalGrid({
   rows,
   startIndex,
+  courierNames,
+  courierId,
+  live,
 }: {
   rows: PortalRow[];
   startIndex: number;
+  /** id → name, so a routed parcel can say who is taking it. */
+  courierNames: Record<string, string>;
+  /** The courier being looked at, or null for all of them. */
+  courierId: string | null;
+  /**
+   * Can we ask this courier where the parcels are?
+   *
+   * True turns the grid into a tracking screen: waybill and their own latest
+   * scan, refreshed on demand. False leaves it the copy-and-tick spreadsheet,
+   * which is the right answer for a courier we hand parcels to by hand.
+   */
+  live: boolean;
 }) {
   const router = useRouter();
+  const [syncing, setSyncing] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, OrderStatus>>({});
   const [entered, setEntered] = useState<Record<string, boolean>>({});
   /** Parcels ticked for the courier sheet. Capped at a sheetful, see below. */
@@ -141,6 +158,47 @@ export default function PortalGrid({
     const take = selectable.slice(0, COURIER_SHEET_MAX);
     setPicked(new Set(take.map((r) => r.order_number)));
     setCapped(take.length < selectable.length);
+  }
+
+  /**
+   * Ask the courier where this page's parcels are, right now.
+   *
+   * Read-only at their end — it asks, it never sends — so it is safe to press
+   * as often as someone likes. The scheduled poller does the same job on a
+   * timer; this is for when there is a customer on the phone.
+   */
+  async function syncNow() {
+    if (!courierId) return;
+    setSyncing(true);
+    setSyncNote(null);
+
+    try {
+      const res = await fetch("/api/admin/delivery/courier-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          courier_id: courierId,
+          order_numbers: rows.map((r) => r.order_number),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || data.error) {
+        setSyncNote(data.error ?? "Could not sync.");
+        return;
+      }
+
+      const bits: string[] = [];
+      if (data.moved) bits.push(`${data.moved} moved on`);
+      if (data.learned) bits.push(`${data.learned} waybill${data.learned === 1 ? "" : "s"} found`);
+      if (data.unknown) bits.push(`${data.unknown} not at the courier`);
+      setSyncNote(bits.length ? bits.join(" · ") : "Everything already up to date.");
+      router.refresh();
+    } catch {
+      setSyncNote("Could not reach the server.");
+    } finally {
+      setSyncing(false);
+    }
   }
 
   /** The sheet has been downloaded: those parcels are now with the courier. */
@@ -350,9 +408,36 @@ export default function PortalGrid({
         </p>
       )}
 
+      {/* A courier with live tracking replaces the whole spreadsheet ritual:
+          there is nothing to copy out and nothing to upload, so the bar offers
+          the one thing that is useful — go and ask them where these are. */}
+      {live && (
+        <div
+          className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-neutral-100 bg-neutral-50/60 ${
+            error ? "" : "rounded-t-2xl"
+          }`}
+        >
+          <span className="text-xs text-neutral-600">
+            Status comes straight from the courier — waybill and last scan below.
+          </span>
+
+          {syncNote && <span className="text-xs text-neutral-500">{syncNote}</span>}
+
+          <button
+            onClick={syncNow}
+            disabled={syncing || !rows.length}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+            {syncing ? "Asking the courier…" : "Sync now"}
+          </button>
+        </div>
+      )}
+
       {/* The sheet bar. Only new parcels can be ticked, so it has nothing to
-          offer a page of parcels that are all already with the courier. */}
-      {(selectable.length > 0 || pickedRows.length > 0) && (
+          offer a page of parcels that are all already with the courier — and
+          nothing at all to offer a courier that reports its own status. */}
+      {!live && (selectable.length > 0 || pickedRows.length > 0) && (
         <div
           className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-neutral-100 bg-neutral-50/60 ${
             error ? "" : "rounded-t-2xl"
@@ -403,6 +488,7 @@ export default function PortalGrid({
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="bg-neutral-50 border-b border-neutral-200 text-left">
+              {!live && (
               <th className="px-3 py-2.5 w-9 border-r border-neutral-100">
                 <input
                   type="checkbox"
@@ -419,7 +505,11 @@ export default function PortalGrid({
                   className="w-3.5 h-3.5 rounded border-neutral-300 cursor-pointer accent-emerald-600 disabled:cursor-not-allowed disabled:opacity-40"
                 />
               </th>
-              {["#", "Ordered", "Name", "Mobile", "Address", "Pincode", "Reference"].map((h) => (
+              )}
+              {(live
+                ? ["#", "Ordered", "Name", "Mobile", "Address", "Pincode", "Waybill", "Courier status"]
+                : ["#", "Ordered", "Name", "Mobile", "Address", "Pincode", "Reference"]
+              ).map((h) => (
                 <th
                   key={h}
                   className="px-3 py-2.5 font-semibold text-neutral-500 uppercase tracking-wider whitespace-nowrap border-r border-neutral-100"
@@ -464,17 +554,19 @@ export default function PortalGrid({
                   {/* Blank rather than a disabled box on a parcel that has
                       already been sheeted up: there is nothing to decide, and
                       a greyed tick down the column reads as "not done yet". */}
-                  <td className="px-3 py-2 align-top border-r border-neutral-100">
-                    {canPick && (
-                      <input
-                        type="checkbox"
-                        checked={isPicked}
-                        onChange={() => togglePicked(r)}
-                        aria-label={`Pick ${r.order_number} for the courier sheet`}
-                        className="w-3.5 h-3.5 rounded border-neutral-300 cursor-pointer accent-emerald-600"
-                      />
-                    )}
-                  </td>
+                  {!live && (
+                    <td className="px-3 py-2 align-top border-r border-neutral-100">
+                      {canPick && (
+                        <input
+                          type="checkbox"
+                          checked={isPicked}
+                          onChange={() => togglePicked(r)}
+                          aria-label={`Pick ${r.order_number} for the courier sheet`}
+                          className="w-3.5 h-3.5 rounded border-neutral-300 cursor-pointer accent-emerald-600"
+                        />
+                      )}
+                    </td>
+                  )}
 
                   <td className={`${cell} text-neutral-400 border-r border-neutral-100`}>
                     {startIndex + i + 1}
@@ -507,6 +599,26 @@ export default function PortalGrid({
                         unwrapped can't be fixed after the fact. The message
                         itself is on the order page — it is private, and this
                         grid is open on a shared screen while packing. */}
+                    {/* Which courier is taking it. An agent needs this to
+                        know whether a parcel is theirs to hand over or has
+                        already gone out through an integration. */}
+                    {r.courier_id && (
+                      <span
+                        title={
+                          r.courier_sent_at
+                            ? `Already sent to ${courierNames[r.courier_id] ?? "the courier"}`
+                            : `Going by ${courierNames[r.courier_id] ?? "a courier"}`
+                        }
+                        className={`ml-1.5 inline-flex items-center gap-1 px-1.5 rounded-full text-[10px] font-bold align-middle ${
+                          r.courier_sent_at
+                            ? "bg-green-100 text-green-800"
+                            : "bg-neutral-100 text-neutral-600"
+                        }`}
+                      >
+                        {courierNames[r.courier_id] ?? "Courier"}
+                        {r.courier_sent_at && <Check className="w-2.5 h-2.5" />}
+                      </span>
+                    )}
                     {r.is_gift && (
                       <span
                         title={
@@ -560,12 +672,35 @@ export default function PortalGrid({
                     </div>
                   </td>
 
-                  {/* The number the courier knows this parcel by. Blank until
-                      it goes onto a sheet, which is also the moment it stops
-                      being pickable — so an empty cell here and a tickable box
-                      on the left are the same fact read two ways. */}
+                  {/* On a live courier this is the waybill — the number the
+                      customer tracks with, and the one to quote on the phone.
+                      Otherwise it is our own reference, which is all the Excel
+                      channel ever gives us back. */}
                   <td className={`${cell} whitespace-nowrap border-r border-neutral-100`}>
-                    {r.courier_reference ? (
+                    {live ? (
+                      r.tracking_number ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-neutral-700">
+                            {r.tracking_number}
+                          </span>
+                          <CopyButton
+                            title="Copy waybill"
+                            active={copied === `${r.order_number}:awb`}
+                            onClick={() => copy(`${r.order_number}:awb`, r.tracking_number!)}
+                          />
+                        </div>
+                      ) : (
+                        // No waybill on a live courier means they have no record
+                        // of it — usually a sheet that was never uploaded. Worth
+                        // saying, not worth a dash.
+                        <span
+                          title="The courier has no record of this parcel yet"
+                          className="text-amber-700 text-[11px] font-medium"
+                        >
+                          Not with them
+                        </span>
+                      )
+                    ) : r.courier_reference ? (
                       <div className="flex items-center gap-1.5">
                         <span className="font-mono text-neutral-700">
                           {r.courier_reference}
@@ -582,6 +717,24 @@ export default function PortalGrid({
                       <span className="text-neutral-300">—</span>
                     )}
                   </td>
+
+                  {/* The courier's own words, and when they said them. */}
+                  {live && (
+                    <td className={`${cell} border-r border-neutral-100 min-w-[180px]`}>
+                      {r.courier_last_scan ? (
+                        <>
+                          <span className="text-neutral-800">{r.courier_last_scan}</span>
+                          {r.courier_last_scan_at && (
+                            <span className="block text-neutral-400 text-[11px] mt-0.5">
+                              {formatISTShort(r.courier_last_scan_at)}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-neutral-300">—</span>
+                      )}
+                    </td>
+                  )}
 
                   <td className="px-2 py-2 text-center border-r border-neutral-100">
                     <Tick
@@ -681,13 +834,25 @@ export default function PortalGrid({
       </div>
 
       <p className="text-[11px] text-neutral-400 px-4 py-2.5 border-t border-neutral-100">
-        Click a box to mark that stage — it saves straight away. Clicking a
-        ticked Confirmed or Packed asks before it undoes it. The tracking ID
-        under Shipped is optional; entering one on a parcel that hasn&apos;t
-        gone yet ships it and sends the customer the number with it. The
-        left-hand tick picks a new parcel for the courier&apos;s Excel sheet —
-        up to {COURIER_SHEET_MAX} at a time, and downloading the sheet ticks
-        them Confirmed.
+        {live ? (
+          <>
+            Waybill and status come from the courier — press Sync now to ask
+            them again. The ticks still work if you need to correct something by
+            hand, but the next sync will overwrite a stage the courier disagrees
+            with. &ldquo;Not with them&rdquo; means the courier has no record of
+            that parcel at all.
+          </>
+        ) : (
+          <>
+            Click a box to mark that stage — it saves straight away. Clicking a
+            ticked Confirmed or Packed asks before it undoes it. The tracking ID
+            under Shipped is optional; entering one on a parcel that hasn&apos;t
+            gone yet ships it and sends the customer the number with it. The
+            left-hand tick picks a new parcel for the courier&apos;s Excel sheet
+            — up to {COURIER_SHEET_MAX} at a time, and downloading the sheet
+            ticks them Confirmed.
+          </>
+        )}
       </p>
 
       {confirming && (

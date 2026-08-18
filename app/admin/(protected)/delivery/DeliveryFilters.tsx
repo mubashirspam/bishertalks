@@ -38,9 +38,12 @@ const TABS: { value: string; label: string }[] = [
 export default function DeliveryFilters({
   counts,
   agents,
+  couriers,
 }: {
   counts: StageCounts;
   agents: DeliveryAgent[];
+  /** Every courier, including switched-off ones — old parcels still name them. */
+  couriers: { id: string; name: string }[];
 }) {
   const params = useSearchParams();
   // Shared with the table, so it dims rather than blanking while reloading.
@@ -48,6 +51,7 @@ export default function DeliveryFilters({
 
   const stage = params.get("stage") ?? "all";
   const agent = params.get("agent") ?? "";
+  const courier = params.get("courier") ?? "";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   // Must match the default in parseDeliveryFilters (lib/db/delivery-query.ts).
@@ -67,7 +71,7 @@ export default function DeliveryFilters({
     navigate(`/admin/delivery?${next}`);
   };
 
-  const hasFilters = !!from || !!to || !!params.get("q") || !!agent;
+  const hasFilters = !!from || !!to || !!params.get("q") || !!agent || !!courier;
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -167,6 +171,29 @@ export default function DeliveryFilters({
             </select>
           </div>
 
+          {/* Which courier carries them. "Nobody" is the useful one again —
+              parcels that have been handed to an agent but not yet routed. */}
+          {couriers.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+                Courier
+              </label>
+              <select
+                value={courier}
+                onChange={(e) => push({ courier: e.target.value || null })}
+                className={`${field} cursor-pointer`}
+              >
+                <option value="">Any courier</option>
+                <option value="none">Nobody — not routed yet</option>
+                {couriers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
               Order
@@ -214,7 +241,7 @@ export default function DeliveryFilters({
               <button
                 onClick={() => {
                   setQ("");
-                  push({ from: null, to: null, q: null, agent: null });
+                  push({ from: null, to: null, q: null, agent: null, courier: null });
                 }}
                 className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
               >

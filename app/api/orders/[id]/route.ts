@@ -33,6 +33,8 @@ export async function GET(
        tracking_number, courier_name, expected_delivery,
        label_downloaded_at, label_download_count, shipped_at, delivered_at,
        courier_entered_at, assigned_agent_id, assigned_at,
+       courier_id, courier_sent_at, courier_send_error,
+       courier_last_scan, courier_last_scan_at,
        invoice_email_sent_at, payment_link_id, payment_link_url,
        created_at, address_submitted_at, razorpay_payment_id`
     )

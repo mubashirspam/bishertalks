@@ -9,6 +9,9 @@ import {
 import { deliveryStats } from "@/lib/db/delivery-stats";
 import { fetchDeliveryPage } from "@/lib/db/orders-page";
 import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
+import { listCouriers } from "@/lib/db/couriers";
+import { canSendAutomatically, canTrack } from "@/lib/couriers";
+import { delhiveryReadiness } from "@/lib/delhivery/config";
 import { SkeletonTable, SkeletonTabs } from "@/components/admin/Skeleton";
 import {
   NavigationPending,
@@ -99,11 +102,18 @@ export default async function AdminDeliveryPage({
 
 /** Queue tabs, filters, and the per-stage counts behind them. */
 async function QueueTabs(args: Args) {
-  const [counts, agents] = await Promise.all([
+  const [counts, agents, couriers] = await Promise.all([
     deliveryStageCounts(parseDeliveryFilters(args.params)),
     listDeliveryAgents(),
+    listCouriers(),
   ]);
-  return <DeliveryFilters counts={counts} agents={agents} />;
+  return (
+    <DeliveryFilters
+      counts={counts}
+      agents={agents}
+      couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
+    />
+  );
 }
 
 /** Pipeline, per-agent load, stalled work and throughput. */
@@ -114,7 +124,7 @@ async function Stats(args: Args) {
 
 /** The worklist itself, plus paging. */
 async function QueueTable(args: Args) {
-  const [{ rows, count }, agents, staff] = await Promise.all([
+  const [{ rows, count }, agents, staff, couriers] = await Promise.all([
     fetchDeliveryPage(
       args.stage,
       args.q,
@@ -129,9 +139,24 @@ async function QueueTable(args: Args) {
     // Every staff member, not just assignable ones: a parcel assigned to
     // someone since switched off still has to show their name.
     listStaff(),
+    // Same reasoning for couriers — the inactive ones still name history.
+    listCouriers(),
   ]);
 
   const agentNames = Object.fromEntries(staff.map((s) => [s.id, s.name]));
+  const courierNames = Object.fromEntries(couriers.map((c) => [c.id, c.name]));
+
+  // Which couriers each button may be used on. Worked out here rather than in
+  // the browser because it depends on the API token, which must never leave the
+  // server — the client is told yes or no, never why.
+  //
+  // Two lists, not one. Sending is gated on an integration we have proven;
+  // asking where a parcel is carries none of that risk and is available on any
+  // courier with tracking behind it. Conflating them left Sync greyed out on
+  // every parcel while the tracking it needed was working perfectly.
+  const ready = couriers.filter((c) => c.is_active && delhiveryReadiness(c.config).ready);
+  const sendableCourierIds = ready.filter(canSendAutomatically).map((c) => c.id);
+  const trackableCourierIds = ready.filter(canTrack).map((c) => c.id);
   const orders = rows as unknown as DeliveryRow[];
   const totalPages = Math.ceil(count / PER_PAGE);
   const pageNum = args.pageNum;
@@ -151,6 +176,10 @@ async function QueueTable(args: Args) {
         matching={count}
         agents={agents}
         agentNames={agentNames}
+        couriers={couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))}
+        courierNames={courierNames}
+        sendableCourierIds={sendableCourierIds}
+        trackableCourierIds={trackableCourierIds}
       />
 
       {totalPages > 1 && (

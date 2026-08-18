@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
   Printer, Check, X, AlertCircle, Phone, MessageCircle, Info, ChevronUp, UserPlus, UserMinus,
+  Truck, Send, RefreshCw,
 } from "lucide-react";
 import {
   deliveryStage,
@@ -42,6 +43,10 @@ export default function DeliveryTable({
   matching,
   agents,
   agentNames,
+  couriers,
+  courierNames,
+  sendableCourierIds,
+  trackableCourierIds,
 }: {
   rows: DeliveryRow[];
   matching: number;
@@ -49,12 +54,28 @@ export default function DeliveryTable({
   agents: DeliveryAgent[];
   /** id → name for display, including agents since switched off. */
   agentNames: Record<string, string>;
+  /** Couriers a parcel can be assigned to right now. */
+  couriers: { id: string; name: string }[];
+  /** id → name for display, including couriers since switched off. */
+  courierNames: Record<string, string>;
+  /**
+   * Which of those we can actually send to from here — an integration exists
+   * and it is configured. Worked out on the server, because knowing it needs
+   * the API token.
+   */
+  sendableCourierIds: string[];
+  /**
+   * Which we can ask for status. A superset of the above in practice: a
+   * courier we hand a spreadsheet to can still report its own scans.
+   */
+  trackableCourierIds: string[];
 }) {
   const router = useRouter();
   const params = useSearchParams();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [agentId, setAgentId] = useState("");
+  const [courierId, setCourierId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -156,8 +177,122 @@ export default function DeliveryTable({
     }
   };
 
+  /**
+   * Say which courier carries the ticked parcels. Assignment only — it sends
+   * nothing, which is the point: choosing a courier is a decision that can be
+   * made days early and changed freely, and sending is the irreversible one.
+   */
+  const setCourier = async (to: string | null) => {
+    setBusy("courier");
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/admin/delivery/courier", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_numbers: ids, courier_id: to }),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) return done(json.error ?? "Could not set the courier", true);
+
+      const skipped = json.skipped
+        ? ` ${json.skipped} skipped — already with a courier.`
+        : "";
+      done(
+        (to
+          ? `${json.updated} parcel${json.updated === 1 ? "" : "s"} going by ${json.courier_name}.`
+          : `Courier cleared on ${json.updated} parcel${json.updated === 1 ? "" : "s"}.`) + skipped
+      );
+    } catch {
+      done("Could not set the courier — check your connection.", true);
+    }
+  };
+
+  /**
+   * Hand the ticked parcels to the courier's API.
+   *
+   * The irreversible one, so it asks first. An accepted shipment has to be
+   * cancelled with the courier — there is no undo on this screen.
+   */
+  const sendToCourier = async () => {
+    const courier = couriers.find((c) => c.id === courierId);
+    if (!courier) return;
+
+    const ok = window.confirm(
+      `Send ${ids.length} parcel${ids.length === 1 ? "" : "s"} to ${courier.name}?\n\n` +
+        `They will have them straight away. Undoing this means cancelling with ` +
+        `${courier.name}, not here.`
+    );
+    if (!ok) return;
+
+    setBusy("send");
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/admin/delivery/courier-send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_numbers: ids, courier_id: courierId }),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        // The readiness list, when the integration isn't configured yet.
+        const detail = Array.isArray(json.missing) && json.missing.length
+          ? ` Still needed: ${json.missing.join("; ")}`
+          : "";
+        return done((json.error ?? "Send failed") + detail, true);
+      }
+
+      const bits = [`${json.sent} sent to ${json.courier}`];
+      if (json.failed?.length) bits.push(`${json.failed.length} refused`);
+      if (json.skipped) bits.push(`${json.skipped} skipped`);
+      if (json.env && json.env !== "production") bits.push("(staging — not real)");
+
+      done(bits.join(" · "), !!json.failed?.length);
+    } catch {
+      done("Send failed — check your connection.", true);
+    }
+  };
+
+  /**
+   * Ask the courier where the ticked parcels are.
+   *
+   * Read-only at their end, so it needs no confirmation and can be pressed as
+   * often as anyone likes — unlike Send, which is next to it and is not.
+   */
+  const syncFromCourier = async () => {
+    setBusy("sync");
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/admin/delivery/courier-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_numbers: ids, courier_id: courierId }),
+      });
+      const json = await res.json().catch(() => ({}));
+
+      if (!res.ok) return done(json.error ?? "Could not sync", true);
+
+      const bits: string[] = [];
+      if (json.moved) bits.push(`${json.moved} moved on`);
+      if (json.learned) bits.push(`${json.learned} waybill${json.learned === 1 ? "" : "s"} found`);
+      if (json.unknown) bits.push(`${json.unknown} the courier has no record of`);
+      done(bits.length ? bits.join(" · ") : "Everything already up to date.");
+    } catch {
+      done("Could not sync — check your connection.", true);
+    }
+  };
+
   const agentName = agents.find((a) => a.id === agentId)?.name ?? "";
   const noAgent = !agentId;
+
+  const chosenCourier = couriers.find((c) => c.id === courierId) ?? null;
+  /** Only a courier with an integration can be sent to from here. */
+  const canSend = !!chosenCourier && sendableCourierIds.includes(chosenCourier.id);
+  const canSync = !!chosenCourier && trackableCourierIds.includes(chosenCourier.id);
 
   const btn =
     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
@@ -239,6 +374,72 @@ export default function DeliveryTable({
               <UserPlus className="w-3.5 h-3.5" />
               {busy === "assign" ? "Assigning…" : "Assign"}
             </button>
+
+            {/* Courier: a separate decision from the agent, and a separate one
+                again from actually sending. Only shown when there is something
+                to choose between. */}
+            {couriers.length > 0 && (
+              <>
+                <span className="w-px h-6 bg-neutral-200" />
+
+                <select
+                  value={courierId}
+                  onChange={(e) => setCourierId(e.target.value)}
+                  className="bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500"
+                >
+                  <option value="">Choose courier…</option>
+                  {couriers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+
+                <button
+                  onClick={() => setCourier(courierId)}
+                  disabled={!!busy || !courierId}
+                  title={
+                    courierId
+                      ? `Mark these as going by ${chosenCourier?.name}`
+                      : "Choose a courier first"
+                  }
+                  className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  {busy === "courier" ? "Setting…" : "Set courier"}
+                </button>
+
+                <button
+                  onClick={syncFromCourier}
+                  disabled={!!busy || !canSync}
+                  title={
+                    canSync
+                      ? `Ask ${chosenCourier?.name} where these parcels are`
+                      : "This courier has no live tracking — enter status by hand"
+                  }
+                  className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${busy === "sync" ? "animate-spin" : ""}`} />
+                  {busy === "sync" ? "Asking…" : "Sync status"}
+                </button>
+
+                <button
+                  onClick={sendToCourier}
+                  disabled={!!busy || !canSend}
+                  title={
+                    !courierId
+                      ? "Choose a courier first"
+                      : canSend
+                        ? `Send these to ${chosenCourier?.name} now`
+                        : `${chosenCourier?.name} parcels aren't sent from here — hand them over and enter the tracking number`
+                  }
+                  className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`}
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  {busy === "send" ? "Sending…" : "Send"}
+                </button>
+              </>
+            )}
 
             <button
               onClick={() => printLabels("selected")}
@@ -416,6 +617,65 @@ export default function DeliveryTable({
                           </>
                         ) : (
                           <span className="text-orange-600 font-medium">Unassigned</span>
+                        )}
+
+                        {/* Which courier carries it, and — the part that
+                            actually confuses people — whether the courier has
+                            been told. Choosing a courier does not send anything,
+                            so "assigned" and "sent" must not look alike. */}
+                        {o.courier_id && (
+                          <div className="mt-1">
+                            <p className="flex items-center gap-1 text-neutral-500">
+                              <Truck className="w-3 h-3 flex-shrink-0" />
+                              <span className="truncate">
+                                {courierNames[o.courier_id] ?? "Removed courier"}
+                              </span>
+                            </p>
+
+                            {o.courier_sent_at ? (
+                              <>
+                                <p className="flex items-center gap-1 text-green-700 font-medium mt-0.5">
+                                  <Check className="w-3 h-3 flex-shrink-0" />
+                                  Sent {formatISTShort(o.courier_sent_at)}
+                                </p>
+                                {o.tracking_number && (
+                                  <p className="font-mono text-neutral-500 mt-0.5 break-all">
+                                    {o.tracking_number}
+                                  </p>
+                                )}
+                                {/* Where the parcel actually is, from the
+                                    courier's own scan. The answer to "packed or
+                                    not, delivered or not". */}
+                                {o.courier_last_scan && (
+                                  <p className="text-neutral-600 mt-0.5">
+                                    {o.courier_last_scan}
+                                    {o.courier_last_scan_at && (
+                                      <span className="text-neutral-400">
+                                        {" · "}
+                                        {timeAgo(o.courier_last_scan_at)}
+                                      </span>
+                                    )}
+                                  </p>
+                                )}
+                              </>
+                            ) : (
+                              <p className="text-amber-700 mt-0.5">
+                                Not sent yet
+                              </p>
+                            )}
+                          </div>
+                        )}
+
+                        {/* A send that failed or never came back. Loud, because
+                            the alternative is a parcel quietly going nowhere. */}
+                        {o.courier_send_error && (
+                          <p
+                            title={o.courier_send_error}
+                            className="mt-1 flex items-start gap-1 text-red-600 max-w-[200px]"
+                          >
+                            <AlertCircle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                            <span className="line-clamp-2">{o.courier_send_error}</span>
+                          </p>
                         )}
                       </td>
 

@@ -208,6 +208,57 @@ if (provider === "meta") {
   }
 }
 
+// ── Delhivery ────────────────────────────────────────────────────────────────
+// Optional: the shop works without it, parcels just go out on the Excel sheet.
+// But a half-configured Delhivery is worse than none, because the send button
+// appears and then refuses — so every gap is named here rather than discovered
+// with a batch of parcels selected.
+console.log(`\n${BOLD}Delhivery${OFF} ${DIM}(optional — Excel sheet still works without it)${OFF}`);
+
+if (unset(env.DELHIVERY_API_TOKEN)) {
+  warn("DELHIVERY_API_TOKEN not set — parcels can't be sent to Delhivery",
+       "Assigning still works; hand them over and enter the tracking number.");
+} else {
+  const delhiveryEnv = (env.DELHIVERY_ENV || "staging").toLowerCase();
+
+  if (delhiveryEnv === "production") {
+    ok("pointed at PRODUCTION — sends create real shipments");
+  } else {
+    warn(
+      `pointed at staging${env.DELHIVERY_ENV ? "" : " (DELHIVERY_ENV unset, defaults to staging)"}`,
+      "Staging needs its own token. A production token gets 401 'Login or API Key Required' here."
+    );
+  }
+
+  // Optional, despite what the prose docs imply: their Postman collection marks
+  // these "for ewaybill", which is only required at ₹50,000+ per shipment. A
+  // book order never reaches that, so a missing GST number blocks nothing.
+  for (const [k, why] of [
+    ["DELHIVERY_CLIENT_NAME", "their registered name for the account"],
+    ["DELHIVERY_SELLER_GST", "seller GST TIN"],
+    ["DELHIVERY_HSN_CODE", "HSN code for a book, usually 4901"],
+  ]) {
+    if (unset(env[k])) {
+      warn(`${k} not set — ${why}`, "Optional: only needed for e-waybill shipments (₹50,000+).");
+    }
+  }
+
+  if (unset(env.DELHIVERY_WEBHOOK_SECRET)) {
+    warn("DELHIVERY_WEBHOOK_SECRET not set — status pushes will be rejected",
+         "Generate one with: openssl rand -hex 32, then give it to Delhivery.");
+  } else if (env.DELHIVERY_WEBHOOK_SECRET.length < 24) {
+    warn("DELHIVERY_WEBHOOK_SECRET is short",
+         "It is the only thing protecting that endpoint — use at least 32 hex characters.");
+  } else {
+    ok("webhook secret is set");
+  }
+
+  if (unset(env.CRON_SECRET)) {
+    warn("CRON_SECRET not set — the tracking poller can't run",
+         "Without it, statuses only update if Delhivery's push webhook is live.");
+  }
+}
+
 console.log(
   `\n${failed ? RED + BOLD + `${failed} blocking problem(s)` : GREEN + BOLD + "no blocking problems"}${OFF}` +
   `${warned ? DIM + `, ${warned} warning(s)` + OFF : ""}\n`

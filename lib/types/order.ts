@@ -61,6 +61,25 @@ export interface Order {
   returned_at: string | null;
   /** When the agent keyed the address into the courier's system (0016). */
   courier_entered_at: string | null;
+  /**
+   * Which logistics partner carries this parcel, or null for undecided (0030).
+   *
+   * Deliberately not defaulted: "assigned to Delhivery" is a decision someone
+   * makes, and a default would put parcels in front of a courier nobody chose.
+   */
+  courier_id: string | null;
+  /**
+   * When the partner's API accepted it (0030).
+   *
+   * Narrower than `courier_entered_at`, which every handoff sets — this one
+   * means an API call succeeded, and is what makes a re-send detectable.
+   */
+  courier_sent_at: string | null;
+  /** The last rejection from the partner, cleared on a successful send. */
+  courier_send_error: string | null;
+  /** The partner's most recent scan, in their own wording. */
+  courier_last_scan: string | null;
+  courier_last_scan_at: string | null;
   /** The delivery agent carrying this parcel, or null for New (0019). */
   assigned_agent_id: string | null;
   assigned_at: string | null;
