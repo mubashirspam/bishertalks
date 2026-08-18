@@ -2,6 +2,7 @@ import { cache } from "react";
 import { buildDeliveryQuery, type DeliveryFilters } from "@/lib/db/delivery-query";
 import { deliveryStage, type DeliveryStage } from "@/lib/delivery-stage";
 import { listStaff } from "@/lib/db/staff";
+import { fetchAllRows } from "@/lib/db/paginate";
 
 /**
  * The numbers behind the delivery queue.
@@ -16,8 +17,13 @@ import { listStaff } from "@/lib/db/staff";
  * then reporting "100% shipped" would be a mirror, not a fact.
  */
 
-/** Past this the aggregate is a sample, and the strip says so. */
-const MAX_ROWS = 5000;
+/**
+ * Past this the aggregate is a sample, and the strip says so.
+ *
+ * Now genuinely enforced: this was a `.limit()`, which PostgREST overrode with
+ * its own 1000-row cap, so the strip claimed to be complete while sampling.
+ */
+const MAX_ROWS = 20_000;
 
 /** How many days of the shipped/delivered chart to draw. */
 const THROUGHPUT_DAYS = 14;
@@ -72,18 +78,20 @@ const HOUR = 3600e3;
 export const deliveryStats = cache(async function deliveryStats(
   filters: DeliveryFilters
 ): Promise<DeliveryStats> {
-  const [{ data, error }, staff] = await Promise.all([
-    buildDeliveryQuery(
-      // Stage dropped on purpose — see the note at the top.
-      { ...filters, stage: undefined },
-      { columns: STATS_COLUMNS }
-    ).limit(MAX_ROWS),
+  const [{ rows: fetched, truncated }, staff] = await Promise.all([
+    fetchAllRows<StatsRow>(
+      (from, to) =>
+        buildDeliveryQuery(
+          // Stage dropped on purpose — see the note at the top.
+          { ...filters, stage: undefined },
+          { columns: STATS_COLUMNS }
+        ).range(from, to) as never,
+      { label: "delivery stats", max: MAX_ROWS }
+    ),
     listStaff(),
   ]);
 
-  if (error) console.error("[Delivery stats] query failed:", error.message);
-
-  const rows = (data ?? []) as unknown as StatsRow[];
+  const rows = fetched;
   const names = new Map(staff.map((s) => [s.id, s.name]));
 
   const totals = {
@@ -177,6 +185,8 @@ export const deliveryStats = cache(async function deliveryStats(
     ),
     ageing: { over24h, over48h, oldestUnshipped },
     throughput,
-    sampled: rows.length >= MAX_ROWS,
+    // From the pager, which knows whether it stopped early — a full page
+    // is not the same thing as more rows existing.
+    sampled: truncated,
   };
 });

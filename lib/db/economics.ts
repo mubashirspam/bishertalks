@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginate";
 
 /**
  * Unit economics: what a book earns, when the milestones land, and what a
@@ -128,13 +129,26 @@ export interface TradingHistory {
  * not revenue.
  */
 export async function getTradingHistory(): Promise<TradingHistory> {
-  const { data } = await supabaseAdmin
-    .from("orders")
-    .select("amount_paise, quantity, created_at, shipped_at, delivered_at, returned_at")
-    .eq("payment_status", "paid")
-    .order("created_at", { ascending: true });
-
-  const rows = data ?? [];
+  // Paged: this had no limit at all, which meant PostgREST handed back the
+  // first 1000 paid orders and every profit figure on the report was computed
+  // from them as though they were the whole business.
+  const { rows } = await fetchAllRows<{
+    amount_paise: number | null;
+    quantity: number | null;
+    created_at: string;
+    shipped_at: string | null;
+    delivered_at: string | null;
+    returned_at: string | null;
+  }>(
+    (from, to) =>
+      supabaseAdmin
+        .from("orders")
+        .select("amount_paise, quantity, created_at, shipped_at, delivered_at, returned_at")
+        .eq("payment_status", "paid")
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    { label: "trading history" }
+  );
 
   const booksSold = rows.reduce((s, o) => s + (o.quantity ?? 1), 0);
   const revenuePaise = rows.reduce((s, o) => s + (o.amount_paise ?? 0), 0);

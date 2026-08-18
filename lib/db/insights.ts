@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginate";
 import { istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
 import {
   TRAFFIC_SOURCES,
@@ -103,8 +104,15 @@ function taggedUrl(row: {
 const pct = (paid: number, leads: number) =>
   leads ? Math.round((paid / leads) * 1000) / 10 : 0;
 
-/** Newest first, and a ceiling that fails loudly rather than silently halving. */
-const SCAN_LIMIT = 20000;
+/**
+ * A ceiling that genuinely is one.
+ *
+ * This used to be a `.limit(20000)`, which did nothing: PostgREST truncates
+ * every response at 1000 rows on its own, so Insights silently reported on the
+ * newest thousand orders and called it the total. `fetchAllRows` pages through
+ * properly and only reports `truncated` when this is really reached.
+ */
+const SCAN_LIMIT = 100_000;
 
 /**
  * Channel performance over a date range — the part of the page that always
@@ -115,32 +123,36 @@ const SCAN_LIMIT = 20000;
  *
  * Aggregated in memory rather than in SQL: at this volume (thousands of orders,
  * not millions) the range fits in a single fetch, and the alternative is a
- * Postgres view per breakdown. If it ever stops fitting, SCAN_LIMIT will make
- * that obvious rather than quietly returning half the truth.
+ * Postgres view per breakdown. The read is paged (lib/db/paginate.ts), because
+ * PostgREST truncates at 1000 rows on its own and used to make this function
+ * quietly report on the newest thousand orders as though they were all of them.
  */
 export async function getInsights(filters: {
   from?: string;
   to?: string;
 }): Promise<Insights> {
-  let query = supabaseAdmin
-    .from("orders")
-    .select("source,payment_status,amount_paise")
-    .order("created_at", { ascending: false })
-    .limit(SCAN_LIMIT);
+  const build = (from: number, to: number) => {
+    let query = supabaseAdmin
+      .from("orders")
+      .select("source,payment_status,amount_paise")
+      // Stable order, or paging can repeat and skip rows between requests.
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
 
-  if (isDate(filters.from)) query = query.gte("created_at", istDayStartUTC(filters.from));
-  if (isDate(filters.to)) query = query.lt("created_at", istDayEndUTC(filters.to));
+    if (isDate(filters.from)) query = query.gte("created_at", istDayStartUTC(filters.from));
+    if (isDate(filters.to)) query = query.lt("created_at", istDayEndUTC(filters.to));
+    return query;
+  };
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("[Insights] channel query failed:", error.message);
-  }
-
-  const rows = (data ?? []) as unknown as {
+  const { rows } = await fetchAllRows<{
     source: string | null;
     payment_status: string;
     amount_paise: number | null;
-  }[];
+  }>((from, to) => build(from, to) as never, {
+    label: "insights channels",
+    max: SCAN_LIMIT,
+  });
 
   const blank = () => ({ leads: 0, paid: 0, revenuePaise: 0 });
   const byChannel = new Map<TrafficSource, ReturnType<typeof blank>>();
@@ -196,22 +208,27 @@ export async function getLinkBreakdown(filters: {
   from?: string;
   to?: string;
 }): Promise<LinkBreakdown> {
-  let query = supabaseAdmin
-    .from("orders")
-    .select(
-      "source,utm_source,utm_medium,utm_campaign,utm_content,referrer_url," +
-        "landing_path,created_at,payment_status,amount_paise"
-    )
-    .order("created_at", { ascending: false })
-    .limit(SCAN_LIMIT);
+  const build = (from: number, to: number) => {
+    let query = supabaseAdmin
+      .from("orders")
+      .select(
+        "source,utm_source,utm_medium,utm_campaign,utm_content,referrer_url," +
+          "landing_path,created_at,payment_status,amount_paise"
+      )
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, to);
 
-  if (isDate(filters.from)) query = query.gte("created_at", istDayStartUTC(filters.from));
-  if (isDate(filters.to)) query = query.lt("created_at", istDayEndUTC(filters.to));
+    if (isDate(filters.from)) query = query.gte("created_at", istDayStartUTC(filters.from));
+    if (isDate(filters.to)) query = query.lt("created_at", istDayEndUTC(filters.to));
+    return query;
+  };
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("[Insights] link query failed:", error.message);
-  }
+  const { rows: linkRows } = await fetchAllRows<Record<string, unknown>>(
+    (from, to) => build(from, to) as never,
+    { label: "insights links", max: SCAN_LIMIT }
+  );
+  const data = linkRows;
 
   const rows = (data ?? []) as unknown as {
     source: string | null;

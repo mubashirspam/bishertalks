@@ -3,6 +3,7 @@ import {
   IndianRupee, CalendarDays, CalendarRange, CalendarCheck, AlertCircle, ArrowRight, Clock,
 } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginate";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
 import { formatISTShort, timeAgo, istToday, istDayStartUTC } from "@/lib/format-date";
 import { requirePageAccess } from "@/lib/admin-auth";
@@ -62,7 +63,24 @@ async function DashboardBody() {
     needsAddress,
     recent,
   ] = await Promise.all([
-    supabaseAdmin.from("orders").select("amount_paise,quantity,created_at,source").eq("payment_status", "paid").limit(20000),
+    // Paged. A plain .limit() here silently stopped at 1000 rows, which is why
+    // the dashboard used to under-report both revenue and order count once the
+    // shop passed a thousand paid orders. See lib/db/paginate.ts.
+    fetchAllRows<{
+      amount_paise: number | null;
+      quantity: number | null;
+      created_at: string;
+      source: string | null;
+    }>(
+      (from, to) =>
+        supabaseAdmin
+          .from("orders")
+          .select("amount_paise,quantity,created_at,source")
+          .eq("payment_status", "paid")
+          .order("created_at", { ascending: true })
+          .range(from, to),
+      { label: "dashboard totals" }
+    ),
     count((q) => q.eq("payment_status", "paid").is("address_line1", null)),
     supabaseAdmin
       .from("orders")
@@ -72,7 +90,7 @@ async function DashboardBody() {
       .limit(8),
   ]);
 
-  const paid = paidOrders.data ?? [];
+  const paid = paidOrders.rows;
 
   /**
    * Revenue, order count and book count for one period, in a single pass.

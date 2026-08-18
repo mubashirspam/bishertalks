@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginate";
 import { normalizePhone } from "@/lib/db/users";
 import {
   normalizeCode,
@@ -305,15 +306,26 @@ export interface ReferrerStats {
  * than the numbers justify.
  */
 export async function getReferrerStats(): Promise<Map<string, ReferrerStats>> {
-  const { data } = await supabaseAdmin
-    .from("orders")
-    .select("referrer_id,referral_status,referral_commission_paise,payment_status")
-    .not("referrer_id", "is", null)
-    .limit(20000);
+  // Paged — a referrer's earnings must not stop being counted at row 1000.
+  const { rows: data } = await fetchAllRows<{
+    referrer_id: string;
+    referral_status: string | null;
+    referral_commission_paise: number | null;
+    payment_status: string;
+  }>(
+    (from, to) =>
+      supabaseAdmin
+        .from("orders")
+        .select("referrer_id,referral_status,referral_commission_paise,payment_status")
+        .not("referrer_id", "is", null)
+        .order("created_at", { ascending: true })
+        .range(from, to),
+    { label: "referrer stats" }
+  );
 
   const stats = new Map<string, ReferrerStats>();
 
-  for (const row of (data ?? []) as {
+  for (const row of data as {
     referrer_id: string;
     referral_status: string | null;
     referral_commission_paise: number | null;

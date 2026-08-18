@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { buildOrdersQuery, type OrderRow } from "@/lib/db/orders-query";
+import { fetchAllRows } from "@/lib/db/paginate";
 import { orderStage, STAGE_LABELS } from "@/lib/order-stage";
 import { formatIST } from "@/lib/format-date";
 import { SOURCE_LABELS, isTrafficSource } from "@/lib/attribution";
@@ -25,6 +26,9 @@ const HEADERS = [
  * Uses the same query builder as the admin table, so an export always matches
  * exactly what the filters showed on screen.
  */
+/** A ceiling that is about spreadsheet sanity, not about PostgREST. */
+const EXPORT_MAX = 50_000;
+
 export async function GET(request: NextRequest) {
   // Contains every customer's name, phone and address — admin only.
   const auth = await requirePermission("orders.export");
@@ -33,7 +37,7 @@ export async function GET(request: NextRequest) {
   const p = request.nextUrl.searchParams;
   const format = p.get("format") === "xlsx" ? "xlsx" : "csv";
 
-  const { data, error } = await buildOrdersQuery({
+  const filters = {
     stage: p.get("stage") ?? undefined,
     q: p.get("q") ?? undefined,
     from: p.get("from") ?? undefined,
@@ -41,11 +45,19 @@ export async function GET(request: NextRequest) {
     source: p.get("source") ?? undefined,
     followUp: p.get("followUp") ?? undefined,
     books: p.get("books") ?? undefined,
-  }).limit(5000);
+  };
 
-  if (error) {
-    console.error("[Export] query failed:", error.message);
-    return NextResponse.json({ error: "Export failed" }, { status: 500 });
+  // Paged. The `.limit(5000)` this replaces never worked: PostgREST caps a
+  // response at 1000 rows, so every export past the thousandth order silently
+  // stopped there — and an export that is quietly missing rows is worse than
+  // one that fails, because it gets filed and acted on.
+  const { rows: data, truncated } = await fetchAllRows<Record<string, unknown>>(
+    (from, to) => buildOrdersQuery(filters).range(from, to) as never,
+    { label: "orders export", max: EXPORT_MAX }
+  );
+
+  if (truncated) {
+    console.warn(`[Export] hit the ${EXPORT_MAX}-row ceiling — the file is partial`);
   }
 
   const rupees = (paise: number | null) => Math.round((paise ?? 0) / 100);
