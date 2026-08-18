@@ -101,7 +101,16 @@ export function isCourierHandoff(v: unknown): v is CourierHandoff {
  * six real shipments accepted on 18 August, waybills 54132310017275 through
  * ...323, every one Manifested under KKR LOGISTICS FRANCHISE.
  */
-export const INTEGRATED_SLUGS: readonly string[] = ["delhivery"];
+// EMPTY ON PURPOSE, AND NOT A TODO.
+//
+// KKR LOGISTICS FRANCHISE does the manifestation. We hand them the parcels and
+// the data; creating the shipment is their step, not ours. Manifesting from
+// here would produce a second waybill for a parcel they are about to manifest
+// themselves — two shipments, two pickups, two delivery charges, one book.
+//
+// Our use of Delhivery's API is READ ONLY: tracking, serviceability and
+// charges. Nothing in this codebase may call /api/cmu/create.json.
+export const INTEGRATED_SLUGS: readonly string[] = [];
 
 /**
  * Couriers whose tracking API we have written, by the name used in
