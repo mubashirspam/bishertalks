@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, RefreshCw, Undo2 } from "lucide-react";
+import { Check, Copy, RefreshCw, RefreshCcwDot, Undo2 } from "lucide-react";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import PortalExport from "./PortalExport";
 import {
@@ -169,7 +169,7 @@ export default function PortalGrid({
    * as often as someone likes. The scheduled poller does the same job on a
    * timer; this is for when there is a customer on the phone.
    */
-  async function syncNow() {
+  async function syncNow(all = false) {
     if (!courierId) return;
     setSyncing(true);
     setSyncNote(null);
@@ -180,7 +180,9 @@ export default function PortalGrid({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           courier_id: courierId,
-          order_numbers: rows.map((r) => r.order_number),
+          // A sweep names nothing: the server picks every unfinished parcel it
+          // can ask about, so the answer does not depend on which page is open.
+          ...(all ? { all: true } : { order_numbers: rows.map((r) => r.order_number) }),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -191,6 +193,7 @@ export default function PortalGrid({
       }
 
       const bits: string[] = [];
+      if (data.all) bits.push(`${data.asked} checked`);
       if (data.moved) bits.push(`${data.moved} moved on`);
       if (data.learned) bits.push(`${data.learned} waybill${data.learned === 1 ? "" : "s"} found`);
       if (data.unknown) bits.push(`${data.unknown} not at the courier`);
@@ -215,7 +218,7 @@ export default function PortalGrid({
   useEffect(() => {
     if (!live || !courierId || !rows.length || autoSynced.current) return;
     autoSynced.current = true;
-    void syncNow();
+    void syncNow(false);
     // Deliberately mount-only: re-syncing on every render would hammer the
     // courier's rate limit for no new information.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -455,14 +458,38 @@ export default function PortalGrid({
 
           {syncNote && <span className="text-xs text-neutral-500">{syncNote}</span>}
 
-          <button
-            onClick={syncNow}
-            disabled={syncing || !rows.length}
-            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
-            {syncing ? "Asking the courier…" : "Sync now"}
-          </button>
+          <span className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => syncNow(false)}
+              disabled={syncing || !rows.length}
+              title="Ask about the parcels on this page"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+              {syncing ? "Asking the courier…" : "Sync this page"}
+            </button>
+
+            {/* The sweep. Silent by design — it catches up on parcels that
+                moved days ago, and telling those customers their book has
+                shipped when it is already on their shelf is worse than saying
+                nothing. */}
+            <button
+              onClick={() => {
+                const ok = window.confirm(
+                  "Sync every parcel the courier can be asked about?\n\n" +
+                    "This takes a minute or two and sends no messages to customers — " +
+                    "it is catching up on history, not reporting news."
+                );
+                if (ok) void syncNow(true);
+              }}
+              disabled={syncing}
+              title="Ask about every unfinished parcel, not just this page"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+            >
+              <RefreshCcwDot className="w-3.5 h-3.5" />
+              Sync everything
+            </button>
+          </span>
         </div>
       )}
 

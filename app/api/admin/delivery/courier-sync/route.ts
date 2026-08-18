@@ -1,5 +1,5 @@
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
@@ -30,6 +30,9 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 /** One screen's worth. The portal shows 100 at a time. */
 const MAX = 100;
 
+/** A whole-account sweep. Above this it belongs in the scheduled poller. */
+const MAX_ALL = 2000;
+
 export async function POST(request: NextRequest) {
   const auth = await requirePermission("delivery.portal");
   if (!auth.ok) return auth.response;
@@ -46,7 +49,17 @@ export async function POST(request: NextRequest) {
 
   const courierId = typeof body.courier_id === "string" ? body.courier_id : "";
 
-  if (!orderNumbers.length) {
+  /**
+   * Sweep everything rather than one screenful.
+   *
+   * Deliberately silent. A sweep is a catch-up on history, and the customers it
+   * would message are people whose parcel arrived days ago — being told it has
+   * shipped when it is already on their shelf is worse than being told nothing.
+   * The per-screen sync stays noisy, because there the news is news.
+   */
+  const all = body.all === true;
+
+  if (!all && !orderNumbers.length) {
     return NextResponse.json({ error: "Nothing to sync" }, { status: 400 });
   }
   if (!courierId) {
@@ -72,21 +85,46 @@ export async function POST(request: NextRequest) {
 
   // What we can ask about. A parcel with neither a waybill nor a reference has
   // never been near this courier and is silently skipped.
-  const { data, error } = await supabaseAdmin
-    .from("orders")
-    .select("order_number,tracking_number,courier_reference")
-    .in("order_number", orderNumbers);
-
-  if (error) {
-    console.error("[Sync] lookup failed:", error.message);
-    return NextResponse.json({ error: "Could not load those parcels" }, { status: 500 });
-  }
-
-  const rows = (data ?? []) as {
+  type Row = {
     order_number: string;
     tracking_number: string | null;
     courier_reference: string | null;
-  }[];
+  };
+  const rows: Row[] = [];
+
+  if (all) {
+    // Everything nameable that has not finished. A delivered parcel has
+    // nothing left to tell us, and asking about it spends the rate limit on a
+    // question already answered.
+    for (let from = 0; from < MAX_ALL; from += 1000) {
+      const { data, error } = await supabaseAdmin
+        .from("orders")
+        .select("order_number,tracking_number,courier_reference")
+        .or("tracking_number.not.is.null,courier_reference.not.is.null")
+        .not("status", "in", "(delivered,returned,cancelled)")
+        .order("created_at", { ascending: false })
+        .range(from, from + 999);
+
+      if (error) {
+        console.error("[Sync] sweep read failed:", error.message);
+        break;
+      }
+      const batch = (data ?? []) as Row[];
+      rows.push(...batch);
+      if (batch.length < 1000) break;
+    }
+  } else {
+    const { data, error } = await supabaseAdmin
+      .from("orders")
+      .select("order_number,tracking_number,courier_reference")
+      .in("order_number", orderNumbers);
+
+    if (error) {
+      console.error("[Sync] lookup failed:", error.message);
+      return NextResponse.json({ error: "Could not load those parcels" }, { status: 500 });
+    }
+    rows.push(...((data ?? []) as Row[]));
+  }
 
   const byWaybill = new Map<string, string>();
   const byReference = new Map<string, string>();
@@ -115,7 +153,9 @@ export async function POST(request: NextRequest) {
     const outcome = await applyScan(
       parcel.scan,
       { waybill: parcel.waybill, reference: orderNumber },
-      { notify: !firstTime }
+      // News only when it is news: not on a first sighting, and never during a
+      // sweep, which is catching up rather than watching.
+      { notify: !firstTime && !all }
     );
     if (outcome?.moved_to) {
       moved.push({ order_number: outcome.order_number, to: outcome.moved_to });
@@ -150,6 +190,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
+    all,
     asked: rows.length,
     checked,
     learned,
