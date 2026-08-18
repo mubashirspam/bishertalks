@@ -15,7 +15,8 @@ import {
 } from "@/lib/db/attribution";
 import { applyReferral, type AppliedReferral } from "@/lib/db/referrals";
 import { clampQuantity } from "@/lib/quantity";
-import { giftChargePaise, sanitizeGiftMessage } from "@/lib/gift";
+import { giftChargePaise, isGiftOrder, sanitizeGiftMessage } from "@/lib/gift";
+import { getGiftSettings } from "@/lib/db/gift";
 import { claimPaidTransition } from "@/lib/payment-claim";
 
 function generateOrderNumber(): string {
@@ -81,12 +82,18 @@ export async function POST(request: NextRequest) {
     // asking for 0 or 10,000 copies must not become an order row.
     const quantity = clampQuantity(body.quantity ?? 1);
 
-    // Gift wrapping. The browser sends a boolean and a message; the price comes
-    // from lib/gift.ts here. A request naming its own gift charge — or a
-    // message on an order that isn't a gift, which is a card nobody was paid to
-    // write — gets neither.
-    const isGift = body.is_gift === true;
-    const giftPaise = giftChargePaise(isGift);
+    // Gift wrapping. The browser sends a boolean and a message; the price and
+    // whether wrapping is on offer at all come from the settings read here. A
+    // request naming its own gift charge — or a message on an order that isn't
+    // a gift, which is a card nobody was paid to write — gets neither.
+    //
+    // Read live rather than from a cache: a page open since before wrapping was
+    // switched off still sends is_gift, and this is what refuses it. All three
+    // values go through the settings together, so an order can never end up
+    // flagged as a gift with nothing charged for it.
+    const giftSettings = await getGiftSettings();
+    const isGift = isGiftOrder(body.is_gift, giftSettings);
+    const giftPaise = giftChargePaise(body.is_gift, giftSettings);
     const giftMessage = isGift ? sanitizeGiftMessage(body.gift_message) : null;
 
     const { payablePaise } = await getProductPricing();

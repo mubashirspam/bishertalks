@@ -1,8 +1,10 @@
 import { Suspense } from "react";
 import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import { listPromoCodes } from "@/lib/db/promo";
+import { getGiftSettings } from "@/lib/db/gift";
 import AddPromoForm from "./AddPromoForm";
 import PromoRow from "./PromoRow";
+import GiftSettingsCard from "./GiftSettingsCard";
 import { requirePageAccess } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -23,13 +25,25 @@ export default async function Page() {
 async function PromosBody() {
   await requirePageAccess("promos.manage");
 
-  const promos = await listPromoCodes();
+  const [promos, gift] = await Promise.all([listPromoCodes(), getGiftSettings()]);
 
   return (
     <div>
+      <div className="mb-6">
+        <h1 className="text-2xl font-black text-neutral-900">Checkout</h1>
+        <p className="text-neutral-500 text-sm mt-1">
+          What a customer can add or take off at the moment of paying.
+        </p>
+      </div>
+
+      {/* Gift wrapping lives here rather than on a screen of its own: it is a
+          checkout-time money setting, which is what this page already is, and
+          two fields do not earn a nav item. */}
+      <GiftSettingsCard settings={gift} />
+
       <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-black text-neutral-900">Promo Codes</h1>
+          <h2 className="text-lg font-black text-neutral-900">Promo codes</h2>
           <p className="text-neutral-500 text-sm mt-1">
             {promos.length} code{promos.length === 1 ? "" : "s"} · applied at checkout
           </p>

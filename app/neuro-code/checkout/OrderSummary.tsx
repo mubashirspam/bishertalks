@@ -2,7 +2,7 @@ import Image from "next/image";
 import { Gift, ShieldCheck, Minus, Plus, Check } from "lucide-react";
 import { OFFER, NLP_COURSE } from "@/app/neuro-code/content";
 import { MAX_BOOKS } from "@/lib/quantity";
-import { GIFT_WRAP_RUPEES, MAX_GIFT_MESSAGE } from "@/lib/gift";
+import { giftRupees, MAX_GIFT_MESSAGE, type GiftSettings } from "@/lib/gift";
 import type { ProductPricing } from "@/lib/db/courses";
 
 /**
@@ -171,14 +171,21 @@ function Stepper({
  *
  * The message is optional even when the box is ticked. Someone may just want
  * the paper.
+ *
+ * Renders nothing at all when wrapping is switched off in the admin. A greyed
+ * out option with no explanation is worse than no option: it reads as a broken
+ * page at the moment someone is deciding whether to trust you with a card.
  */
 export function GiftOption({
+  settings,
   checked,
   onChange,
   message,
   onMessage,
   disabled,
 }: {
+  /** What wrapping costs, and whether it is on offer at all. */
+  settings: GiftSettings;
   checked: boolean;
   onChange: (next: boolean) => void;
   message: string;
@@ -186,6 +193,8 @@ export function GiftOption({
   disabled?: boolean;
 }) {
   const left = MAX_GIFT_MESSAGE - message.length;
+
+  if (!settings.isEnabled) return null;
 
   return (
     <div
@@ -209,7 +218,7 @@ export function GiftOption({
               <Gift className="w-4 h-4 text-primary-500" /> Make it a gift
             </span>
             <span className="font-bold text-sm text-neutral-900 dark:text-white flex-shrink-0">
-              +₹{inr(GIFT_WRAP_RUPEES)}
+              +₹{inr(giftRupees(settings))}
             </span>
           </span>
           <span className="block text-neutral-500 dark:text-neutral-400 text-xs mt-1 leading-relaxed">

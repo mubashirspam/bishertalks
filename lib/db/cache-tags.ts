@@ -47,3 +47,23 @@ export const LANDING_CACHE_SECONDS = 300;
 export function revalidateLanding(): void {
   revalidateTag(LANDING_TAG, { expire: 0 });
 }
+
+/**
+ * Gift wrapping's on/off switch and its fee (migration 0029).
+ *
+ * Its own tag for the same reason as the two above: the only page that caches
+ * this is the static home page, which mentions wrapping in one line under the
+ * buy button. Turning wrapping off has to take that line with it, and nothing
+ * else on that page needs rebuilding for it.
+ *
+ * The checkout does NOT read through this cache — it reads live, so the price
+ * on the page and the price charged can never be a stale copy apart.
+ */
+export const GIFT_TAG = "gift";
+
+/** Same backstop reasoning as COURSES_CACHE_SECONDS. */
+export const GIFT_CACHE_SECONDS = 300;
+
+export function revalidateGift(): void {
+  revalidateTag(GIFT_TAG, { expire: 0 });
+}

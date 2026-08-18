@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { ShoppingCart, Star, Zap, BookOpen } from "lucide-react";
+import { getCachedGiftSettings } from "@/lib/db/gift";
 
 const perks = [
   "Rewire limiting beliefs",
@@ -8,7 +9,14 @@ const perks = [
   "Practical techniques",
 ];
 
-export default function BookCTA() {
+/**
+ * Async only for the gift line below. It reads through a tagged cache, so this
+ * page is still prerendered — the admin turning wrapping off flushes the tag
+ * and rebuilds it, rather than every visitor paying for a database round trip.
+ */
+export default async function BookCTA() {
+  const gift = await getCachedGiftSettings();
+
   return (
     <section className="relative overflow-hidden bg-neutral-50 dark:bg-neutral-950 border-b border-neutral-200 dark:border-neutral-800">
       {/* Ambient glow — top right */}
@@ -97,9 +105,11 @@ export default function BookCTA() {
                 extra alongside the free ones reads as an upsell — here it is
                 only found by someone who has already decided to buy and is
                 wondering whether they can send it to someone else. */}
-            <p className="mt-4 text-center md:text-left text-xs text-neutral-500 dark:text-neutral-400">
-              🎁 Gift wrapping and a personal message available at checkout
-            </p>
+            {gift.isEnabled && (
+              <p className="mt-4 text-center md:text-left text-xs text-neutral-500 dark:text-neutral-400">
+                🎁 Gift wrapping and a personal message available at checkout
+              </p>
+            )}
           </div>
         </div>
       </div>

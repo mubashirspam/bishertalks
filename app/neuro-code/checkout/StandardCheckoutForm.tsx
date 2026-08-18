@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 import { clampQuantity } from "@/lib/quantity";
-import { giftChargePaise, sanitizeGiftMessage } from "@/lib/gift";
+import { giftChargePaise, isGiftOrder, sanitizeGiftMessage, type GiftSettings } from "@/lib/gift";
 import {
   PackageItems,
   GiftOption,
@@ -30,7 +30,14 @@ const rupees = (paise: number) => Math.round(paise / 100);
  * Pay, so anyone who abandons here is still visible in the admin rather than
  * disappearing. District and state come from the pincode and are never typed.
  */
-export default function StandardCheckoutForm({ pricing }: { pricing: ProductPricing }) {
+export default function StandardCheckoutForm({
+  pricing,
+  gift,
+}: {
+  pricing: ProductPricing;
+  /** What wrapping costs today, and whether it is offered at all. */
+  gift: GiftSettings;
+}) {
   const router = useRouter();
 
   const [phone, setPhone] = useState("");
@@ -73,7 +80,8 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
   // Wrapping is added after the promo, not before: a discount code is for the
   // book, and letting it eat into the wrapping fee would sell the paper at a
   // loss on every code that happens to be a percentage.
-  const giftPaise = giftChargePaise(isGift);
+  const giftOrder = isGiftOrder(isGift, gift);
+  const giftPaise = giftChargePaise(isGift, gift);
   const totalPaise =
     (promo ? promo.finalPaise : pricing.payablePaise * quantity) + giftPaise;
   const phoneValid = /^[6-9]\d{9}$/.test(phone);
@@ -229,11 +237,11 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
           order_number: orderNumberRef.current,
           promoCode: promo?.code ?? null,
           quantity,
-          is_gift: isGift,
+          is_gift: giftOrder,
           // Only when it's actually a gift — a message left behind after
           // unticking the box must not be stored, or someone packs a card for
           // an order the customer didn't pay wrapping on.
-          gift_message: isGift ? sanitizeGiftMessage(giftMessage) : null,
+          gift_message: giftOrder ? sanitizeGiftMessage(giftMessage) : null,
         }),
       });
       const createData = await createRes.json();
@@ -514,6 +522,7 @@ export default function StandardCheckoutForm({ pricing }: { pricing: ProductPric
             </div>
 
             <GiftOption
+              settings={gift}
               checked={isGift}
               onChange={setIsGift}
               message={giftMessage}

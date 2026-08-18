@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator,
+  Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -30,12 +30,18 @@ export const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, permission: "orders.view" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
   { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
+  // Under Delivery because it is a setting for that screen: who the parcels on
+  // it can be handed to. `delivery.assign` — the same authority that chooses a
+  // courier for a parcel decides which couriers exist.
+  { href: "/admin/couriers", label: "Couriers", icon: PackageCheck, permission: "delivery.assign" },
   { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
   { href: "/admin/reports", label: "Profit & targets", icon: Calculator, permission: "reports.view" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },
   { href: "/admin/courses", label: "Courses", icon: BookOpen, permission: "courses.manage" },
   { href: "/admin/landing", label: "Landing page", icon: LayoutTemplate, permission: "landing.manage" },
-  { href: "/admin/promos", label: "Promos", icon: Tag, permission: "promos.manage" },
+  // Still /admin/promos — the route is where it always was, but the screen now
+  // holds every checkout-time money setting, not only the discount codes.
+  { href: "/admin/promos", label: "Checkout", icon: Tag, permission: "promos.manage" },
   { href: "/admin/referrals", label: "Referrals", icon: Gift, permission: "referrals.view" },
   { href: "/admin/staff", label: "Staff", icon: Shield, permission: "staff.manage" },
   // Last on purpose: for an agent it's the only item, and for everyone else

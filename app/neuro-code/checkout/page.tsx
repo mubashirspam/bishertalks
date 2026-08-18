@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import { getProductPricing } from "@/lib/db/courses";
+import { getGiftSettings } from "@/lib/db/gift";
 import { MAGIC_CHECKOUT_ENABLED } from "@/lib/magic-checkout";
 import { previewReferralPricing } from "@/lib/db/referrals";
 import {
@@ -13,14 +14,19 @@ import StandardCheckoutForm from "./StandardCheckoutForm";
 export const dynamic = "force-dynamic";
 
 export default async function CheckoutPage() {
-  const pricing = await referralAdjustedPricing();
+  // Both display only. /api/orders/create reads the same two things for itself
+  // before it charges anything, so neither can be talked down from here.
+  const [pricing, gift] = await Promise.all([
+    referralAdjustedPricing(),
+    getGiftSettings(),
+  ]);
 
   // Magic Checkout collects the address itself, so the two forms are different
   // shapes. This flag must agree with what /api/orders/create sends to Razorpay.
   return MAGIC_CHECKOUT_ENABLED ? (
-    <MagicCheckoutForm pricing={pricing} />
+    <MagicCheckoutForm pricing={pricing} gift={gift} />
   ) : (
-    <StandardCheckoutForm pricing={pricing} />
+    <StandardCheckoutForm pricing={pricing} gift={gift} />
   );
 }
 
