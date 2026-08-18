@@ -10,6 +10,8 @@ export {
   HANDOFF_LABELS,
   HANDOFF_HINTS,
   TRACKED_INTEGRATIONS,
+  INTEGRATED_SLUGS,
+  canSendAutomatically,
   isCourierHandoff,
   canTrack,
   type Courier,

@@ -50,7 +50,13 @@ function authorised(request: NextRequest): boolean {
     return false;
   }
 
-  const sent = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  // Header first; a query parameter as a fallback, because some schedulers
+  // cannot set headers and a poller nobody can trigger is a poller that never
+  // runs. Same secret either way, and compared in constant time below.
+  const sent =
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ||
+    new URL(request.url).searchParams.get("key") ||
+    "";
   const a = Buffer.from(sent);
   const b = Buffer.from(expected);
   if (a.length !== b.length) return false;

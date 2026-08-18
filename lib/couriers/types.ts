@@ -99,18 +99,25 @@ export function isCourierHandoff(v: unknown): v is CourierHandoff {
 export const TRACKED_INTEGRATIONS: readonly string[] = ["delhivery"];
 
 /**
- * We do not manifest. KKR LOGISTICS FRANCHISE does.
+ * Couriers we can hand a parcel to over their API, by slug.
  *
- * There is deliberately no code in this repository that can create a shipment
- * at Delhivery — the route, the payload builder and the send script were all
- * removed rather than left behind a flag, because a flag is something someone
- * turns on. Manifesting from here would produce a second waybill for a parcel
- * KKR is about to manifest themselves: two shipments, two pickups, two
- * delivery charges, one book.
+ * Delhivery's only endpoint for putting an order into their system is
+ * /api/cmu/create.json, and it manifests: a waybill comes back in the same
+ * response. There is no create-without-manifest call available on this
+ * account, so "push the order and let KKR manifest it" is not a thing the API
+ * can do — pushing IS manifesting.
  *
- * Our use of their API is read-only — tracking, serviceability, charges,
- * packing slips.
+ * That turned out not to matter in practice. The parcels sent this way landed
+ * in KKR LOGISTICS FRANCHISE's own account, under their pickup location, and
+ * KKR printed and collected them exactly as they would have done from a
+ * spreadsheet they uploaded themselves. The only step it removes is the typing.
  */
+export const INTEGRATED_SLUGS: readonly string[] = ["delhivery"];
+
+/** Can we hand a parcel to this courier ourselves? */
+export function canSendAutomatically(courier: Courier): boolean {
+  return courier.handoff === "api" && INTEGRATED_SLUGS.includes(courier.slug);
+}
 
 /**
  * Can we ask this courier where a parcel is?

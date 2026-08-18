@@ -3,6 +3,10 @@
     "supabase": {
       "type": "http",
       "url": "https://mcp.supabase.com/mcp?project_ref=ysvhkubzqzhhmvhuwiot"
+    },
+    "delhivery-mcp": {
+      "type": "http",
+      "url": "https://mcp-client-integration.delhivery.com/mcp"
     }
   }
 }

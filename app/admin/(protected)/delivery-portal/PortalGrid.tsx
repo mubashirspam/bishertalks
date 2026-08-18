@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy, RefreshCw, Undo2 } from "lucide-react";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
@@ -54,6 +54,8 @@ export default function PortalGrid({
   const router = useRouter();
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  /** Guards the automatic sync below against React's double-invoked effects. */
+  const autoSynced = useRef(false);
   const [overrides, setOverrides] = useState<Record<string, OrderStatus>>({});
   const [entered, setEntered] = useState<Record<string, boolean>>({});
   /** Parcels ticked for the courier sheet. Capped at a sheetful, see below. */
@@ -200,6 +202,24 @@ export default function PortalGrid({
       setSyncing(false);
     }
   }
+
+  /**
+   * Ask the courier once when the screen opens.
+   *
+   * The button stays, for the moment somebody wants an answer right now, but
+   * nobody should have to press anything to see a current status — a screen
+   * that is only right after you remember to refresh it is a screen people
+   * stop trusting. Runs once per mount, and only where there is something to
+   * ask about.
+   */
+  useEffect(() => {
+    if (!live || !courierId || !rows.length || autoSynced.current) return;
+    autoSynced.current = true;
+    void syncNow();
+    // Deliberately mount-only: re-syncing on every render would hammer the
+    // courier's rate limit for no new information.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /** The sheet has been downloaded: those parcels are now with the courier. */
   function sheetDownloaded(confirmed: string[]) {

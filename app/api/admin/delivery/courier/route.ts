@@ -7,17 +7,43 @@ import { getCourier } from "@/lib/db/couriers";
 import { auditMany } from "@/lib/audit";
 import { ensureReferences } from "@/lib/db/courier-reference";
 import { serviceabilityFor, recordServiceability } from "@/lib/db/serviceability";
+import { canSendAutomatically } from "@/lib/couriers";
+import { delhiveryReadiness } from "@/lib/delhivery/config";
+import { manifestParcels } from "@/lib/delhivery/manifest";
+import { DelhiveryError } from "@/lib/delhivery/client";
+import {
+  claimForSend,
+  releaseClaim,
+  markSendUncertain,
+  recordSent,
+} from "@/lib/db/courier-send";
 
 /**
- * Say which courier carries these parcels. Assignment only — it sends nothing.
+ * Route a batch of parcels, and hand them over.
  *
- * Kept apart from /courier-send on purpose. Choosing a partner is a decision
- * that can be made days before the parcel moves, changed freely while it is
- * still here, and undone with no consequence. Sending is the irreversible one.
- * Folding them into one call would make every assignment a dispatch.
+ * One request does the three things that were three decisions:
  *
- *   { order_numbers: [...], courier_id: "uuid" }   assign
- *   { order_numbers: [...], courier_id: null }     clear
+ *   1. sets the courier, so the parcel is somebody's
+ *   2. gives it a reference and checks the pincode, so it is workable
+ *   3. hands it to the courier, so it exists at their end
+ *
+ * They were deliberately separate at first — assign today, dispatch when the
+ * parcel is actually packed — and that was the wrong shape for this shop, where
+ * both happen in the same motion and splitting them meant parcels sitting
+ * routed-but-nowhere while everybody assumed they had gone.
+ *
+ * `send: false` still assigns without dispatching, for a parcel someone wants
+ * to route ahead of time. Clearing the courier never sends.
+ *
+ * On the manifestation question: Delhivery's only way to receive an order is
+ * /api/cmu/create.json, which assigns a waybill in the same response. There is
+ * no push-without-manifest. The parcels land in KKR LOGISTICS FRANCHISE's own
+ * account under their pickup location, and KKR prints and collects them as
+ * usual — the step this removes is the typing, not their work.
+ *
+ *   { order_numbers: [...], courier_id: "uuid" }               route and send
+ *   { order_numbers: [...], courier_id: "uuid", send: false }  route only
+ *   { order_numbers: [...], courier_id: null }                 clear
  */
 
 const MAX_BATCH = 300;
@@ -129,14 +155,84 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Hand them over ────────────────────────────────────────────────────────
+  // Everything above is bookkeeping and can be redone. This part cannot: an
+  // accepted shipment has to be cancelled with the courier, not undone here.
+  const sent: string[] = [];
+  const failed: { order_number: string; error: string }[] = [];
+  let held = 0;
+
+  const wantsSend = body.send !== false && courierId && updated.length;
+  const courier = wantsSend ? await getCourier(courierId) : null;
+  const readiness = courier ? delhiveryReadiness(courier.config) : null;
+
+  if (courier && canSendAutomatically(courier) && readiness?.ready && readiness.settings) {
+    // Parcels the courier cannot reach were released above and must not be
+    // offered to them; everything else that survived the claim goes.
+    const sendable = updated.filter((n) => !unserviceable.includes(n));
+
+    let claimed: Awaited<ReturnType<typeof claimForSend>> = [];
+    try {
+      claimed = await claimForSend(sendable, courierId);
+    } catch {
+      console.error("[Courier] claim failed — parcels routed but not sent");
+    }
+
+    if (claimed.length) {
+      const numbers = claimed.map((p) => p.order_number);
+      try {
+        const results = await manifestParcels(claimed, readiness.settings);
+
+        for (const r of results) {
+          if (r.ok && r.waybill) {
+            try {
+              await recordSent(r.order_number, r.waybill);
+              sent.push(r.order_number);
+            } catch {
+              // At the courier, but our note of it failed. Keep the claim:
+              // releasing it would invite a duplicate shipment.
+              await markSendUncertain(
+                [r.order_number],
+                `Accepted (waybill ${r.waybill}) but we could not save that`
+              );
+              failed.push({
+                order_number: r.order_number,
+                error: `Sent — waybill ${r.waybill}. Enter it by hand.`,
+              });
+            }
+          } else {
+            await releaseClaim(r.order_number, r.error ?? "Refused");
+            failed.push({ order_number: r.order_number, error: r.error ?? "Refused" });
+          }
+        }
+      } catch (e) {
+        const err = e instanceof DelhiveryError ? e : null;
+        if (!err || err.kind === "unknown") {
+          // We never found out. The claim stays: this is exactly the case
+          // where the shipment probably does exist.
+          await markSendUncertain(numbers, err?.message ?? "The send did not complete");
+          held = numbers.length;
+          console.error("[Courier] send outcome unknown:", numbers, e);
+        } else {
+          await Promise.all(numbers.map((n) => releaseClaim(n, err.message)));
+          for (const n of numbers) failed.push({ order_number: n, error: err.message });
+        }
+      }
+    }
+  }
+
   await auditMany(auth.staff, "order.courier_assigned", "order", updated, {
     courier_id: courierId,
     courier_name: courierName,
     unserviceable: unserviceable.length,
+    sent: sent.length,
   });
 
   return NextResponse.json({
     updated: updated.length,
+    sent: sent.length,
+    failed,
+    held,
     // Already-sent parcels that were skipped, so the message can say so rather
     // than reporting a smaller number with no explanation.
     skipped: orderNumbers.length - updated.length,

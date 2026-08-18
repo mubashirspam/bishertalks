@@ -156,10 +156,18 @@ export default function DeliveryTable({
 
       const bits: string[] = [
         to
-          ? `${json.updated} parcel${json.updated === 1 ? "" : "s"} going by ${json.courier_name}`
+          ? json.sent
+            ? `${json.sent} sent to ${json.courier_name}`
+            : `${json.updated} parcel${json.updated === 1 ? "" : "s"} routed to ${json.courier_name}`
           : `Courier cleared on ${json.updated} parcel${json.updated === 1 ? "" : "s"}`,
       ];
-      if (json.references) bits.push(`${json.references} reference${json.references === 1 ? "" : "s"} created`);
+      if (json.sent && json.updated > json.sent) {
+        bits.push(`${json.updated - json.sent} routed but not sent`);
+      }
+      if (json.failed?.length) bits.push(`${json.failed.length} refused`);
+      // The one that needs a person: we do not know whether these exist at the
+      // courier, so they are held rather than quietly retried.
+      if (json.held) bits.push(`${json.held} held — check the courier before retrying`);
       if (json.skipped) bits.push(`${json.skipped} skipped — already with a courier`);
 
       // Named, not counted. These need moving somewhere else, and a number
@@ -170,7 +178,7 @@ export default function DeliveryTable({
           `${R_BAD} ${json.courier_name} does not deliver to ${bad.length} of them: ${bad.join(", ")}`
         );
       }
-      done(bits.join(" · "), bad.length > 0);
+      done(bits.join(" · "), bad.length > 0 || !!json.failed?.length || !!json.held);
     } catch {
       done("Could not set the courier — check your connection.", true);
     }
@@ -268,14 +276,25 @@ export default function DeliveryTable({
                 no Send here and must not be. */}
             {couriers.length > 0 && (
               <>
+                {/* One press: routes the parcel, gives it a reference, checks
+                    the pincode and hands it to the courier. Irreversible at the
+                    last step — an accepted shipment is cancelled with the
+                    courier, not here — so it asks first. */}
                 <button
-                  onClick={() => setCourier(couriers[0].id)}
+                  onClick={() => {
+                    const ok = window.confirm(
+                      `Send ${ids.length} parcel${ids.length === 1 ? "" : "s"} to ${couriers[0].name}?\n\n` +
+                        "They go into the courier's system straight away. Undoing " +
+                        "this means cancelling with the courier, not here."
+                    );
+                    if (ok) void setCourier(couriers[0].id);
+                  }}
                   disabled={!!busy}
-                  title={`Mark these as going by ${couriers[0].name}`}
+                  title={`Route and hand over to ${couriers[0].name}`}
                   className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
                 >
                   <Truck className="w-3.5 h-3.5" />
-                  {busy === "courier" ? "Assigning…" : `Assign to ${couriers[0].name}`}
+                  {busy === "courier" ? "Sending…" : `Assign & send to ${couriers[0].name}`}
                 </button>
 
                 <button
