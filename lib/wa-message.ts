@@ -110,6 +110,12 @@ interface DeliveryInput {
   buyer_phone: string | null;
   status: string;
   assigned_agent_id: string | null;
+  /**
+   * Read by deliveryStage(). Without it, a parcel routed to a courier but
+   * given to no staff member reads as "New" and the customer is offered the
+   * thank-you-for-paying message instead of "it is packed and on its way".
+   */
+  courier_id?: string | null;
   courier_name: string | null;
   tracking_number: string | null;
 }

@@ -28,12 +28,17 @@ const MAX_ROWS = 20_000;
 /** How many days of the shipped/delivered chart to draw. */
 const THROUGHPUT_DAYS = 14;
 
+// courier_id is here because deliveryStage() reads it. Leaving it out did not
+// fail — it made every routed-but-unassigned parcel count as New in the strip
+// while the tabs, which filter in SQL, counted it as Routed. Two numbers on one
+// screen disagreeing by exactly the parcels that have a courier and no agent.
 const STATS_COLUMNS =
-  "status,assigned_agent_id,assigned_at,courier_entered_at,shipped_at,delivered_at,created_at";
+  "status,assigned_agent_id,assigned_at,courier_id,courier_entered_at,shipped_at,delivered_at,created_at";
 
 interface StatsRow {
   status: string;
   assigned_agent_id: string | null;
+  courier_id: string | null;
   assigned_at: string | null;
   courier_entered_at: string | null;
   shipped_at: string | null;
