@@ -165,6 +165,13 @@ async function PortalRows(args: Args) {
   const chosen = args.courierId ? couriers.find((c) => c.id === args.courierId) : null;
   const live = !!chosen && canTrack(chosen) && delhiveryReadiness(chosen.config).ready;
 
+  // Whichever active courier can actually be asked. Independent of the filter,
+  // so "sync everything" is offered even on "All couriers" — which is where
+  // most people land, and where the button used to vanish.
+  const syncCourier = couriers.find(
+    (c) => c.is_active && canTrack(c) && delhiveryReadiness(c.config).ready
+  );
+
   const totalPages = Math.ceil(count / PER_PAGE);
 
   if (!rows.length) {
@@ -200,6 +207,7 @@ async function PortalRows(args: Args) {
         startIndex={args.pageNum * PER_PAGE}
         courierNames={courierNames}
         courierId={args.courierId}
+        syncCourierId={syncCourier?.id ?? null}
         live={live}
       />
 

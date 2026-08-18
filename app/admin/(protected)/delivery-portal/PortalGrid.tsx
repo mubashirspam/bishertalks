@@ -34,6 +34,7 @@ export default function PortalGrid({
   startIndex,
   courierNames,
   courierId,
+  syncCourierId,
   live,
 }: {
   rows: PortalRow[];
@@ -42,6 +43,15 @@ export default function PortalGrid({
   courierNames: Record<string, string>;
   /** The courier being looked at, or null for all of them. */
   courierId: string | null;
+  /**
+   * The courier to run an account-wide sweep against, whatever the filter says.
+   *
+   * Separate from `courierId` because syncing everything is not a property of
+   * the view: it should not require picking a courier first, which is what hid
+   * the button whenever the filter was on "All couriers" — the state most
+   * people open the page in.
+   */
+  syncCourierId: string | null;
   /**
    * Can we ask this courier where the parcels are?
    *
@@ -170,7 +180,8 @@ export default function PortalGrid({
    * timer; this is for when there is a customer on the phone.
    */
   async function syncNow(all = false) {
-    if (!courierId) return;
+    const target = all ? syncCourierId : courierId;
+    if (!target) return;
     setSyncing(true);
     setSyncNote(null);
 
@@ -179,7 +190,7 @@ export default function PortalGrid({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          courier_id: courierId,
+          courier_id: target,
           // A sweep names nothing: the server picks every unfinished parcel it
           // can ask about, so the answer does not depend on which page is open.
           ...(all ? { all: true } : { order_numbers: rows.map((r) => r.order_number) }),
@@ -446,14 +457,16 @@ export default function PortalGrid({
       {/* A courier with live tracking replaces the whole spreadsheet ritual:
           there is nothing to copy out and nothing to upload, so the bar offers
           the one thing that is useful — go and ask them where these are. */}
-      {live && (
+      {(live || syncCourierId) && (
         <div
           className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-neutral-100 bg-neutral-50/60 ${
             error ? "" : "rounded-t-2xl"
           }`}
         >
           <span className="text-xs text-neutral-600">
-            Status comes straight from the courier — waybill and last scan below.
+            {live
+              ? "Status comes straight from the courier — waybill and last scan below."
+              : "Pick a courier above to see its waybills, or sync everything now."}
           </span>
 
           {syncNote && <span className="text-xs text-neutral-500">{syncNote}</span>}
@@ -461,8 +474,8 @@ export default function PortalGrid({
           <span className="ml-auto flex items-center gap-2">
             <button
               onClick={() => syncNow(false)}
-              disabled={syncing || !rows.length}
-              title="Ask about the parcels on this page"
+              disabled={syncing || !rows.length || !live}
+              title={live ? "Ask about the parcels on this page" : "Pick a courier above first"}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
@@ -482,8 +495,8 @@ export default function PortalGrid({
                 );
                 if (ok) void syncNow(true);
               }}
-              disabled={syncing}
-              title="Ask about every unfinished parcel, not just this page"
+              disabled={syncing || !syncCourierId}
+              title="Ask about every unfinished parcel, whatever is filtered"
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
             >
               <RefreshCcwDot className="w-3.5 h-3.5" />
