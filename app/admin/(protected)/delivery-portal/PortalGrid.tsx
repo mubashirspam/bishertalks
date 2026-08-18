@@ -398,6 +398,18 @@ export default function PortalGrid({
     delivered: "bg-green-600 border-green-600",
   };
 
+  /**
+   * Is there anything to tick for a sheet?
+   *
+   * Deliberately NOT `!live`. Whether a courier reports its own scans decides
+   * which *columns* to show; it must not decide whether a spreadsheet can be
+   * built. Tying the two together produced a dead end: for a Delhivery parcel
+   * the live view hid the sheet controls, and with sending still switched off
+   * there was no way left to get the parcel to the courier at all. The sheet
+   * is the documented fallback for exactly that situation.
+   */
+  const showPick = selectable.length > 0 || pickedRows.length > 0;
+
   const cell = "px-3 py-2 align-top";
 
   return (
@@ -435,9 +447,10 @@ export default function PortalGrid({
       )}
 
       {/* The sheet bar. Only new parcels can be ticked, so it has nothing to
-          offer a page of parcels that are all already with the courier — and
-          nothing at all to offer a courier that reports its own status. */}
-      {!live && (selectable.length > 0 || pickedRows.length > 0) && (
+          offer a page whose parcels are all already with the courier. It stays
+          available on a live courier too: the spreadsheet is how a day's
+          parcels still go out when the API is unavailable or switched off. */}
+      {showPick && (
         <div
           className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-neutral-100 bg-neutral-50/60 ${
             error ? "" : "rounded-t-2xl"
@@ -488,7 +501,7 @@ export default function PortalGrid({
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="bg-neutral-50 border-b border-neutral-200 text-left">
-              {!live && (
+              {showPick && (
               <th className="px-3 py-2.5 w-9 border-r border-neutral-100">
                 <input
                   type="checkbox"
@@ -554,7 +567,7 @@ export default function PortalGrid({
                   {/* Blank rather than a disabled box on a parcel that has
                       already been sheeted up: there is nothing to decide, and
                       a greyed tick down the column reads as "not done yet". */}
-                  {!live && (
+                  {showPick && (
                     <td className="px-3 py-2 align-top border-r border-neutral-100">
                       {canPick && (
                         <input
@@ -837,10 +850,10 @@ export default function PortalGrid({
         {live ? (
           <>
             Waybill and status come from the courier — press Sync now to ask
-            them again. The ticks still work if you need to correct something by
-            hand, but the next sync will overwrite a stage the courier disagrees
-            with. &ldquo;Not with them&rdquo; means the courier has no record of
-            that parcel at all.
+            them again. &ldquo;Not with them&rdquo; means the courier has no
+            record of that parcel at all. A parcel that has not gone yet can
+            still be ticked on the left and put on an Excel sheet, which is how
+            a day&apos;s parcels go out when sending is unavailable.
           </>
         ) : (
           <>
