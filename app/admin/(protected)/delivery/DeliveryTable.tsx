@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
-  Printer, Check, X, AlertCircle, Phone, MessageCircle, Info, ChevronUp, UserPlus, UserMinus,
+  Printer, Check, X, AlertCircle, Phone, MessageCircle, Info, ChevronUp, UserMinus,
   Truck, RefreshCw,
 } from "lucide-react";
 import {
@@ -61,7 +61,6 @@ export default function DeliveryTable({
   const params = useSearchParams();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [agentId, setAgentId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -101,7 +100,6 @@ export default function DeliveryTable({
     setMessage(null);
 
     const body = {
-      agent_id: agentId,
       ...(scope === "selected"
         ? { order_numbers: ids }
         : { filters: Object.fromEntries(params.entries()) }),
@@ -130,38 +128,12 @@ export default function DeliveryTable({
       a.click();
       URL.revokeObjectURL(url);
 
-      done(
-        `${count} label${count === 1 ? "" : "s"} downloaded — assigned to ${agentName}.`
-      );
+      done(`${count} label${count === 1 ? "" : "s"} downloaded.`);
     } catch {
       done("Download failed — check your connection and try again.", true);
     }
   };
 
-  /** Hand the ticked parcels to an agent, or take them back with null. */
-  const assign = async (to: string | null) => {
-    setBusy(to ? "assign" : "unassign");
-    setMessage(null);
-
-    try {
-      const res = await fetch("/api/admin/delivery/assign", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_numbers: ids, agent_id: to }),
-      });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok) return done(json.error ?? "Assignment failed", true);
-
-      done(
-        to
-          ? `${json.updated} parcel${json.updated === 1 ? "" : "s"} assigned to ${json.agent_name} — now on their portal.`
-          : `${json.updated} parcel${json.updated === 1 ? "" : "s"} moved back to New.`
-      );
-    } catch {
-      done("Assignment failed — check your connection and try again.", true);
-    }
-  };
 
   /**
    * Say which courier carries the ticked parcels. Assignment only — it sends
@@ -235,8 +207,6 @@ export default function DeliveryTable({
     }
   };
 
-  const agentName = agents.find((a) => a.id === agentId)?.name ?? "";
-  const noAgent = !agentId;
 
 
   /** Prefix for the one message that is a warning rather than a result. */
@@ -253,45 +223,17 @@ export default function DeliveryTable({
     `Print ${printAllCount < matching ? `first ${printAllCount}` : `all ${matching}`} ` +
     `label${printAllCount === 1 ? "" : "s"} (${sheets} sheet${sheets === 1 ? "" : "s"})`;
 
-  /**
-   * Whose worklist it lands on.
-   *
-   * Optional now, and deliberately secondary. It used to be required, which
-   * made routing a two-step decision — pick the agent AND pick the courier —
-   * for a courier where those are the same answer: kkrlogistic is a staff
-   * login, KKR is Delhivery's franchise, and choosing both meant saying
-   * "Delhivery" twice with different controls.
-   *
-   * A parcel going to an API courier needs no agent at all; it goes into the
-   * courier's system, not onto somebody's list. It still matters for a courier
-   * a person handles, so the control stays — it just stops blocking.
-   */
-  const agentPicker = (
-    <select
-      value={agentId}
-      onChange={(e) => setAgentId(e.target.value)}
-      className="bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500"
-    >
-      <option value="">Choose delivery agent…</option>
-      {agents.map((a) => (
-        <option key={a.id} value={a.id}>
-          {a.name}
-        </option>
-      ))}
-    </select>
-  );
 
   return (
     <div>
       {/* ── Action bar ───────────────────────────────────────────────────── */}
       <div className="bg-white border border-neutral-200 rounded-2xl p-3 shadow-sm mb-4 flex flex-wrap items-center gap-2">
-        {!agents.length ? (
+        {/* The gate is the courier, not a staff member. It used to check for a
+            delivery agent, which blocked the entire bar for a flow that no
+            longer needs one. */}
+        {!couriers.length ? (
           <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            No delivery agents yet — add one under{" "}
-            <Link href="/admin/staff" className="underline font-semibold">
-              Staff
-            </Link>{" "}
-            with portal access before assigning parcels.
+            No courier is switched on, so parcels cannot be routed anywhere.
           </p>
         ) : ids.length === 0 ? (
           <>
@@ -299,7 +241,6 @@ export default function DeliveryTable({
               {matching} order{matching === 1 ? "" : "s"} in this view · tick rows
               to choose a courier
             </p>
-            {agentPicker}
             <button
               onClick={() => printLabels("filtered")}
               disabled={!matching || !!busy}
@@ -351,22 +292,6 @@ export default function DeliveryTable({
               </>
             )}
 
-            {/* Optional. A parcel going to Delhivery never needs one. */}
-            {agentPicker}
-
-            <button
-              onClick={() => assign(agentId)}
-              disabled={!!busy || noAgent}
-              title={
-                noAgent
-                  ? "Optional — only needed if a person is handling this parcel"
-                  : `Also show these on ${agentName}'s portal`
-              }
-              className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              {busy === "assign" ? "Assigning…" : "Assign agent"}
-            </button>
 
             <button
               onClick={() => printLabels("selected")}
@@ -374,17 +299,17 @@ export default function DeliveryTable({
               className={`${btn} bg-primary-500 text-white hover:bg-primary-600`}
             >
               <Printer className="w-3.5 h-3.5" />
-              {busy === "print" ? "Building PDF…" : "Print & assign"}
+              {busy === "print" ? "Building PDF…" : "Print labels"}
             </button>
 
             <button
-              onClick={() => assign(null)}
+              onClick={() => setCourier(null)}
               disabled={!!busy}
-              title="Take these back — they return to New"
+              title="Take these back — they return to Unassigned"
               className={`${btn} border border-neutral-200 text-neutral-600 hover:border-neutral-400`}
             >
               <UserMinus className="w-3.5 h-3.5" />
-              {busy === "unassign" ? "Removing…" : "Unassign"}
+              {busy === "courier" ? "Removing…" : "Unassign"}
             </button>
           </>
         )}

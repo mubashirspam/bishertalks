@@ -62,10 +62,15 @@ export default async function DeliveryPortalPage({
 }) {
   const staff = await requirePageAccess("delivery.portal");
 
-  // Owners and managers hold delivery.view — they run the queue, so they see
-  // every agent's parcels and can narrow to one. Everyone else sees exactly
-  // what was handed to them, and the filter isn't offered because there is
-  // nothing for them to choose between.
+  // Owners and managers hold delivery.view — they run the queue, so they get
+  // the agent filter. Everyone else does not, and is no longer scoped to rows
+  // bearing their own staff id.
+  //
+  // That scoping was correct when a parcel was handed to a person. It is wrong
+  // now that a parcel is handed to a courier: assigning only the courier — the
+  // whole point of the new flow — left KKR's own login staring at an empty
+  // portal, and the only way to fix it was to also assign an agent, which is
+  // exactly the duplicate decision this was meant to remove.
   const seesEveryone = can(staff, "delivery.view");
   const [agents, couriers] = await Promise.all([
     seesEveryone ? listDeliveryAgents() : Promise.resolve([]),
@@ -83,7 +88,11 @@ export default async function DeliveryPortalPage({
     tracking: portalTracking(params.tracking),
     handover: isHandoverState(params.handover) ? params.handover : null,
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
-    agentId: seesEveryone ? picked : staff.id,
+    // null for an agent: they see every parcel routed to a courier, which
+    // with one partner is precisely their work. If a second delivery company
+    // is ever added, this becomes "parcels for the courier this login belongs
+    // to" and needs a staff-to-courier link.
+    agentId: seesEveryone ? picked : null,
     seesEveryone,
   };
 
