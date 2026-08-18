@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
+  Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -30,10 +30,6 @@ export const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, permission: "orders.view" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
   { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
-  // Under Delivery because it is a setting for that screen: who the parcels on
-  // it can be handed to. `delivery.assign` — the same authority that chooses a
-  // courier for a parcel decides which couriers exist.
-  { href: "/admin/couriers", label: "Couriers", icon: PackageCheck, permission: "delivery.assign" },
   { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
   { href: "/admin/reports", label: "Profit & targets", icon: Calculator, permission: "reports.view" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },

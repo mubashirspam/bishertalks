@@ -89,59 +89,28 @@ export function isCourierHandoff(v: unknown): v is CourierHandoff {
 }
 
 /**
- * Partners we have actually written an integration for, by slug.
- *
- * A row can be set to `api` in the database before its adapter exists — that is
- * a misconfiguration, not a crash, and this is what lets the screens say so
- * instead of failing at the moment someone presses send.
- *
- * Delhivery was held out of this list until a manifest call had genuinely been
- * accepted, because the payload had never been tried and there is no staging
- * account to try it on — the token is production-only. That proof now exists:
- * six real shipments accepted on 18 August, waybills 54132310017275 through
- * ...323, every one Manifested under KKR LOGISTICS FRANCHISE.
- */
-// EMPTY ON PURPOSE, AND NOT A TODO.
-//
-// KKR LOGISTICS FRANCHISE does the manifestation. We hand them the parcels and
-// the data; creating the shipment is their step, not ours. Manifesting from
-// here would produce a second waybill for a parcel they are about to manifest
-// themselves — two shipments, two pickups, two delivery charges, one book.
-//
-// Our use of Delhivery's API is READ ONLY: tracking, serviceability and
-// charges. Nothing in this codebase may call /api/cmu/create.json.
-export const INTEGRATED_SLUGS: readonly string[] = [];
-
-/**
- * Couriers whose tracking API we have written, by the name used in
+ * Couriers whose tracking API we have written, by the name in
  * `config.tracking`.
  *
- * Unlike INTEGRATED_SLUGS this is not gated on a live send being proven —
- * asking where a parcel is cannot create, charge for or move anything, so it
- * carries none of the risk that keeps sending switched off.
+ * Tracking only. Asking where a parcel is cannot create, charge for or move
+ * anything, which is why this list exists while its sending counterpart does
+ * not — see below.
  */
 export const TRACKED_INTEGRATIONS: readonly string[] = ["delhivery"];
 
 /**
- * Can we actually hand a parcel to this partner ourselves?
+ * We do not manifest. KKR LOGISTICS FRANCHISE does.
  *
- * False for a `manual` partner (nothing to call), and false for an `api`
- * partner whose adapter has not been written yet — which is every one of them
- * today. The screens read this rather than checking the handoff directly, so
- * shipping the Delhivery adapter turns the button on in one place.
+ * There is deliberately no code in this repository that can create a shipment
+ * at Delhivery — the route, the payload builder and the send script were all
+ * removed rather than left behind a flag, because a flag is something someone
+ * turns on. Manifesting from here would produce a second waybill for a parcel
+ * KKR is about to manifest themselves: two shipments, two pickups, two
+ * delivery charges, one book.
+ *
+ * Our use of their API is read-only — tracking, serviceability, charges,
+ * packing slips.
  */
-export function canSendAutomatically(courier: Courier): boolean {
-  return courier.handoff === "api" && INTEGRATED_SLUGS.includes(courier.slug);
-}
-
-/**
- * A partner set to `api` with no adapter behind it. Worth naming, because the
- * fix is "write the integration or change the handoff", and an admin staring at
- * a dead button deserves to be told which.
- */
-export function isMisconfigured(courier: Courier): boolean {
-  return courier.handoff === "api" && !INTEGRATED_SLUGS.includes(courier.slug);
-}
 
 /**
  * Can we ask this courier where a parcel is?

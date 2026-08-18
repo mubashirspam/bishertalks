@@ -10,8 +10,6 @@ import { deliveryStats } from "@/lib/db/delivery-stats";
 import { fetchDeliveryPage } from "@/lib/db/orders-page";
 import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
 import { listCouriers } from "@/lib/db/couriers";
-import { canSendAutomatically, canTrack } from "@/lib/couriers";
-import { delhiveryReadiness } from "@/lib/delhivery/config";
 import { SkeletonTable, SkeletonTabs } from "@/components/admin/Skeleton";
 import {
   NavigationPending,
@@ -20,6 +18,7 @@ import {
 import DeliveryFilters from "./DeliveryFilters";
 import DeliveryStatsStrip from "./DeliveryStats";
 import DeliveryTable from "./DeliveryTable";
+import ExceptionImport from "./ExceptionImport";
 import { requirePageAccess } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -146,17 +145,6 @@ async function QueueTable(args: Args) {
   const agentNames = Object.fromEntries(staff.map((s) => [s.id, s.name]));
   const courierNames = Object.fromEntries(couriers.map((c) => [c.id, c.name]));
 
-  // Which couriers each button may be used on. Worked out here rather than in
-  // the browser because it depends on the API token, which must never leave the
-  // server — the client is told yes or no, never why.
-  //
-  // Two lists, not one. Sending is gated on an integration we have proven;
-  // asking where a parcel is carries none of that risk and is available on any
-  // courier with tracking behind it. Conflating them left Sync greyed out on
-  // every parcel while the tracking it needed was working perfectly.
-  const ready = couriers.filter((c) => c.is_active && delhiveryReadiness(c.config).ready);
-  const sendableCourierIds = ready.filter(canSendAutomatically).map((c) => c.id);
-  const trackableCourierIds = ready.filter(canTrack).map((c) => c.id);
   const orders = rows as unknown as DeliveryRow[];
   const totalPages = Math.ceil(count / PER_PAGE);
   const pageNum = args.pageNum;
@@ -171,6 +159,10 @@ async function QueueTable(args: Args) {
 
   return (
     <>
+      <div className="mb-4">
+        <ExceptionImport />
+      </div>
+
       <DeliveryTable
         rows={orders}
         matching={count}
@@ -178,8 +170,6 @@ async function QueueTable(args: Args) {
         agentNames={agentNames}
         couriers={couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))}
         courierNames={courierNames}
-        sendableCourierIds={sendableCourierIds}
-        trackableCourierIds={trackableCourierIds}
       />
 
       {totalPages > 1 && (

@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
   Printer, Check, X, AlertCircle, Phone, MessageCircle, Info, ChevronUp, UserPlus, UserMinus,
-  Truck, Send, RefreshCw,
+  Truck, RefreshCw,
 } from "lucide-react";
 import {
   deliveryStage,
@@ -45,8 +45,6 @@ export default function DeliveryTable({
   agentNames,
   couriers,
   courierNames,
-  sendableCourierIds,
-  trackableCourierIds,
 }: {
   rows: DeliveryRow[];
   matching: number;
@@ -58,24 +56,12 @@ export default function DeliveryTable({
   couriers: { id: string; name: string }[];
   /** id → name for display, including couriers since switched off. */
   courierNames: Record<string, string>;
-  /**
-   * Which of those we can actually send to from here — an integration exists
-   * and it is configured. Worked out on the server, because knowing it needs
-   * the API token.
-   */
-  sendableCourierIds: string[];
-  /**
-   * Which we can ask for status. A superset of the above in practice: a
-   * courier we hand a spreadsheet to can still report its own scans.
-   */
-  trackableCourierIds: string[];
 }) {
   const router = useRouter();
   const params = useSearchParams();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [agentId, setAgentId] = useState("");
-  const [courierId, setCourierId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -218,52 +204,6 @@ export default function DeliveryTable({
     }
   };
 
-  /**
-   * Hand the ticked parcels to the courier's API.
-   *
-   * The irreversible one, so it asks first. An accepted shipment has to be
-   * cancelled with the courier — there is no undo on this screen.
-   */
-  const sendToCourier = async () => {
-    const courier = couriers.find((c) => c.id === courierId);
-    if (!courier) return;
-
-    const ok = window.confirm(
-      `Send ${ids.length} parcel${ids.length === 1 ? "" : "s"} to ${courier.name}?\n\n` +
-        `They will have them straight away. Undoing this means cancelling with ` +
-        `${courier.name}, not here.`
-    );
-    if (!ok) return;
-
-    setBusy("send");
-    setMessage(null);
-
-    try {
-      const res = await fetch("/api/admin/delivery/courier-send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_numbers: ids, courier_id: courierId }),
-      });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok) {
-        // The readiness list, when the integration isn't configured yet.
-        const detail = Array.isArray(json.missing) && json.missing.length
-          ? ` Still needed: ${json.missing.join("; ")}`
-          : "";
-        return done((json.error ?? "Send failed") + detail, true);
-      }
-
-      const bits = [`${json.sent} sent to ${json.courier}`];
-      if (json.failed?.length) bits.push(`${json.failed.length} refused`);
-      if (json.skipped) bits.push(`${json.skipped} skipped`);
-      if (json.env && json.env !== "production") bits.push("(staging — not real)");
-
-      done(bits.join(" · "), !!json.failed?.length);
-    } catch {
-      done("Send failed — check your connection.", true);
-    }
-  };
 
   /**
    * Ask the courier where the ticked parcels are.
@@ -279,7 +219,7 @@ export default function DeliveryTable({
       const res = await fetch("/api/admin/delivery/courier-sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_numbers: ids, courier_id: courierId }),
+        body: JSON.stringify({ order_numbers: ids, courier_id: couriers[0]?.id }),
       });
       const json = await res.json().catch(() => ({}));
 
@@ -298,10 +238,6 @@ export default function DeliveryTable({
   const agentName = agents.find((a) => a.id === agentId)?.name ?? "";
   const noAgent = !agentId;
 
-  const chosenCourier = couriers.find((c) => c.id === courierId) ?? null;
-  /** Only a courier with an integration can be sent to from here. */
-  const canSend = !!chosenCourier && sendableCourierIds.includes(chosenCourier.id);
-  const canSync = !!chosenCourier && trackableCourierIds.includes(chosenCourier.id);
 
   /** Prefix for the one message that is a warning rather than a result. */
   const R_BAD = "⚠";
@@ -385,66 +321,30 @@ export default function DeliveryTable({
               <X className="w-3 h-3" /> Clear
             </button>
 
-            {/* The courier comes first because it is *the* decision. Whether a
-                staff member also needs to see the parcel is a second, optional
-                question, so it sits behind the divider below. */}
+            {/* One partner, so this is a button rather than a choice.
+                Assigning hands the parcel to KKR's queue and nothing more —
+                KKR manifests it at Delhivery themselves, which is why there is
+                no Send here and must not be. */}
             {couriers.length > 0 && (
               <>
-                <select
-                  value={courierId}
-                  onChange={(e) => setCourierId(e.target.value)}
-                  className="bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500"
-                >
-                  <option value="">Choose courier…</option>
-                  {couriers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
-
                 <button
-                  onClick={() => setCourier(courierId)}
-                  disabled={!!busy || !courierId}
-                  title={
-                    courierId
-                      ? `Mark these as going by ${chosenCourier?.name}`
-                      : "Choose a courier first"
-                  }
-                  className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
+                  onClick={() => setCourier(couriers[0].id)}
+                  disabled={!!busy}
+                  title={`Mark these as going by ${couriers[0].name}`}
+                  className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
                 >
                   <Truck className="w-3.5 h-3.5" />
-                  {busy === "courier" ? "Setting…" : "Set courier"}
+                  {busy === "courier" ? "Assigning…" : `Assign to ${couriers[0].name}`}
                 </button>
 
                 <button
                   onClick={syncFromCourier}
-                  disabled={!!busy || !canSync}
-                  title={
-                    canSync
-                      ? `Ask ${chosenCourier?.name} where these parcels are`
-                      : "This courier has no live tracking — enter status by hand"
-                  }
+                  disabled={!!busy}
+                  title="Ask Delhivery where these parcels are"
                   className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${busy === "sync" ? "animate-spin" : ""}`} />
                   {busy === "sync" ? "Asking…" : "Sync status"}
-                </button>
-
-                <button
-                  onClick={sendToCourier}
-                  disabled={!!busy || !canSend}
-                  title={
-                    !courierId
-                      ? "Choose a courier first"
-                      : canSend
-                        ? `Send these to ${chosenCourier?.name} now`
-                        : `${chosenCourier?.name} parcels aren't sent from here — hand them over and enter the tracking number`
-                  }
-                  className={`${btn} bg-emerald-600 text-white hover:bg-emerald-700`}
-                >
-                  <Send className="w-3.5 h-3.5" />
-                  {busy === "send" ? "Sending…" : "Send"}
                 </button>
 
                 <span className="w-px h-6 bg-neutral-200" />

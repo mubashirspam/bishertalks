@@ -3,18 +3,15 @@
  * Prove the Delhivery integration works before trusting it.
  *
  *   node scripts/delhivery-smoke.mjs --serviceability 673001
- *   node scripts/delhivery-smoke.mjs --manifest
  *   node scripts/delhivery-smoke.mjs --track <waybill>
- *   node scripts/delhivery-smoke.mjs --cancel <waybill>
  *
  * Task 0.4 of docs/delhivery-integration-plan.md, made repeatable: the payload
  * the app sends has never been accepted by Delhivery, and their errors are
  * terse. Start with --serviceability, which is read-only and proves the token
  * and the host agree.
  *
- * It runs against whichever host DELHIVERY_ENV names. On production
- * --manifest additionally needs --yes-create-real-shipment, because there the
- * result is a live parcel Delhivery will collect and bill for.
+ * Every call here is read-only. Creating shipments is KKR's job, so there is
+ * no manifest option and there should not be one.
  */
 
 import { readFileSync } from "node:fs";
@@ -93,84 +90,10 @@ if (has("--serviceability")) {
   await call("/c/api/pin-codes/json/", { query: { filter_codes: pin } });
 }
 
-// ── Manifest: creates a shipment on staging ──────────────────────────────────
-if (has("--manifest")) {
-  // The only call here that creates something real. On production it needs to
-  // be asked for twice — the resulting parcel is a live shipment Delhivery
-  // will try to collect and charge for.
-  if (PROD && !has("--yes-create-real-shipment")) {
-    console.error(
-      `${RED}This is a PRODUCTION token — --manifest would create a real shipment.\n` +
-        `If that is what you want, add --yes-create-real-shipment, and cancel it\n` +
-        `afterwards with --cancel <waybill>.${OFF}`
-    );
-    process.exit(1);
-  }
-
-  const pickup = env.DELHIVERY_PICKUP_LOCATION;
-  if (!pickup) {
-    console.error(
-      `${RED}Set DELHIVERY_PICKUP_LOCATION in .env.local first — it must match a\n` +
-        `warehouse Delhivery has registered, exactly, or they reject the payload.${OFF}`
-    );
-    process.exit(1);
-  }
-
-  // A deliberately obvious test order number, so anything it creates is easy to
-  // recognise and cancel afterwards.
-  const orderId = `SMOKE-${Date.now().toString(36).toUpperCase()}`;
-
-  const payload = {
-    shipments: [
-      {
-        name: "SMOKE TEST",
-        add: "Ground Floor, Hi Dawn Tower, Kuniyil Kavu Road, Kozhikode,9999999999",
-        pin: "673001",
-        city: "Kozhikode",
-        state: "Kerala",
-        country: "India",
-        phone: "9999999999",
-        order: orderId,
-        waybill: "",
-        payment_mode: "Prepaid",
-        total_amount: 699,
-        cod_amount: 0,
-        products_desc: "BOOK",
-        quantity: 1,
-        weight: 250,
-        shipment_length: 10,
-        shipment_width: 10,
-        shipment_height: 10,
-        fragile_shipment: "true",
-        shipping_mode: env.DELHIVERY_MODE || "Surface",
-        seller_name: "BISHER",
-        seller_add: "KOZHIKODE-6282680794",
-        seller_gst_tin: env.DELHIVERY_SELLER_GST || "",
-        hsn_code: env.DELHIVERY_HSN_CODE || "4901",
-        return_add: "GROUND FLOOR, 63/2069/C2, HI DAWN TOWER, KUNIYIL KAVU ROAD, KOZHIKODE",
-        return_pin: "673001",
-        return_name: "BISHER",
-        client: env.DELHIVERY_CLIENT_NAME || "",
-      },
-    ],
-    pickup_location: { name: pickup },
-  };
-
-  console.log(`\n${BOLD}Manifest — order ${orderId}${OFF}`);
-  console.log(`${DIM}${JSON.stringify(payload, null, 2)}${OFF}`);
-  // Content-Type json with a form-shaped body, and the JSON NOT url-encoded —
-  // exactly as Delhivery's own Postman collection sends it, and exactly what
-  // lib/delhivery/manifest.ts does.
-  await call("/api/cmu/create.json", {
-    method: "POST",
-    form: `format=json&data=${JSON.stringify(payload)}`,
-    contentType: "application/json",
-  });
-  console.log(
-    `\n${DIM}If a waybill came back, cancel it:\n` +
-      `  node scripts/delhivery-smoke.mjs --cancel <waybill>${OFF}`
-  );
-}
+// Manifesting is deliberately absent. KKR LOGISTICS FRANCHISE creates the
+// shipments; nothing in this repository may call /api/cmu/create.json, and a
+// "just for testing" arm in a smoke script is exactly how that rule gets
+// broken at 11pm. The endpoints below are all read-only.
 
 if (has("--track")) {
   const waybill = valueOf("--track");
@@ -178,21 +101,12 @@ if (has("--track")) {
   await call("/api/v1/packages/json/", { query: { waybill } });
 }
 
-if (has("--cancel")) {
-  const waybill = valueOf("--cancel");
-  console.log(`\n${BOLD}Cancel — ${waybill}${OFF}`);
-  await call("/api/p/edit", {
-    method: "POST",
-    json: { waybill, cancellation: "true" },
-  });
-}
 
 if (!args.length) {
   console.log(
     `${BOLD}Usage${OFF}\n` +
       `  --serviceability <pin>   read-only; start here\n` +
-      `  --manifest               CREATES A SHIPMENT (needs --yes-create-real-shipment on prod)\n` +
-      `  --track <waybill>\n` +
-      `  --cancel <waybill>\n`
+
+      `  --track <waybill>\n`
   );
 }

@@ -1,118 +1,76 @@
-import type { Courier } from "@/lib/couriers";
-
 /**
- * What is actually happening to this parcel.
+ * What is actually happening to a parcel.
  *
  * `status` answers "where is it in the customer's journey". It cannot answer
  * "is it stuck, and whose problem is it" — a parcel reading Confirmed might be
- * unrouted, waiting on a sheet, refused by the courier, or one the courier
- * never received. Those need four different people to do four different things.
+ * unassigned, waiting to be handed to KKR, sitting with KKR unmanifested, or
+ * one KKR sent by another road entirely. Those need different people to do
+ * different things.
  *
- * So this is the second axis, derived from columns rather than stored, because
- * a stored copy is a thing that drifts. Every parcel has exactly one of these,
- * the order of the checks below is the priority order, and the last branch is
- * unreachable-by-construction rather than a default.
+ * Derived in SQL (migration 0038, the `handover_state` column on
+ * `portal_orders`) so it can be filtered, counted and paged. This module holds
+ * only what each state is *called*; nothing here recomputes it, because a
+ * second copy is a copy that drifts.
  *
- * The whole model, including why each state exists, is in
- * docs/delivery-states.md.
+ * The flow these describe, in order:
+ *
+ *   unassigned         nobody has decided anything yet
+ *   to_hand_over       ours, going to KKR, not given to them yet
+ *   awaiting_manifest  KKR has the data; they manifest at Delhivery
+ *   with_courier       manifested — Delhivery's scans drive it from here
+ *   not_manifested     we asked Delhivery and there is no shipment
+ *   other_transport    KKR could not send it by Delhivery and used another road
  */
 
 export const HANDOVER_STATES = [
-  "unrouted",
-  "unserviceable",
-  "checking",
-  "ready",
-  "send_failed",
-  "held",
-  "unconfirmed",
-  "not_received",
+  "unassigned",
+  "to_hand_over",
+  "awaiting_manifest",
   "with_courier",
-  "handed_over",
-  "legacy_unmatched",
+  "not_manifested",
+  "other_transport",
 ] as const;
 
 export type HandoverState = (typeof HANDOVER_STATES)[number];
 
-/** What each state is called on screen, in an operator's words. */
 export const HANDOVER_LABELS: Record<HandoverState, string> = {
-  unrouted: "Not routed",
-  unserviceable: "Not serviceable",
-  checking: "Checking pincode",
-  ready: "Ready to send",
-  send_failed: "Send failed",
-  held: "Held — check courier",
-  unconfirmed: "Awaiting confirmation",
-  not_received: "Not received",
-  with_courier: "With the courier",
-  handed_over: "Handed over",
-  legacy_unmatched: "No reference",
+  unassigned: "Unassigned",
+  to_hand_over: "To hand over",
+  awaiting_manifest: "Awaiting manifest",
+  with_courier: "With Delhivery",
+  not_manifested: "Not manifested",
+  other_transport: "Sent another way",
 };
 
-/** The one line of explanation each needs, and the action it implies. */
 export const HANDOVER_HINTS: Record<HandoverState, string> = {
-  unrouted: "No courier chosen yet.",
-  unserviceable: "This courier does not deliver to that pincode — route it to one that does.",
-  checking: "We have not checked whether this courier reaches that pincode.",
-  ready: "Routed and ready. Send it, or download the sheet.",
-  send_failed: "The courier refused it. Fix what they named and send again.",
-  held: "We never found out whether the send worked. Check the courier before sending again — it may already be there.",
-  unconfirmed: "Handed over, but we have not yet asked the courier whether they have it.",
-  not_received: "We asked, and the courier has no record of it. It never arrived.",
-  with_courier: "The courier has it. Status comes from their scans.",
-  handed_over: "Given to a courier who does not report back. Enter the tracking number by hand.",
-  legacy_unmatched: "Shipped before reference numbers existed, so it cannot be matched automatically.",
+  unassigned: "No courier chosen. Tick it and assign it to KKR.",
+  to_hand_over: "Assigned to KKR but not handed over yet — download the sheet for them.",
+  awaiting_manifest: "KKR has the data. They manifest it at Delhivery; the waybill appears here when they do.",
+  with_courier: "Manifested at Delhivery. Status comes from their scans.",
+  not_manifested: "We asked Delhivery and there is no shipment. Either KKR has not manifested it, or they could not and have not reported it yet.",
+  other_transport: "KKR could not send this by Delhivery and used another service. Tracking came from their spreadsheet.",
 };
 
-/** Which need somebody to do something, for the "needs attention" filter. */
+/** The ones where somebody has to do something. */
 export const HANDOVER_NEEDS_ACTION: readonly HandoverState[] = [
-  "unserviceable",
-  "send_failed",
-  "held",
-  "not_received",
-  "legacy_unmatched",
+  "unassigned",
+  "to_hand_over",
+  "not_manifested",
 ];
 
-/**
- * Read off the row, never recomputed.
- *
- * The derivation lives in SQL (migration 0035, the `handover_state` column on
- * `portal_orders`) so that it can be filtered, counted and paged natively —
- * a state you can only compute in application code is a state you cannot work
- * from, because finding the seven parcels that need attention would mean
- * loading all of them.
- *
- * Keeping a second copy here would be a copy that drifts, so there is none.
- */
+/** Chip colour by meaning: green settled, amber waiting, red stuck. */
+export const HANDOVER_TONE: Record<HandoverState, string> = {
+  unassigned: "border-neutral-500 bg-neutral-100 text-neutral-800",
+  to_hand_over: "border-blue-500 bg-blue-50 text-blue-700",
+  awaiting_manifest: "border-amber-500 bg-amber-50 text-amber-800",
+  with_courier: "border-green-600 bg-green-50 text-green-700",
+  not_manifested: "border-red-600 bg-red-50 text-red-700",
+  other_transport: "border-purple-500 bg-purple-50 text-purple-700",
+};
+
 export function isHandoverState(v: unknown): v is HandoverState {
   return typeof v === "string" && (HANDOVER_STATES as readonly string[]).includes(v);
 }
 
-/** The subset worth surfacing as chips — the rest are reachable via "All". */
-export const HANDOVER_CHIPS: readonly HandoverState[] = [
-  "unrouted",
-  "checking",
-  "ready",
-  "unconfirmed",
-  "with_courier",
-  "not_received",
-  "unserviceable",
-  "send_failed",
-  "held",
-  "handed_over",
-  "legacy_unmatched",
-];
-
-/** Colours matching what each state means: green fine, amber waiting, red stuck. */
-export const HANDOVER_TONE: Record<HandoverState, string> = {
-  unrouted: "border-neutral-500 bg-neutral-100 text-neutral-800",
-  checking: "border-blue-500 bg-blue-50 text-blue-700",
-  ready: "border-blue-500 bg-blue-50 text-blue-700",
-  unconfirmed: "border-amber-500 bg-amber-50 text-amber-800",
-  with_courier: "border-green-600 bg-green-50 text-green-700",
-  not_received: "border-red-600 bg-red-50 text-red-700",
-  unserviceable: "border-red-600 bg-red-50 text-red-700",
-  send_failed: "border-red-600 bg-red-50 text-red-700",
-  held: "border-red-600 bg-red-50 text-red-700",
-  handed_over: "border-neutral-500 bg-neutral-100 text-neutral-800",
-  legacy_unmatched: "border-amber-500 bg-amber-50 text-amber-800",
-};
+/** Every state, in the order the work happens — for chip rows and dropdowns. */
+export const HANDOVER_CHIPS: readonly HandoverState[] = HANDOVER_STATES;
