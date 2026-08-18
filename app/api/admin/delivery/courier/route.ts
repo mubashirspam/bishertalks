@@ -200,6 +200,12 @@ export async function POST(request: NextRequest) {
                 error: `Sent — waybill ${r.waybill}. Enter it by hand.`,
               });
             }
+          } else if (r.uncertain) {
+            // Delhivery said the package might have been saved. Holding it is
+            // the only safe reading: releasing would offer a second manifest
+            // for a shipment that may already exist.
+            await markSendUncertain([r.order_number], r.error ?? "Outcome unknown");
+            held++;
           } else {
             await releaseClaim(r.order_number, r.error ?? "Refused");
             failed.push({ order_number: r.order_number, error: r.error ?? "Refused" });

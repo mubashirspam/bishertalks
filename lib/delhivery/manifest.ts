@@ -55,6 +55,15 @@ export interface ManifestResult {
   waybill: string | null;
   /** Their wording when they refuse one, for the admin screen. */
   error: string | null;
+  /**
+   * They told us they do not know either.
+   *
+   * Delhivery answers some failures with "Package creation API error. Package
+   * might be saved." — which is not a refusal, it is an admission that the
+   * shipment may exist. Treating it as a refusal releases the claim and invites
+   * a second manifest for a parcel that already has one.
+   */
+  uncertain: boolean;
 }
 
 interface CreateResponse {
@@ -189,6 +198,22 @@ export async function manifestParcels(
 }
 
 /**
+ * Phrases in which Delhivery is telling us the outcome is unknown.
+ *
+ * Their wording, not ours. "Package might be saved" is the important one and
+ * means exactly what it says.
+ */
+const UNCERTAIN_PHRASES = [
+  "might be saved",
+  "may be saved",
+  "might have been created",
+  "contact tech.admin",
+];
+
+const soundsUncertain = (text: string) =>
+  UNCERTAIN_PHRASES.some((p) => text.toLowerCase().includes(p));
+
+/**
  * Line their answer up with what we sent.
  *
  * Matched on `refnum` (our order number) rather than array position: their
@@ -213,8 +238,9 @@ function matchResults(
         order_number: p.order_number,
         ok: false,
         waybill: null,
-        // Deliberately not "failed": Delhivery said nothing about this parcel,
-        // which is not the same as refusing it.
+        // Delhivery said nothing about this parcel, which is not the same as
+        // refusing it — so it is uncertain, and must be held.
+        uncertain: true,
         error:
           response.rmk?.trim() ||
           "Delhivery's response did not mention this parcel — check their dashboard before sending it again.",
@@ -233,6 +259,7 @@ function matchResults(
       order_number: p.order_number,
       ok,
       waybill: ok ? String(pkg.waybill) : null,
+      uncertain: !ok && soundsUncertain(remarks),
       error: ok ? null : remarks || "Delhivery refused this parcel without saying why.",
     };
   });
