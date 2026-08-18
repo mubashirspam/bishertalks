@@ -20,6 +20,8 @@ export interface DeliveryFilters {
   agent?: string;
   /** A courier id, or "none" for parcels with no courier chosen yet. */
   courier?: string;
+  /** A handover_state value (0035) — what is actually happening to it. */
+  handover?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -55,6 +57,8 @@ export interface DeliveryRow {
   courier_send_error: string | null;
   /** The courier's latest scan, in their wording. */
   courier_last_scan: string | null;
+  /** What is actually happening to it — see docs/delivery-states.md. */
+  handover_state: string | null;
   courier_last_scan_at: string | null;
   shipped_at: string | null;
   delivered_at: string | null;
@@ -67,7 +71,7 @@ export const DELIVERY_COLUMNS =
   "status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
   "assigned_agent_id,assigned_at,courier_entered_at," +
   "courier_id,courier_sent_at,courier_send_error," +
-  "courier_last_scan,courier_last_scan_at," +
+  "courier_last_scan,courier_last_scan_at,handover_state," +
   "shipped_at,delivered_at,created_at";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -89,8 +93,11 @@ export function buildDeliveryQuery(
   filters: DeliveryFilters,
   { countOnly = false, columns = DELIVERY_COLUMNS } = {}
 ) {
+  // portal_orders rather than orders: same rows, plus the derived
+  // handover_state the filters below need (migration 0035). Reading a view
+  // costs nothing here — it is a projection, not a materialisation.
   let query = supabaseAdmin
-    .from("orders")
+    .from("portal_orders")
     .select(countOnly ? "id" : columns, { count: "exact", head: countOnly })
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
@@ -111,6 +118,8 @@ export function buildDeliveryQuery(
   // The other half of "who is holding this parcel" — the agent carries it to
   // the courier, and the courier takes it from there. Same guard on the id,
   // for the same reason: it comes straight off a URL.
+  if (filters.handover) query = query.eq("handover_state", filters.handover);
+
   if (filters.courier === "none") {
     query = query.is("courier_id", null);
   } else if (isUuid(filters.courier)) {
@@ -174,5 +183,6 @@ export function parseDeliveryFilters(
     sort: get("sort") === "oldest" ? "oldest" : "newest",
     agent: get("agent"),
     courier: get("courier"),
+    handover: get("handover"),
   };
 }

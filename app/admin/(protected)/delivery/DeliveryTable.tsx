@@ -196,14 +196,23 @@ export default function DeliveryTable({
 
       if (!res.ok) return done(json.error ?? "Could not set the courier", true);
 
-      const skipped = json.skipped
-        ? ` ${json.skipped} skipped — already with a courier.`
-        : "";
-      done(
-        (to
-          ? `${json.updated} parcel${json.updated === 1 ? "" : "s"} going by ${json.courier_name}.`
-          : `Courier cleared on ${json.updated} parcel${json.updated === 1 ? "" : "s"}.`) + skipped
-      );
+      const bits: string[] = [
+        to
+          ? `${json.updated} parcel${json.updated === 1 ? "" : "s"} going by ${json.courier_name}`
+          : `Courier cleared on ${json.updated} parcel${json.updated === 1 ? "" : "s"}`,
+      ];
+      if (json.references) bits.push(`${json.references} reference${json.references === 1 ? "" : "s"} created`);
+      if (json.skipped) bits.push(`${json.skipped} skipped — already with a courier`);
+
+      // Named, not counted. These need moving somewhere else, and a number
+      // alone leaves someone hunting for which ones.
+      const bad: string[] = json.unserviceable ?? [];
+      if (bad.length) {
+        bits.push(
+          `${R_BAD} ${json.courier_name} does not deliver to ${bad.length} of them: ${bad.join(", ")}`
+        );
+      }
+      done(bits.join(" · "), bad.length > 0);
     } catch {
       done("Could not set the courier — check your connection.", true);
     }
@@ -294,6 +303,9 @@ export default function DeliveryTable({
   const canSend = !!chosenCourier && sendableCourierIds.includes(chosenCourier.id);
   const canSync = !!chosenCourier && trackableCourierIds.includes(chosenCourier.id);
 
+  /** Prefix for the one message that is a warning rather than a result. */
+  const R_BAD = "⚠";
+
   const btn =
     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
 
@@ -305,8 +317,19 @@ export default function DeliveryTable({
     `Print ${printAllCount < matching ? `first ${printAllCount}` : `all ${matching}`} ` +
     `label${printAllCount === 1 ? "" : "s"} (${sheets} sheet${sheets === 1 ? "" : "s"})`;
 
-  /** The one control both actions read — printing and assigning are the same
-   *  decision made two ways, so there is one place to make it. */
+  /**
+   * Whose worklist it lands on.
+   *
+   * Optional now, and deliberately secondary. It used to be required, which
+   * made routing a two-step decision — pick the agent AND pick the courier —
+   * for a courier where those are the same answer: kkrlogistic is a staff
+   * login, KKR is Delhivery's franchise, and choosing both meant saying
+   * "Delhivery" twice with different controls.
+   *
+   * A parcel going to an API courier needs no agent at all; it goes into the
+   * courier's system, not onto somebody's list. It still matters for a courier
+   * a person handles, so the control stays — it just stops blocking.
+   */
   const agentPicker = (
     <select
       value={agentId}
@@ -338,13 +361,12 @@ export default function DeliveryTable({
           <>
             <p className="text-xs text-neutral-500 mr-auto">
               {matching} order{matching === 1 ? "" : "s"} in this view · tick rows
-              to hand them to an agent
+              to choose a courier
             </p>
             {agentPicker}
             <button
               onClick={() => printLabels("filtered")}
-              disabled={!matching || !!busy || noAgent}
-              title={noAgent ? "Choose the agent these parcels are going to" : undefined}
+              disabled={!matching || !!busy}
               className={`${btn} bg-primary-500 text-white hover:bg-primary-600`}
             >
               <Printer className="w-3.5 h-3.5" />
@@ -363,25 +385,11 @@ export default function DeliveryTable({
               <X className="w-3 h-3" /> Clear
             </button>
 
-            {agentPicker}
-
-            <button
-              onClick={() => assign(agentId)}
-              disabled={!!busy || noAgent}
-              title={noAgent ? "Choose an agent first" : `Move to ${agentName}'s portal`}
-              className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              {busy === "assign" ? "Assigning…" : "Assign"}
-            </button>
-
-            {/* Courier: a separate decision from the agent, and a separate one
-                again from actually sending. Only shown when there is something
-                to choose between. */}
+            {/* The courier comes first because it is *the* decision. Whether a
+                staff member also needs to see the parcel is a second, optional
+                question, so it sits behind the divider below. */}
             {couriers.length > 0 && (
               <>
-                <span className="w-px h-6 bg-neutral-200" />
-
                 <select
                   value={courierId}
                   onChange={(e) => setCourierId(e.target.value)}
@@ -438,13 +446,31 @@ export default function DeliveryTable({
                   <Send className="w-3.5 h-3.5" />
                   {busy === "send" ? "Sending…" : "Send"}
                 </button>
+
+                <span className="w-px h-6 bg-neutral-200" />
               </>
             )}
 
+            {/* Optional. A parcel going to Delhivery never needs one. */}
+            {agentPicker}
+
+            <button
+              onClick={() => assign(agentId)}
+              disabled={!!busy || noAgent}
+              title={
+                noAgent
+                  ? "Optional — only needed if a person is handling this parcel"
+                  : `Also show these on ${agentName}'s portal`
+              }
+              className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              {busy === "assign" ? "Assigning…" : "Assign agent"}
+            </button>
+
             <button
               onClick={() => printLabels("selected")}
-              disabled={!!busy || noAgent}
-              title={noAgent ? "Choose the agent these parcels are going to" : undefined}
+              disabled={!!busy}
               className={`${btn} bg-primary-500 text-white hover:bg-primary-600`}
             >
               <Printer className="w-3.5 h-3.5" />

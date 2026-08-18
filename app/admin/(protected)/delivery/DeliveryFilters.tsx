@@ -13,6 +13,11 @@ import {
 import { istToday, istDaysAgo } from "@/lib/format-date";
 import type { StageCounts } from "@/lib/db/delivery-query";
 import type { DeliveryAgent } from "@/lib/db/staff";
+import {
+  HANDOVER_CHIPS,
+  HANDOVER_LABELS,
+  HANDOVER_HINTS,
+} from "@/lib/delivery/handover";
 
 const PRESETS = [
   { label: "Today", days: 0 },
@@ -52,6 +57,7 @@ export default function DeliveryFilters({
   const stage = params.get("stage") ?? "all";
   const agent = params.get("agent") ?? "";
   const courier = params.get("courier") ?? "";
+  const handover = params.get("handover") ?? "";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   // Must match the default in parseDeliveryFilters (lib/db/delivery-query.ts).
@@ -71,7 +77,7 @@ export default function DeliveryFilters({
     navigate(`/admin/delivery?${next}`);
   };
 
-  const hasFilters = !!from || !!to || !!params.get("q") || !!agent || !!courier;
+  const hasFilters = !!from || !!to || !!params.get("q") || !!agent || !!courier || !!handover;
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -173,6 +179,27 @@ export default function DeliveryFilters({
 
           {/* Which courier carries them. "Nobody" is the useful one again —
               parcels that have been handed to an agent but not yet routed. */}
+          {/* What is happening to the parcel — the question "which stage" cannot
+              answer. A parcel reading Confirmed might be unrouted, waiting to
+              be sent, refused for its pincode, or one the courier never got. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              State
+            </label>
+            <select
+              value={handover}
+              onChange={(e) => push({ handover: e.target.value || null })}
+              className={`${field} cursor-pointer`}
+            >
+              <option value="">Any state</option>
+              {HANDOVER_CHIPS.map((hs) => (
+                <option key={hs} value={hs} title={HANDOVER_HINTS[hs]}>
+                  {HANDOVER_LABELS[hs]}
+                </option>
+              ))}
+            </select>
+          </div>
+
           {couriers.length > 0 && (
             <div>
               <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
@@ -241,7 +268,7 @@ export default function DeliveryFilters({
               <button
                 onClick={() => {
                   setQ("");
-                  push({ from: null, to: null, q: null, agent: null, courier: null });
+                  push({ from: null, to: null, q: null, agent: null, courier: null, handover: null });
                 }}
                 className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
               >
