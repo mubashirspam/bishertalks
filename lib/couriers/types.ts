@@ -93,10 +93,15 @@ export function isCourierHandoff(v: unknown): v is CourierHandoff {
  *
  * A row can be set to `api` in the database before its adapter exists — that is
  * a misconfiguration, not a crash, and this is what lets the screens say so
- * instead of failing at the moment someone presses send. Delhivery joins this
- * list in Phase 2, once Phase 0's gate has been cleared.
+ * instead of failing at the moment someone presses send.
+ *
+ * Delhivery was held out of this list until a manifest call had genuinely been
+ * accepted, because the payload had never been tried and there is no staging
+ * account to try it on — the token is production-only. That proof now exists:
+ * six real shipments accepted on 18 August, waybills 54132310017275 through
+ * ...323, every one Manifested under KKR LOGISTICS FRANCHISE.
  */
-export const INTEGRATED_SLUGS: readonly string[] = [];
+export const INTEGRATED_SLUGS: readonly string[] = ["delhivery"];
 
 /**
  * Couriers whose tracking API we have written, by the name used in
