@@ -52,8 +52,12 @@ export default function DeliveryTable({
   agents: DeliveryAgent[];
   /** id → name for display, including agents since switched off. */
   agentNames: Record<string, string>;
-  /** Couriers a parcel can be assigned to right now. */
-  couriers: { id: string; name: string }[];
+  /**
+   * Couriers a parcel can be assigned to right now. `dispatches` marks the
+   * ones where routing also hands the parcel over, which is the difference
+   * between a decision that can be changed and one that cannot.
+   */
+  couriers: { id: string; name: string; dispatches?: boolean }[];
   /** id → name for display, including couriers since switched off. */
   courierNames: Record<string, string>;
 }) {
@@ -61,6 +65,7 @@ export default function DeliveryTable({
   const params = useSearchParams();
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [courierId, setCourierId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -220,6 +225,25 @@ export default function DeliveryTable({
   /** Prefix for the one message that is a warning rather than a result. */
   const R_BAD = "⚠";
 
+  /**
+   * Route the ticked parcels, asking first only when it is irreversible.
+   *
+   * A courier we hand a spreadsheet to can be re-routed freely, so demanding a
+   * confirmation for it would be noise. A courier we dispatch to over an API
+   * cannot — the parcel exists at their end the moment this returns.
+   */
+  const confirmAndRoute = (courier: { id: string; name: string; dispatches?: boolean }) => {
+    if (courier.dispatches) {
+      const ok = window.confirm(
+        `Send ${ids.length} parcel${ids.length === 1 ? "" : "s"} to ${courier.name}?\n\n` +
+          "They go into the courier's system straight away. Undoing this means " +
+          "cancelling with the courier, not here."
+      );
+      if (!ok) return;
+    }
+    void setCourier(courier.id);
+  };
+
   const btn =
     "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
 
@@ -270,66 +294,59 @@ export default function DeliveryTable({
               <X className="w-3 h-3" /> Clear
             </button>
 
-            {/* One partner, so this is a button rather than a choice.
-                Assigning hands the parcel to KKR's queue and nothing more —
-                KKR manifests it at Delhivery themselves, which is why there is
-                no Send here and must not be. */}
-            {couriers.length > 0 && (
+            {/* One partner is a button; several is a choice. Which courier a
+                parcel goes to is the decision this screen exists for, so it
+                should never be more than one control. */}
+            {couriers.length === 1 ? (
+              <button
+                onClick={() => confirmAndRoute(couriers[0])}
+                disabled={!!busy}
+                title={`Route to ${couriers[0].name}`}
+                className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
+              >
+                <Truck className="w-3.5 h-3.5" />
+                {busy === "courier" ? "Assigning…" : `Assign to ${couriers[0].name}`}
+              </button>
+            ) : (
               <>
-                {/* One press: routes the parcel, gives it a reference, checks
-                    the pincode and hands it to the courier. Irreversible at the
-                    last step — an accepted shipment is cancelled with the
-                    courier, not here — so it asks first. */}
+                <select
+                  value={courierId}
+                  onChange={(e) => setCourierId(e.target.value)}
+                  className="bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500"
+                >
+                  <option value="">Choose courier…</option>
+                  {couriers.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+
                 <button
                   onClick={() => {
-                    const ok = window.confirm(
-                      `Send ${ids.length} parcel${ids.length === 1 ? "" : "s"} to ${couriers[0].name}?\n\n` +
-                        "They go into the courier's system straight away. Undoing " +
-                        "this means cancelling with the courier, not here."
-                    );
-                    if (ok) void setCourier(couriers[0].id);
+                    const c = couriers.find((x) => x.id === courierId);
+                    if (c) confirmAndRoute(c);
                   }}
-                  disabled={!!busy}
-                  title={`Route and hand over to ${couriers[0].name}`}
+                  disabled={!!busy || !courierId}
+                  title={courierId ? "Route these parcels" : "Choose a courier first"}
                   className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
                 >
                   <Truck className="w-3.5 h-3.5" />
-                  {busy === "courier" ? "Sending…" : `Assign & send to ${couriers[0].name}`}
+                  {busy === "courier" ? "Assigning…" : "Assign"}
                 </button>
-
-                <button
-                  onClick={syncFromCourier}
-                  disabled={!!busy}
-                  title="Ask Delhivery where these parcels are"
-                  className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${busy === "sync" ? "animate-spin" : ""}`} />
-                  {busy === "sync" ? "Asking…" : "Sync status"}
-                </button>
-
-                <span className="w-px h-6 bg-neutral-200" />
               </>
             )}
 
-
             <button
-              onClick={() => printLabels("selected")}
+              onClick={syncFromCourier}
               disabled={!!busy}
-              className={`${btn} bg-primary-500 text-white hover:bg-primary-600`}
+              title="Ask the courier where these parcels are"
+              className={`${btn} border border-neutral-300 text-neutral-700 hover:border-neutral-500`}
             >
-              <Printer className="w-3.5 h-3.5" />
-              {busy === "print" ? "Building PDF…" : "Print labels"}
+              <RefreshCw className={`w-3.5 h-3.5 ${busy === "sync" ? "animate-spin" : ""}`} />
+              {busy === "sync" ? "Asking…" : "Sync status"}
             </button>
 
-            <button
-              onClick={() => setCourier(null)}
-              disabled={!!busy}
-              title="Take these back — they return to Unassigned"
-              className={`${btn} border border-neutral-200 text-neutral-600 hover:border-neutral-400`}
-            >
-              <UserMinus className="w-3.5 h-3.5" />
-              {busy === "courier" ? "Removing…" : "Unassign"}
-            </button>
+            <span className="w-px h-6 bg-neutral-200" />
+
           </>
         )}
       </div>

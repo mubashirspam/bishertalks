@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
-  Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator,
+  Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -30,6 +30,8 @@ export const NAV: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, permission: "orders.view" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
   { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
+  // Under Delivery because it configures that screen: who parcels can go to.
+  { href: "/admin/couriers", label: "Couriers", icon: PackageCheck, permission: "delivery.assign" },
   { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
   { href: "/admin/reports", label: "Profit & targets", icon: Calculator, permission: "reports.view" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },

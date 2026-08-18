@@ -28,6 +28,7 @@ export const HANDOVER_STATES = [
   "awaiting_manifest",
   "with_courier",
   "not_manifested",
+  "handed_over",
   "other_transport",
 ] as const;
 
@@ -39,6 +40,7 @@ export const HANDOVER_LABELS: Record<HandoverState, string> = {
   awaiting_manifest: "Awaiting manifest",
   with_courier: "With Delhivery",
   not_manifested: "Not manifested",
+  handed_over: "Handed over",
   other_transport: "Sent another way",
 };
 
@@ -48,6 +50,7 @@ export const HANDOVER_HINTS: Record<HandoverState, string> = {
   awaiting_manifest: "KKR has the data. They manifest it at Delhivery; the waybill appears here when they do.",
   with_courier: "Manifested at Delhivery. Status comes from their scans.",
   not_manifested: "We asked Delhivery and there is no shipment. Either KKR has not manifested it, or they could not and have not reported it yet.",
+  handed_over: "Given to a courier that does not report back. Nothing more will arrive on its own — enter the tracking number or tick the stages by hand.",
   other_transport: "KKR could not send this by Delhivery and used another service. Tracking came from their spreadsheet.",
 };
 
@@ -65,6 +68,7 @@ export const HANDOVER_TONE: Record<HandoverState, string> = {
   awaiting_manifest: "border-amber-500 bg-amber-50 text-amber-800",
   with_courier: "border-green-600 bg-green-50 text-green-700",
   not_manifested: "border-red-600 bg-red-50 text-red-700",
+  handed_over: "border-neutral-500 bg-neutral-100 text-neutral-800",
   other_transport: "border-purple-500 bg-purple-50 text-purple-700",
 };
 

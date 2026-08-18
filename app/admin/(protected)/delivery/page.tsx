@@ -10,6 +10,7 @@ import { deliveryStats } from "@/lib/db/delivery-stats";
 import { fetchDeliveryPage } from "@/lib/db/orders-page";
 import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
 import { listCouriers } from "@/lib/db/couriers";
+import { canSendAutomatically } from "@/lib/couriers";
 import { SkeletonTable, SkeletonTabs } from "@/components/admin/Skeleton";
 import {
   NavigationPending,
@@ -168,7 +169,16 @@ async function QueueTable(args: Args) {
         matching={count}
         agents={agents}
         agentNames={agentNames}
-        couriers={couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))}
+        couriers={couriers
+          .filter((c) => c.is_active)
+          .map((c) => ({
+            id: c.id,
+            name: c.name,
+            // Whether routing to this one also hands the parcel over. Only an
+            // integrated courier does; everyone else gets a spreadsheet, which
+            // is reversible and needs no confirmation.
+            dispatches: canSendAutomatically(c),
+          }))}
         courierNames={courierNames}
       />
 
