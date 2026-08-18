@@ -369,8 +369,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
  * portal requires is asserted again here, and anything that no longer fits
  * silently drops out of the batch rather than being written to the file.
  *
- * "New" in the strict sense the sheet needs: paid, addressed, assigned to an
- * agent, still at 'confirmed', and not yet entered with the courier. A parcel
+ * "New" in the strict sense the sheet needs: paid, addressed, routed to a
+ * courier, still at 'confirmed', and not yet handed over. A parcel
  * that has been on a sheet already has a courier_entered_at and fails that
  * last test on its own.
  *
@@ -398,12 +398,18 @@ export async function fetchPickedForCourierSheet(
     .in("order_number", orderNumbers.slice(0, limit))
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
-    .not("assigned_agent_id", "is", null)
+    // Routed to a courier — which is what "somebody is taking this" means now.
+    // This asked for an assigned_agent_id until the courier became the
+    // decision, at which point it silently matched nothing: a parcel assigned
+    // to KKR and to nobody else produced an empty sheet and a refusal saying
+    // none of the parcels could go on one.
+    .not("courier_id", "is", null)
     .eq("status", "confirmed")
     .is("courier_entered_at", null);
 
-  // An agent may only put their own parcels on a sheet. Same rule as every
-  // other portal write, and the reason the ids alone are never enough.
+  // Kept for an owner narrowing to one agent's parcels. A delivery login is no
+  // longer scoped this way — it sees the courier's work — so this is normally
+  // null and the ids plus the conditions above are the whole guard.
   if (agentId) query = query.eq("assigned_agent_id", agentId);
 
   const { data, error } = await query
