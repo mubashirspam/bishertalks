@@ -35,21 +35,49 @@ export interface LegacyOrder {
  * unique, four digits much less so, and a pincode proves almost nothing. The
  * corroboration below is what makes the weak ones safe to try at all.
  */
-export function legacyCandidates(order: LegacyOrder): string[] {
+export type CandidateSource = "mobile" | "pincode" | "order";
+
+export interface LegacyCandidate {
+  reference: string;
+  /**
+   * Which fact produced it — and therefore which fact may NOT be used to
+   * corroborate it. See `corroborates`.
+   */
+  from: CandidateSource;
+}
+
+/**
+ * Every reference an old parcel might be filed under, best first.
+ *
+ * Pincode-derived candidates are deliberately absent, and that is the whole
+ * lesson of this module. `BISH` + a pincode looks like a candidate worth
+ * trying, and it even appears to corroborate — but the corroboration is
+ * circular: the pincode agrees because the pincode *is* the key, and the only
+ * remaining fact is the amount, which is Rs 699 for almost every order we
+ * take. Tried in anger it "confirmed" one of our orders against two different
+ * customers' shipments at once.
+ *
+ * A candidate is only worth generating if something independent of it can
+ * prove it. Mobile-derived candidates qualify, because the amount and the
+ * destination pincode both remain free to disagree.
+ */
+export function legacyCandidates(order: LegacyOrder): LegacyCandidate[] {
   const digits = phoneDigits(order.buyer_phone);
-  const pin = (order.pincode ?? "").replace(/\D/g, "");
-  const out: string[] = [];
+  const out: LegacyCandidate[] = [];
 
   if (digits) {
-    out.push(`BISH${digits}`);          // the whole mobile
-    out.push(`BISH${digits.slice(-6)}`);
-    out.push(`BISH${digits.slice(-5)}`); // the current scheme
-    out.push(`BISH${digits.slice(-4)}`); // an older one
+    // Longest first: the more of the mobile a reference carries, the less
+    // likely it belongs to somebody else before we even check.
+    out.push({ reference: `BISH${digits}`, from: "mobile" });
+    out.push({ reference: `BISH${digits.slice(-6)}`, from: "mobile" });
+    out.push({ reference: `BISH${digits.slice(-5)}`, from: "mobile" });
+    out.push({ reference: `BISH${digits.slice(-4)}`, from: "mobile" });
   }
-  if (/^\d{6}$/.test(pin)) out.push(`BISH${pin}`);
-  out.push(order.order_number);
+  // Unique by construction, so nothing else has to prove it.
+  out.push({ reference: order.order_number, from: "order" });
 
-  return [...new Set(out)].filter(Boolean);
+  const seen = new Set<string>();
+  return out.filter((c) => c.reference && !seen.has(c.reference) && seen.add(c.reference));
 }
 
 /** What the courier told us about a shipment we are considering claiming. */
@@ -81,7 +109,14 @@ export type MatchVerdict =
  */
 export function corroborates(
   order: LegacyOrder,
-  shipment: CandidateShipment
+  shipment: CandidateShipment,
+  /**
+   * The fact that produced the candidate, which therefore cannot vouch for it.
+   * A reference built from a pincode will always "agree" on pincode; counting
+   * that as evidence is circular, and it is how a matcher talks itself into a
+   * wrong answer.
+   */
+  from: CandidateSource = "order"
 ): MatchVerdict {
   const agreed: string[] = [];
   const conflicted: string[] = [];
@@ -94,14 +129,14 @@ export function corroborates(
 
   const ourPin = (order.pincode ?? "").replace(/\D/g, "");
   const theirPin = (shipment.destinationPin ?? "").replace(/\D/g, "");
-  if (ourPin && theirPin) {
+  if (from !== "pincode" && ourPin && theirPin) {
     if (ourPin === theirPin) agreed.push("pincode");
     else conflicted.push(`pincode ${theirPin} vs ${ourPin}`);
   }
 
   const ourPhone = phoneDigits(order.buyer_phone);
   const theirPhone = phoneDigits(shipment.consigneePhone);
-  if (ourPhone && theirPhone) {
+  if (from !== "mobile" && ourPhone && theirPhone) {
     if (ourPhone === theirPhone) agreed.push("mobile");
     else conflicted.push(`mobile ${theirPhone} vs ${ourPhone}`);
   }
@@ -139,12 +174,13 @@ export function corroborates(
  */
 export function pickMatch(
   order: LegacyOrder,
-  shipments: CandidateShipment[]
+  shipments: CandidateShipment[],
+  from: CandidateSource = "order"
 ): MatchVerdict {
   if (!shipments.length) return { ok: false, why: "the courier has no such reference" };
 
   const passed = shipments
-    .map((s) => ({ s, v: corroborates(order, s) }))
+    .map((s) => ({ s, v: corroborates(order, s, from) }))
     .filter((r) => r.v.ok);
 
   if (passed.length === 1) {

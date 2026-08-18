@@ -33,11 +33,14 @@ const WRITE = process.argv.includes("--write");
 
 const digits = p => { const d = (p || "").replace(/\D/g, ""); return d.length === 12 && d.startsWith("91") ? d.slice(2) : d; };
 
+// Pincode-derived candidates are gone on purpose: the pincode cannot vouch for
+// a key built from the pincode, and the only other fact — the amount — is
+// Rs 699 for almost every order. Tried in anger, "BISH" + pincode confirmed one
+// order against two different customers' shipments at the same time.
 function candidates(o) {
-  const d = digits(o.buyer_phone), pin = (o.pincode || "").replace(/\D/g, "");
+  const d = digits(o.buyer_phone);
   const out = [];
   if (d) { out.push("BISH" + d, "BISH" + d.slice(-6), "BISH" + d.slice(-5), "BISH" + d.slice(-4)); }
-  if (/^\d{6}$/.test(pin)) out.push("BISH" + pin);
   out.push(o.order_number);
   return [...new Set(out)].filter(Boolean);
 }
