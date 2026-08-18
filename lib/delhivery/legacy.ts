@@ -122,3 +122,49 @@ export function corroborates(
 
   return { ok: true, waybill: shipment.waybill, why: `${agreed.join(" and ")} agree` };
 }
+
+/**
+ * Choose between every shipment the courier filed under one reference.
+ *
+ * A reference is not a key on their side. `BISH3317` really does return two
+ * parcels — the old four-digit scheme collided, and both customers' shipments
+ * live under it. An earlier version of this matcher kept a map keyed by
+ * reference, so the second silently overwrote the first and the decision came
+ * down to response order: the same order would have been matched to a
+ * different customer's waybill depending on which arrived last.
+ *
+ * So all of them are considered, and a match is only taken when **exactly
+ * one** corroborates. Two plausible answers is not a 50/50 worth taking when
+ * the cost of being wrong is a customer tracking someone else's parcel.
+ */
+export function pickMatch(
+  order: LegacyOrder,
+  shipments: CandidateShipment[]
+): MatchVerdict {
+  if (!shipments.length) return { ok: false, why: "the courier has no such reference" };
+
+  const passed = shipments
+    .map((s) => ({ s, v: corroborates(order, s) }))
+    .filter((r) => r.v.ok);
+
+  if (passed.length === 1) {
+    const only = passed[0];
+    return {
+      ok: true,
+      waybill: only.s.waybill,
+      why: only.v.ok ? only.v.why : "",
+    };
+  }
+
+  if (passed.length > 1) {
+    return {
+      ok: false,
+      why: `${passed.length} of the courier's shipments fit this order equally well`,
+    };
+  }
+
+  // Nothing passed. Report the closest attempt, since "amount agrees, pincode
+  // does not" tells whoever reads it far more than "no match".
+  const first = shipments[0] && corroborates(order, shipments[0]);
+  return { ok: false, why: first && !first.ok ? first.why : "nothing corroborated" };
+}
