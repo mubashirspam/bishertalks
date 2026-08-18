@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Upload, X, AlertCircle, Check, Loader2 } from "lucide-react";
+import { Upload, Download, X, AlertCircle, Check, Loader2 } from "lucide-react";
 
 /**
  * KKR's daily report of what they could not send by Delhivery.
@@ -90,15 +90,74 @@ export default function ExceptionImport() {
     setError(null);
   };
 
+  /**
+   * Everything Delhivery holds on our parcels, as a spreadsheet.
+   *
+   * Asks them about every parcel we can name — by waybill where we have one,
+   * by our reference otherwise. A shipment on the franchise's account that we
+   * have no reference for cannot be in it, because their API has no way to
+   * list an account's shipments.
+   */
+  const exportCourierData = async () => {
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      const res = await fetch("/api/admin/delivery/courier-export");
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? "Could not build the file.");
+        return;
+      }
+      const rows = res.headers.get("X-Row-Count");
+      const asked = res.headers.get("X-Asked");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download =
+        res.headers.get("Content-Disposition")?.match(/filename="(.+?)"/)?.[1] ??
+        "delhivery.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+      setDone(
+        `${rows} parcel(s) downloaded` +
+          (asked && Number(asked) > Number(rows)
+            ? ` · ${Number(asked) - Number(rows)} Delhivery has no record of`
+            : "")
+      );
+    } catch {
+      setError("Could not reach the server.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   if (!open) {
     return (
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-3 flex-wrap">
         <button
           onClick={() => { setOpen(true); setDone(null); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 text-xs font-medium text-neutral-700 hover:border-neutral-500 transition-colors"
         >
           <Upload className="w-3.5 h-3.5" /> Upload KKR report
         </button>
+
+        <button
+          onClick={exportCourierData}
+          disabled={busy}
+          title="Everything Delhivery holds on our parcels"
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 text-xs font-medium text-neutral-700 hover:border-neutral-500 disabled:opacity-40 transition-colors"
+        >
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+          {busy ? "Asking Delhivery…" : "Download Delhivery data"}
+        </button>
+
+        {error && (
+          <span className="text-xs text-red-600 flex items-center gap-1">
+            <AlertCircle className="w-3.5 h-3.5" /> {error}
+          </span>
+        )}
         {done && (
           <span className="text-xs text-green-700 flex items-center gap-1">
             <Check className="w-3.5 h-3.5" /> {done}
