@@ -12,9 +12,13 @@ import type { OrderStatus } from "@/lib/types/order";
  * a stored copy drifts the first time someone edits a row by hand.
  *
  * The first two stages are about *ownership*, not printing: a parcel is New
- * until someone hands it to a delivery agent, and Assigned once they have.
- * Printing a label is one way to do the handing over (see migration 0019), but
- * a printed sheet on its own says nothing about who is taking the parcel.
+ * until it has been routed somewhere, and Assigned once it has.
+ *
+ * "Routed" used to mean a delivery agent, because a parcel was handed to a
+ * person. It now means a courier. Reading only the agent left a parcel that had
+ * been given to KKR, manifested at Delhivery and had a waybill sitting in the
+ * queue as "New — not assigned", which is the opposite of true and exactly the
+ * sort of thing that makes a screen untrustworthy.
  */
 export type DeliveryStage =
   | "new"
@@ -28,6 +32,8 @@ export type DeliveryStage =
 interface StageInput {
   status: string;
   assigned_agent_id: string | null;
+  /** Who is carrying it (migration 0030). Either counts as routed. */
+  courier_id?: string | null;
 }
 
 export function deliveryStage(o: StageInput): DeliveryStage {
@@ -43,14 +49,15 @@ export function deliveryStage(o: StageInput): DeliveryStage {
     case "shipped":
       return "shipped";
     default:
-      // 'confirmed' / 'processing' — having an agent is what separates them.
-      return o.assigned_agent_id ? "assigned" : "new";
+      // 'confirmed' / 'processing' — being routed is what separates them, and
+      // a courier routes a parcel just as much as an agent does.
+      return o.courier_id || o.assigned_agent_id ? "assigned" : "new";
   }
 }
 
 export const DELIVERY_LABELS: Record<DeliveryStage, string> = {
-  new: "New — not assigned",
-  assigned: "Assigned — ready to ship",
+  new: "New — not routed",
+  assigned: "Routed — with a courier",
   shipped: "Shipped",
   out_for_delivery: "Out for delivery",
   delivered: "Delivered",
@@ -112,12 +119,20 @@ export function applyDeliveryFilter<T extends {
   is: (col: string, val: null) => T;
   not: (col: string, op: string, val: null) => T;
   eq: (col: string, val: string) => T;
+  or: (filter: string) => T;
 }>(query: T, stage: DeliveryStage): T {
   switch (stage) {
+    // Both halves must match deliveryStage() above, or a tab shows a different
+    // set from the badge on the rows inside it.
     case "new":
-      return query.in("status", PRE_SHIP).is("assigned_agent_id", null);
+      return query
+        .in("status", PRE_SHIP)
+        .is("assigned_agent_id", null)
+        .is("courier_id", null);
     case "assigned":
-      return query.in("status", PRE_SHIP).not("assigned_agent_id", "is", null);
+      return query
+        .in("status", PRE_SHIP)
+        .or("assigned_agent_id.not.is.null,courier_id.not.is.null");
     default:
       return query.eq("status", stage);
   }
