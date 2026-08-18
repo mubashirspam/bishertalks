@@ -630,6 +630,11 @@ export default function DeliveryTable({
 
                       {/* Whose parcel this is. The point of the whole screen. */}
                       <td className="px-4 py-3 align-top text-xs whitespace-nowrap">
+                        {/* An agent, when one is carrying it. "Unassigned" in
+                            orange is only a warning when nobody at all has this
+                            parcel — a parcel routed to a courier needs no staff
+                            member, and flagging it as unassigned made a normal
+                            state look broken. */}
                         {o.assigned_agent_id ? (
                           <>
                             <p className="text-neutral-800 font-medium">
@@ -641,9 +646,9 @@ export default function DeliveryTable({
                               </p>
                             )}
                           </>
-                        ) : (
-                          <span className="text-orange-600 font-medium">Unassigned</span>
-                        )}
+                        ) : !o.courier_id ? (
+                          <span className="text-orange-600 font-medium">Nobody has this</span>
+                        ) : null}
 
                         {/* Which courier carries it, and — the part that
                             actually confuses people — whether the courier has
@@ -685,8 +690,14 @@ export default function DeliveryTable({
                                 )}
                               </>
                             ) : (
-                              <p className="text-amber-700 mt-0.5">
-                                Not sent yet
+                              // Says the next action, not just the absence.
+                              // "Not sent yet" on its own reads as a fault when
+                              // it is simply the step before Send.
+                              <p
+                                className="text-amber-700 mt-0.5"
+                                title="Choosing a courier does not tell them anything. Press Send."
+                              >
+                                Waiting to be sent
                               </p>
                             )}
                           </div>
