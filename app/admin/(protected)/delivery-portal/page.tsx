@@ -2,8 +2,11 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
-import { fetchPortalPage } from "@/lib/db/delivery-portal";
+import { fetchPortalPage, portalSort, type PortalSort } from "@/lib/db/delivery-portal";
 import { listDeliveryAgents } from "@/lib/db/staff";
+import { listCouriers } from "@/lib/db/couriers";
+import { canTrack } from "@/lib/couriers";
+import { delhiveryReadiness } from "@/lib/delhivery/config";
 import { SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
 import PortalFilters from "./PortalFilters";
@@ -18,6 +21,10 @@ interface Args {
   date?: string;
   /** A PORTAL_FILTERS value — "new" is the not-yet-entered to-do list. */
   status?: string;
+  /** Which end of the queue is on top — it applies on top of the filters. */
+  sort: PortalSort;
+  /** Which courier's parcels, or null for all of them. */
+  courierId: string | null;
   pageNum: number;
   /**
    * Whose parcels to show. An agent's own id, always — it is not read from the
@@ -49,7 +56,10 @@ export default async function DeliveryPortalPage({
   // what was handed to them, and the filter isn't offered because there is
   // nothing for them to choose between.
   const seesEveryone = can(staff, "delivery.view");
-  const agents = seesEveryone ? await listDeliveryAgents() : [];
+  const [agents, couriers] = await Promise.all([
+    seesEveryone ? listDeliveryAgents() : Promise.resolve([]),
+    listCouriers(),
+  ]);
 
   const params = await searchParams;
   const picked = seesEveryone && params.agent ? params.agent : null;
@@ -57,6 +67,8 @@ export default async function DeliveryPortalPage({
   const args: Args = {
     date: params.date,
     status: params.status,
+    sort: portalSort(params.sort),
+    courierId: params.courier || null,
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
     agentId: seesEveryone ? picked : staff.id,
     seesEveryone,
@@ -66,6 +78,7 @@ export default async function DeliveryPortalPage({
     <NavigationPending>
       <PortalFilters
         agents={agents}
+        couriers={couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))}
         countSlot={
           <Suspense fallback={<span className="text-neutral-400">Counting…</span>}>
             <PortalCount {...args} />
@@ -84,7 +97,17 @@ export default async function DeliveryPortalPage({
 
 /** Streamed into the filter bar so it can paint before the query resolves. */
 async function PortalCount(args: Args) {
-  const { count } = await fetchPortalPage(args.date, args.status, args.pageNum, PER_PAGE, args.agentId);
+  // Same arguments as PortalRows, in the same order — fetchPortalPage is
+  // memoised per request, and an argument that differs is a second query.
+  const { count } = await fetchPortalPage(
+    args.date,
+    args.status,
+    args.pageNum,
+    PER_PAGE,
+    args.agentId,
+    args.sort,
+    args.courierId
+  );
   return (
     <>
       {count} parcel{count === 1 ? "" : "s"}
@@ -98,8 +121,22 @@ async function PortalRows(args: Args) {
     args.status,
     args.pageNum,
     PER_PAGE,
-    args.agentId
+    args.agentId,
+    args.sort,
+    args.courierId
   );
+
+  // Names only — the grid shows which courier a parcel is routed to, so an
+  // agent can tell at a glance which ones they still have to hand over.
+  const couriers = await listCouriers();
+  const courierNames = Object.fromEntries(couriers.map((c) => [c.id, c.name]));
+
+  // Is the courier being looked at one we can ask for live status? Worked out
+  // on the server because it needs the API token, which must not reach the
+  // browser. When true the grid shows waybills and the courier's own scans
+  // instead of asking someone to keep a spreadsheet in their head.
+  const chosen = args.courierId ? couriers.find((c) => c.id === args.courierId) : null;
+  const live = !!chosen && canTrack(chosen) && delhiveryReadiness(chosen.config).ready;
 
   const totalPages = Math.ceil(count / PER_PAGE);
 
@@ -115,6 +152,10 @@ async function PortalRows(args: Args) {
     const sp = new URLSearchParams();
     if (args.date) sp.set("date", args.date);
     if (args.status) sp.set("status", args.status);
+    // "newest" is the default, so it stays out of the URL — same as the
+    // filter bar writes it, or Next would treat the two as different pages.
+    if (args.sort === "oldest") sp.set("sort", args.sort);
+    if (args.courierId) sp.set("courier", args.courierId);
     // Only when it's a filter someone chose. An agent's own id is who they
     // are, not where they are, and has no business in a shareable link.
     if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);
@@ -125,7 +166,13 @@ async function PortalRows(args: Args) {
 
   return (
     <>
-      <PortalGrid rows={rows} startIndex={args.pageNum * PER_PAGE} />
+      <PortalGrid
+        rows={rows}
+        startIndex={args.pageNum * PER_PAGE}
+        courierNames={courierNames}
+        courierId={args.courierId}
+        live={live}
+      />
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4">

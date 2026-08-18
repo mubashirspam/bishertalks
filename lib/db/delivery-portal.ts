@@ -104,6 +104,21 @@ export function isPortalStatus(v: unknown): v is OrderStatus {
   return typeof v === "string" && (PORTAL_SETTABLE as readonly string[]).includes(v);
 }
 
+/**
+ * Which end of the queue is at the top.
+ *
+ * "newest" is the default and the day's job — today's parcels first. "oldest"
+ * is for draining a backlog: the customer who has waited longest is the first
+ * row on the screen, which is the order the courier sheet is built in anyway.
+ *
+ * The same two words the master delivery queue uses (see delivery-query.ts),
+ * so a link copied between the two screens means the same thing.
+ */
+export type PortalSort = "newest" | "oldest";
+
+export const portalSort = (v: string | undefined): PortalSort =>
+  v === "oldest" ? "oldest" : "newest";
+
 export interface PortalRow {
   id: string;
   order_number: string;
@@ -124,6 +139,13 @@ export interface PortalRow {
   courier_entered_at: string | null;
   /** The number this parcel went to the courier under — see migration 0024. */
   courier_reference: string | null;
+  /** Which logistics partner carries it, or null if undecided (0030). */
+  courier_id: string | null;
+  /** When their API accepted it — the parcel is out of the agent's hands. */
+  courier_sent_at: string | null;
+  /** The courier's own latest scan, and when they recorded it. */
+  courier_last_scan: string | null;
+  courier_last_scan_at: string | null;
   tracking_number: string | null;
   assigned_agent_id: string | null;
   created_at: string;
@@ -132,7 +154,8 @@ export interface PortalRow {
 const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
   "state,pincode,amount_paise,quantity,is_gift,gift_message," +
-  "status,courier_entered_at,courier_reference," +
+  "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
+  "courier_last_scan,courier_last_scan_at," +
   "tracking_number,assigned_agent_id,created_at";
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
@@ -144,7 +167,9 @@ function portalQuery(
   status: string | undefined,
   /** Whose parcels. null = every agent's, for an owner or manager. */
   agentId: string | null,
-  columns: string = PORTAL_COLUMNS
+  columns: string = PORTAL_COLUMNS,
+  /** Which courier's parcels. null = all of them. */
+  courierId: string | null = null
 ) {
   let query = supabaseAdmin
     .from(table)
@@ -152,13 +177,17 @@ function portalQuery(
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
     .neq("status", "cancelled")
-    // Only parcels somebody is carrying. An unassigned order is not yet
-    // anyone's job — it sits in "New" on /admin/delivery until an owner hands
-    // it out, and showing it here would put work in front of an agent that
-    // nobody decided was theirs.
-    .not("assigned_agent_id", "is", null);
+    // Only parcels somebody is carrying. An order with neither an agent nor a
+    // courier is not yet anyone's job — it sits in "New" on /admin/delivery
+    // until an owner routes it, and showing it here would put work in front of
+    // someone that nobody decided was theirs.
+    //
+    // Either is enough: a parcel handed straight to Delhivery never needs a
+    // staff agent, and one an agent is carrying may not have a courier yet.
+    .or("assigned_agent_id.not.is.null,courier_id.not.is.null");
 
   if (agentId) query = query.eq("assigned_agent_id", agentId);
+  if (courierId) query = query.eq("courier_id", courierId);
 
   // created_at is UTC but the day is an IST calendar day — convert, or the
   // filter is 5h30m out and silently drops the early-morning orders.
@@ -184,8 +213,10 @@ function portalQuery(
 /**
  * One page of parcels, in the order the work happens.
  *
- * Reads the `portal_orders` view (migration 0018), which exists only to give
- * the two derived sort keys names PostgREST can order by.
+ * Reads the `portal_orders` view (migration 0018, last rebuilt in 0028), which
+ * exists only to give the two derived sort keys names PostgREST can order by.
+ * Adding a column to `orders` means rebuilding that view in the same migration
+ * — see 0028 for why, and for what it looks like when nobody does.
  *
  * Memoised per request so the header count and the grid resolve from a single
  * round trip, the same way the orders list does.
@@ -196,32 +227,52 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   pageNum: number,
   perPage: number,
   /** The signed-in agent, or null for someone who may see every agent's work. */
-  agentId: string | null = null
+  agentId: string | null = null,
+  sort: PortalSort = "newest",
+  /** Which courier's parcels, or null for every one. */
+  courierId: string | null = null
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
+  const ascending = sort === "oldest";
 
-  // Newest day first — today is the day being worked. Within a day, the parcels
-  // nobody has started come before the ones already handled, so the work left is
-  // at the top of the day rather than scattered through it. Then newest first.
-  let result = await portalQuery("portal_orders", date, status, agentId)
-    .order("ist_day", { ascending: false })
+  // Newest day first by default — today is the day being worked; "oldest"
+  // walks the days the other way, for clearing a backlog. Within a day, the
+  // parcels nobody has started come before the ones already handled whichever
+  // way round the days run, so the work left is at the top of the day rather
+  // than scattered through it. Then the parcels themselves, same direction as
+  // the days.
+  let result = await portalQuery(
+    "portal_orders",
+    date,
+    status,
+    agentId,
+    PORTAL_COLUMNS,
+    courierId
+  )
+    .order("ist_day", { ascending })
     .order("needs_entry", { ascending: false })
-    .order("created_at", { ascending: false })
+    .order("created_at", { ascending })
     .range(from, to);
 
-  // Migrations are applied by hand, so the view can be missing on a database
-  // the code has already been deployed against. An agent seeing an empty portal
-  // would read it as "no parcels today" — far worse than the old ordering, so
-  // fall back to the plain table. Note this only saves the missing *view*: the
-  // assignment columns come from 0019 and both queries need them.
+  // Migrations are applied by hand, so the view can be missing — or stale — on
+  // a database the code has already been deployed against. An agent seeing an
+  // empty portal would read it as "no parcels today", far worse than the old
+  // ordering, so fall back to the plain table. Note this only saves the *view*:
+  // the assignment columns come from 0019 and both queries need them.
+  //
+  // "column portal_orders.<x> does not exist" is the stale case, and it is the
+  // one that actually happens: the view is `SELECT o.*`, expanded once when it
+  // was created, so a column added to orders is invisible here until the view
+  // is dropped and rebuilt. See migration 0028.
   if (result.error) {
     console.error(
-      "[Portal] worklist query failed — are migrations 0018 and 0019 applied?",
+      "[Portal] worklist query failed — portal_orders may be stale; a column " +
+        "added to orders needs the view rebuilt (migration 0028).",
       result.error.message
     );
-    result = await portalQuery("orders", date, status, agentId)
-      .order("created_at", { ascending: false })
+    result = await portalQuery("orders", date, status, agentId, PORTAL_COLUMNS, courierId)
+      .order("created_at", { ascending })
       .range(from, to);
 
     // Same reasoning one step further down. The view is rebuilt by 0024 to
@@ -238,9 +289,10 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         date,
         status,
         agentId,
-        PORTAL_COLUMNS.replace("courier_reference,", "")
+        PORTAL_COLUMNS.replace("courier_reference,", ""),
+        courierId
       )
-        .order("created_at", { ascending: false })
+        .order("created_at", { ascending })
         .range(from, to);
     }
 

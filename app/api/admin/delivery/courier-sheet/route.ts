@@ -25,8 +25,8 @@ import { auditMany } from "@/lib/audit";
  *
  * Only new parcels can be on it — paid, assigned, still at Confirmed, and not
  * yet entered with the courier — whatever the browser sends, so a stale page
- * cannot put the same parcel on two sheets. Fifty at most, which is what the
- * grid lets anyone tick and what this confirms in one statement.
+ * cannot put the same parcel on two sheets. COURIER_SHEET_MAX at most, which
+ * is what the grid lets anyone tick and what this confirms in one statement.
  *
  * Downloading IS entering the addresses with the courier, so the batch is
  * confirmed as part of this request, in one statement. That happens *before*

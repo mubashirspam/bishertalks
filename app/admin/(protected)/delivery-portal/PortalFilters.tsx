@@ -1,7 +1,7 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { CalendarDays, X } from "lucide-react";
+import { ArrowDownUp, CalendarDays, Truck, X } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
 import { PORTAL_FILTERS, PORTAL_FILTER_LABELS } from "@/lib/db/delivery-portal";
 import type { DeliveryAgent } from "@/lib/db/staff";
@@ -35,10 +35,17 @@ const STATUS_ACTIVE: Record<string, string> = {
 export default function PortalFilters({
   countSlot,
   agents,
+  couriers,
 }: {
   countSlot?: React.ReactNode;
   /** Empty for an agent — they only ever see their own parcels. */
   agents: DeliveryAgent[];
+  /**
+   * Who is carrying the parcels. The portal's main axis now: pick Delhivery
+   * and the grid shows live waybills and their own scans; pick anyone else and
+   * it stays the copy-and-tick spreadsheet it has always been.
+   */
+  couriers: { id: string; name: string }[];
 }) {
   const params = useSearchParams();
   const { navigate } = useNavigation();
@@ -46,6 +53,8 @@ export default function PortalFilters({
   const date = params.get("date") ?? "";
   const status = params.get("status") ?? "";
   const agent = params.get("agent") ?? "";
+  const courier = params.get("courier") ?? "";
+  const sort = params.get("sort") === "oldest" ? "oldest" : "newest";
 
   const push = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params.toString());
@@ -66,6 +75,36 @@ export default function PortalFilters({
 
   return (
     <div className="bg-white border border-neutral-200 rounded-2xl p-3.5 shadow-sm mb-4">
+      {/* The courier comes first because it decides what this screen *is* —
+          a live view of a courier's own tracking, or the spreadsheet you copy
+          addresses out of. Everything below narrows within that. */}
+      {couriers.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 pb-3 mb-3 border-b border-neutral-100">
+          <Truck className="w-4 h-4 text-neutral-400" />
+          <label htmlFor="portal-courier" className="text-xs font-medium text-neutral-500">
+            Courier
+          </label>
+          <select
+            id="portal-courier"
+            value={courier}
+            onChange={(e) => push({ courier: e.target.value || null })}
+            className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500 transition-colors font-medium"
+          >
+            <option value="">All couriers</option>
+            {couriers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </select>
+          {!courier && (
+            <span className="text-xs text-neutral-400">
+              Pick one to see its live tracking
+            </span>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <CalendarDays className="w-4 h-4 text-neutral-400" />
 
@@ -126,9 +165,26 @@ export default function PortalFilters({
           </button>
         ))}
 
+        <span className="w-px h-6 bg-neutral-200 mx-1" />
+
+        {/* Applies on top of whatever is filtered above — the chips choose
+            which parcels, this chooses which end of them is at the top. */}
+        <ArrowDownUp className="w-3.5 h-3.5 text-neutral-400" />
+        <select
+          value={sort}
+          // The default stays out of the URL, so a link is only ever longer
+          // for having been changed from it.
+          onChange={(e) => push({ sort: e.target.value === "oldest" ? "oldest" : null })}
+          title="Which end of the queue to show first"
+          className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500 transition-colors"
+        >
+          <option value="newest">Newest first</option>
+          <option value="oldest">Oldest first</option>
+        </select>
+
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || status || agent) && (
+        {(date || status || agent || courier || sort === "oldest") && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"

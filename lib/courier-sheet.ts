@@ -2,7 +2,7 @@
  * The courier's bulk-upload sheet.
  *
  * Delhivery takes a batch of parcels as one .xlsx with a fixed column layout —
- * the same file an agent would otherwise produce by typing fifty addresses
+ * the same file an agent would otherwise produce by typing a hundred addresses
  * into the courier's web form, one at a time. The layout here is copied from a
  * sheet the courier has already accepted (DLVAU12.xlsx), column for column.
  *
@@ -18,16 +18,18 @@
 /**
  * How many parcels go on one sheet.
  *
- * The courier's own limit is higher, but fifty is what fits a session: the
- * agent uploads the file, waits for the courier to accept it, and prints that
- * batch of waybills before starting the next. It is also the number of rows
- * confirmed in one statement when the file is built — see mark_courier_entered
- * (migration 0024), which is one round trip rather than fifty.
+ * A hundred, which is a full page of the portal: "tick everything on screen,
+ * download it" is the whole workflow, and a cap below the page size turned
+ * that into two rounds for no reason. The courier's own limit is higher still.
+ *
+ * The size costs nothing on our side — the batch is confirmed in one statement
+ * however long it is (mark_courier_entered, migration 0024), so this is one
+ * round trip whether it carries fifty rows or a hundred.
  *
  * Lives here rather than in the db module so the button can show the number
  * without dragging the service-role client into the browser bundle.
  */
-export const COURIER_SHEET_MAX = 50;
+export const COURIER_SHEET_MAX = 100;
 
 /** The header row, in the courier's order. Do not reorder or drop any. */
 export const COURIER_SHEET_HEADERS = [
