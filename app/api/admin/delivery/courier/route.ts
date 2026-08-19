@@ -171,6 +171,11 @@ export async function POST(request: NextRequest) {
   const sent: string[] = [];
   const failed: { order_number: string; error: string }[] = [];
   let held = 0;
+  // Parcels Delhivery already had. Counted apart from `sent` because nothing
+  // was created for them — saying "sent" would claim an action that did not
+  // happen, and this number is the proof the duplicate check is earning its
+  // keep rather than a figure anyone needs to act on.
+  let adopted = 0;
 
   const wantsSend = body.send !== false && courierId && updated.length;
   const courier = wantsSend ? await getCourier(courierId) : null;
@@ -195,6 +200,7 @@ export async function POST(request: NextRequest) {
 
         for (const r of results) {
           if (r.ok && r.waybill) {
+            if (r.adopted) adopted++;
             try {
               await recordSent(r.order_number, r.waybill);
               sent.push(r.order_number);
@@ -247,6 +253,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     updated: updated.length,
     sent: sent.length,
+    adopted,
     failed,
     held,
     // Already-sent parcels that were skipped, so the message can say so rather

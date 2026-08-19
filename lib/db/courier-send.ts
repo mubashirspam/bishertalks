@@ -188,12 +188,19 @@ export async function unmatchedSheetParcels(limit = 200): Promise<
 }
 
 /**
- * Store the waybill we learned for a parcel that went out on a sheet.
+ * Store the waybill we learned for a parcel we did not have one for.
  *
  * Deliberately not `recordSent`: that one means "we handed this to the courier
- * just now" and stamps courier_entered_at. These parcels were handed over long
- * ago and already have that timestamp from when the sheet was downloaded —
- * this only fills in the number we were missing.
+ * just now" and stamps courier_entered_at. These parcels were handed over
+ * already — on a sheet long ago, or by an API push whose answer we never
+ * managed to store — so this only fills in the number we were missing.
+ *
+ * It also clears courier_send_error, which is what closes the loop on a held
+ * parcel. A send whose outcome was unknown left an error and kept its claim,
+ * deliberately, so nobody could re-send it; learning the waybill is the proof
+ * that the shipment exists, and leaving the error standing after that would
+ * keep the parcel looking stuck forever. Harmless on a sheet parcel, which
+ * never had an error to clear.
  */
 export async function attachWaybill(
   orderNumber: string,
@@ -201,7 +208,11 @@ export async function attachWaybill(
 ): Promise<void> {
   const { error } = await supabaseAdmin
     .from("orders")
-    .update({ tracking_number: waybill, updated_at: new Date().toISOString() })
+    .update({
+      tracking_number: waybill,
+      courier_send_error: null,
+      updated_at: new Date().toISOString(),
+    })
     .eq("order_number", orderNumber)
     .or("tracking_number.is.null,tracking_number.eq.");
 

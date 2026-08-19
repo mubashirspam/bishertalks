@@ -196,6 +196,7 @@ export async function POST(request: NextRequest) {
   // Per-parcel outcomes. Delhivery rejects individual shipments inside a batch
   // it otherwise accepted, so the successes and the failures both matter.
   const sent: string[] = [];
+  let held = 0;
   // Seeded with the addresses Delhivery doesn't reach, so one list answers
   // "what didn't go, and why" whatever the reason was.
   const failed: { order_number: string; error: string }[] = [...unserviceable];
@@ -217,6 +218,14 @@ export async function POST(request: NextRequest) {
           error: `Sent, but not recorded. Waybill ${r.waybill} — enter it by hand.`,
         });
       }
+    } else if (r.uncertain) {
+      // Delhivery either could not say, or said the package might have been
+      // saved. Releasing the claim here — which this route used to do, having
+      // no branch for it — is what offers a second manifest for a shipment
+      // that may already exist, and hands one customer two parcels. Hold it;
+      // Sync now asks by order number and can settle it either way.
+      await markSendUncertain([r.order_number], r.error ?? "Outcome unknown");
+      held++;
     } else {
       await releaseClaim(r.order_number, r.error ?? "Refused");
       failed.push({ order_number: r.order_number, error: r.error ?? "Refused" });
@@ -234,6 +243,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     sent: sent.length,
+    held,
     failed,
     skipped,
     courier: courier.name,

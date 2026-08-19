@@ -6,7 +6,11 @@ import { requirePermission } from "@/lib/admin-auth";
 import { getCourier } from "@/lib/db/couriers";
 import { canTrack } from "@/lib/couriers";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
-import { trackWaybills, trackReferences, trackingBatches } from "@/lib/delhivery/track";
+import {
+  trackWaybills,
+  trackReferencesResilient,
+  trackingBatches,
+} from "@/lib/delhivery/track";
 import { applyScan } from "@/lib/db/courier-scan";
 import { attachWaybill } from "@/lib/db/courier-send";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -22,9 +26,24 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
  * to `delivery.portal` rather than the stricter permission sending needs — an
  * agent should be able to refresh the screen they work in.
  *
- * Parcels are matched by waybill where we have one and by our Reference No
- * where we do not, which is what lets a parcel that went out on an Excel sheet
- * be tracked without anyone typing its waybill in.
+ * Parcels are matched by waybill where we have one, and by name where we do
+ * not — and there are TWO names, because there are two ways a parcel reaches
+ * Delhivery and they file it under a different one each time:
+ *
+ *   courier_reference (BISH…)   the Reference No printed on KKR's Excel sheet
+ *   order_number      (ORD-…)   what `manifest.ts` sends as `order` on an API
+ *                               push, echoed back to us as ReferenceNo
+ *
+ * Only the first was ever asked. That was invisible while every parcel went out
+ * on a sheet, and became a hole the moment sending moved to the API: a parcel
+ * Delhivery accepted but whose waybill we failed to store could not be found by
+ * the one tool built to find it, because we were asking about a number they had
+ * never been given. It stayed "Not with them" forever, however many times
+ * anyone pressed Sync.
+ *
+ * Both are asked now. This is also the recovery path for a send whose outcome
+ * was unknown: if Delhivery has the shipment, Sync learns the waybill and the
+ * parcel stops being held — no second manifest, no duplicate parcel.
  */
 
 /** One screen's worth. The portal shows 100 at a time. */
@@ -127,10 +146,20 @@ export async function POST(request: NextRequest) {
   }
 
   const byWaybill = new Map<string, string>();
+  // Keyed by whatever Delhivery might know the parcel as, pointing at the order
+  // it belongs to. A parcel with no waybill gets both of its possible names in
+  // here — they cannot collide, since one is BISH… and the other ORD-….
   const byReference = new Map<string, string>();
   for (const row of rows) {
-    if (row.tracking_number) byWaybill.set(row.tracking_number, row.order_number);
-    else if (row.courier_reference) byReference.set(row.courier_reference, row.order_number);
+    if (row.tracking_number) {
+      byWaybill.set(row.tracking_number, row.order_number);
+      continue;
+    }
+    if (row.courier_reference) byReference.set(row.courier_reference, row.order_number);
+    // Always, not as a fallback: a parcel can have been pushed by API *and*
+    // have a sheet reference minted at assignment, and which one Delhivery
+    // answers to depends on how it actually left.
+    byReference.set(row.order_number, row.order_number);
   }
 
   let checked = 0;
@@ -172,12 +201,24 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Resilient, because this list now deliberately contains names Delhivery
+    // may never have seen — an order number for a parcel that only ever went
+    // out on a sheet, or a sheet reference for one pushed by API. One unknown
+    // id refuses their whole query, so the batch degrades to single lookups
+    // rather than reporting fifty parcels as missing.
+    const seen = new Set<string>();
     for (const batch of trackingBatches([...byReference.keys()])) {
-      const tracked = await trackReferences(batch, settings);
-      checked += tracked.length;
+      const tracked = await trackReferencesResilient(batch, settings);
       for (const parcel of tracked) {
-        const orderNumber = parcel.reference ? byReference.get(parcel.reference) : undefined;
-        if (orderNumber) await record(parcel, orderNumber, true);
+        const orderNumber = parcel.reference
+          ? byReference.get(parcel.reference)
+          : undefined;
+        if (!orderNumber) continue;
+        // Both names can answer for one parcel. Record it once.
+        if (seen.has(orderNumber)) continue;
+        seen.add(orderNumber);
+        checked++;
+        await record(parcel, orderNumber, true);
       }
     }
   } catch (e) {

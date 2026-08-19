@@ -98,7 +98,23 @@ async function track(
   query: Record<string, string>,
   settings: DelhiverySettings
 ): Promise<TrackedParcel[]> {
-  if (!Object.values(query).some(Boolean)) return [];
+  return (await trackRaw(query, settings)).parcels;
+}
+
+/**
+ * The same call, keeping the difference between "none of these" and "we would
+ * not answer that".
+ *
+ * Delhivery refuses a whole `ref_ids` query the moment one id in it is unknown
+ * to them — see the note on trackReferences — so a caller that cannot tell a
+ * refusal from an empty result will read "one of these fifty is new" as "none
+ * of these fifty exist". That difference is the whole of `refused`.
+ */
+async function trackRaw(
+  query: Record<string, string>,
+  settings: DelhiverySettings
+): Promise<{ parcels: TrackedParcel[]; refused: boolean }> {
+  if (!Object.values(query).some(Boolean)) return { parcels: [], refused: false };
 
   const response = await delhiveryRequest<TrackResponse>({
     settings,
@@ -113,7 +129,7 @@ async function track(
   // parcels Delhivery may legitimately never have seen.
   if (response.Error) {
     console.warn("[Delhivery] tracking:", response.Error, query);
-    return [];
+    return { parcels: [], refused: true };
   }
 
   const out: TrackedParcel[] = [];
@@ -143,7 +159,48 @@ async function track(
     });
   }
 
-  return out;
+  return { parcels: out, refused: false };
+}
+
+/**
+ * Look these references up without letting one unknown id lose the rest.
+ *
+ * The batch is tried first, because when every id is known that is a single
+ * request for fifty parcels. If Delhivery refuses the whole query — which is
+ * what one unrecognised id does — the ids are asked for individually, and only
+ * the genuinely unknown ones come back empty.
+ *
+ * The fallback costs one request per parcel, so it is deliberately the second
+ * thing tried rather than the first. Their pull limit is 750 requests per five
+ * minutes, which a screenful never approaches and a whole-account sweep could:
+ * a sweep that had to degrade would spend fifty requests on fifty parcels, so
+ * callers doing thousands should keep passing known references.
+ */
+export async function trackReferencesResilient(
+  references: string[],
+  settings: DelhiverySettings
+): Promise<TrackedParcel[]> {
+  const ids = references.filter(Boolean).slice(0, TRACK_BATCH);
+  if (!ids.length) return [];
+
+  const batch = await trackRaw({ ref_ids: ids.join(",") }, settings);
+  if (!batch.refused) return batch.parcels;
+
+  // A single id cannot be poisoned by a neighbour — the batch WAS the id, so a
+  // refusal is the answer, not a reason to ask the identical question again.
+  // Without this every check on a parcel Delhivery has never seen costs two
+  // requests instead of one, which is most of them on a normal send.
+  if (ids.length === 1) return [];
+
+  // One at a time. A single id cannot poison itself, so whatever exists is
+  // found and whatever does not is simply absent — which is the answer the
+  // caller wanted from the batch in the first place.
+  const found: TrackedParcel[] = [];
+  for (const id of ids) {
+    const one = await trackRaw({ ref_ids: id }, settings);
+    found.push(...one.parcels);
+  }
+  return found;
 }
 
 /** Split a long list into requests that stay inside their batch limit. */

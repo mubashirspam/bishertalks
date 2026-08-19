@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import {
@@ -26,19 +26,23 @@ const LABELS_PER_PAGE = 6;
 const MAX_LABELS = 300;
 
 /**
- * Parcels per request when routing a selection.
+ * Parcels per request when routing a selection. One.
  *
- * The route accepts 300, and sending 48 in one call was the shape this used to
- * have: one request, one spinner on a button, and nothing to look at for the
- * thirty seconds it took to talk to Delhivery about all of them. Worse, a slow
- * batch could outlive the function's own time limit and leave the browser with
- * no answer at all about parcels that had already been manifested.
+ * This was the whole selection in a single call, then ten at a time, and both
+ * were wrong for the same reason: whatever a failing request covers is what
+ * ends up in an unknown state. Fifty parcels in one call that times out is
+ * fifty orders nobody can safely retry — which is exactly how six of them came
+ * to be sitting at Delhivery while these screens said "Not with them".
  *
- * Ten is small enough that each round trip returns quickly — so the bar moves,
- * and a failure costs at most ten parcels' worth of uncertainty — and large
- * enough that a full day is a handful of calls rather than fifty.
+ * One parcel per request makes that number one. The run is slower and says so,
+ * the bar counts real parcels rather than batches, and a failure names the
+ * single order it cost. `manifestParcels` sends one shipment per Delhivery call
+ * for the same reason, so the blast radius is one parcel end to end.
+ *
+ * Safe to run again over anything: every parcel is checked against Delhivery
+ * before it is created, so one that already exists is adopted, not duplicated.
  */
-const ROUTE_CHUNK = 10;
+const ROUTE_CHUNK = 1;
 
 /** What a routing run did, accumulated across its chunks. */
 type RunResult = {
@@ -47,6 +51,8 @@ type RunResult = {
   cleared: boolean;
   routed: number;
   sent: number;
+  /** Already at the courier — the waybill was adopted, nothing was created. */
+  adopted: number;
   held: number;
   skipped: number;
   /** Refused by the courier, with the reason it gave. */
@@ -207,6 +213,7 @@ export default function DeliveryTable({
       cleared: !to,
       routed: 0,
       sent: 0,
+      adopted: 0,
       held: 0,
       skipped: 0,
       failed: [],
@@ -243,6 +250,7 @@ export default function DeliveryTable({
       acc.courierName = (json.courier_name as string) ?? acc.courierName;
       acc.routed += (json.updated as number) ?? 0;
       acc.sent += (json.sent as number) ?? 0;
+      acc.adopted += (json.adopted as number) ?? 0;
       acc.held += (json.held as number) ?? 0;
       acc.skipped += (json.skipped as number) ?? 0;
       const f = json.failed as RunResult["failed"] | undefined;
@@ -493,8 +501,9 @@ export default function DeliveryTable({
           {/* Said plainly, because the honest answer to "can I close this tab?"
               is no — the run lives in this page, not on the server. */}
           <p className="text-[11px] text-neutral-400 mt-2">
-            Sent {ROUTE_CHUNK} at a time. Keep this tab open until it finishes —
-            parcels already handed over are safely recorded either way.
+            One parcel at a time, so a failure costs one order and names it.
+            Keep this tab open until it finishes — everything already handed
+            over is recorded either way.
           </p>
         </div>
       )}
@@ -925,6 +934,12 @@ function RunSummary({
               <li className="text-amber-700">
                 {result.held} held — we could not confirm what happened. Check{" "}
                 {where} before sending these again; they may already be there.
+              </li>
+            )}
+            {result.adopted > 0 && (
+              <li className="text-green-700">
+                {result.adopted} were already at {where} — we took their
+                existing waybill instead of creating a second shipment.
               </li>
             )}
             {result.skipped > 0 && (

@@ -1,4 +1,5 @@
 import { delhiveryRequest, DelhiveryError } from "./client";
+import { trackReferencesResilient } from "./track";
 import { EWAYBILL_THRESHOLD_PAISE, type DelhiverySettings } from "./config";
 import {
   COURIER_DEFAULTS,
@@ -64,6 +65,12 @@ export interface ManifestResult {
    * a second manifest for a parcel that already has one.
    */
   uncertain: boolean;
+  /**
+   * The shipment already existed and we adopted its waybill instead of making
+   * a second one. Reported so the screen can say so rather than claiming a send
+   * that never happened.
+   */
+  adopted?: boolean;
 }
 
 interface CreateResponse {
@@ -151,24 +158,100 @@ const needsEwaybill = (parcel: CourierParcel) =>
   (parcel.amount_paise ?? 0) >= EWAYBILL_THRESHOLD_PAISE;
 
 /**
- * Hand a batch of parcels to Delhivery.
+ * Does Delhivery already have a shipment for this order?
  *
- * Returns one result per parcel, because Delhivery rejects individual shipments
- * inside an otherwise accepted batch — an all-or-nothing return would either
- * lose the successes or hide the failures.
+ * They index an API push under whatever we sent as `order`, which is our order
+ * number — so this asks by the same name we would create it under. A waybill
+ * coming back means the shipment exists and must not be created again.
  *
- * Throws only when the whole call failed. The caller must treat a thrown
- * `DelhiveryError` of kind "unknown" as "these parcels may or may not exist at
- * Delhivery" and must not retry them automatically.
+ * This is the answer to the only genuinely dangerous case in this file. A send
+ * whose outcome we never learned, or one Delhivery reported as refused but had
+ * in fact saved, leaves a parcel that looks unsent and is not. Creating it a
+ * second time gives one customer two parcels, two waybills and one book.
+ *
+ * Costs one read per parcel. Their pull limit is 750 requests per five minutes,
+ * so a day's parcels is nowhere near it, and the alternative is being wrong
+ * about a thing that cannot be undone from here.
+ */
+export async function existingWaybill(
+  orderNumber: string,
+  settings: DelhiverySettings
+): Promise<string | null> {
+  try {
+    const found = await trackReferencesResilient([orderNumber], settings);
+
+    // Exact match first. Anything less is a guess, and the cost of guessing
+    // wrong here is a customer receiving somebody else's tracking link.
+    const exact = found.find((f) => f.reference === orderNumber);
+    if (exact) return exact.waybill;
+
+    // Delhivery sometimes answers without echoing ReferenceNo. One result to a
+    // one-id query is unambiguous — but only when there is exactly one and it
+    // carries no conflicting reference.
+    if (found.length === 1 && !found[0].reference) return found[0].waybill;
+
+    return null;
+  } catch (e) {
+    // A lookup we could not make is not evidence of absence. Returning null
+    // lets the send proceed — which is the same risk this function existed
+    // before, not a new one — and the claim still stops a concurrent second.
+    console.warn("[Delhivery] existence check failed:", orderNumber, e);
+    return null;
+  }
+}
+
+/**
+ * Hand parcels to Delhivery, one call each.
+ *
+ * Their create API takes an array, and this used to send the whole selection in
+ * a single request. That is the efficient shape and the wrong one: a call
+ * carrying fifty shipments that times out leaves all fifty in an unknown state,
+ * every one of them possibly created, none of them safe to retry — which is
+ * exactly how six parcels ended up sitting at Delhivery while our screens said
+ * "Not with them".
+ *
+ * One parcel per call makes the blast radius one parcel. A timeout costs a
+ * single order, we know precisely which, and the other forty-nine are unharmed.
+ * The cost is fifty requests instead of one, which for a shop sending a few
+ * dozen parcels a day is a trade worth making every time.
+ *
+ * Each parcel is checked for an existing shipment first, so this is safe to
+ * run again over anything: a parcel Delhivery already has is adopted, never
+ * duplicated.
+ *
+ * Never throws. A failure is one parcel's result, not the batch's — that is the
+ * whole point of the shape.
  */
 export async function manifestParcels(
   parcels: CourierParcel[],
   settings: DelhiverySettings
 ): Promise<ManifestResult[]> {
-  if (!parcels.length) return [];
+  const out: ManifestResult[] = [];
+  for (const parcel of parcels) {
+    out.push(await manifestOne(parcel, settings));
+  }
+  return out;
+}
+
+/** One parcel, start to finish: check, create, interpret. */
+async function manifestOne(
+  parcel: CourierParcel,
+  settings: DelhiverySettings
+): Promise<ManifestResult> {
+  const already = await existingWaybill(parcel.order_number, settings);
+  if (already) {
+    return {
+      order_number: parcel.order_number,
+      ok: true,
+      waybill: already,
+      error: null,
+      uncertain: false,
+      adopted: true,
+    };
+  }
 
   const payload = {
-    shipments: parcels.map((p) => shipment(p, settings)),
+    shipments: [shipment(parcel, settings)],
     // Only `name` is mandatory, but every working example in Delhivery's
     // collection sends the whole warehouse — and a payload they can resolve
     // without a lookup is one less thing to be rejected over.
@@ -182,19 +265,45 @@ export async function manifestParcels(
     },
   };
 
-  const response = await delhiveryRequest<CreateResponse>({
-    settings,
-    path: "/api/cmu/create.json",
-    method: "POST",
-    form: encodeCreateBody(payload),
-    // Their collection sends this form-shaped body as application/json, not
-    // as x-www-form-urlencoded. Matching it exactly.
-    contentType: "application/json",
-    // Never. A timeout here may still have created every shipment.
-    retryOnNetworkError: false,
-  });
+  try {
+    const response = await delhiveryRequest<CreateResponse>({
+      settings,
+      path: "/api/cmu/create.json",
+      method: "POST",
+      form: encodeCreateBody(payload),
+      // Their collection sends this form-shaped body as application/json, not
+      // as x-www-form-urlencoded. Matching it exactly.
+      contentType: "application/json",
+      // Never. A timeout here may still have created the shipment.
+      retryOnNetworkError: false,
+    });
 
-  return matchResults(parcels, response);
+    return matchResults([parcel], response)[0];
+  } catch (e) {
+    const err = e instanceof DelhiveryError ? e : null;
+
+    // Unknown means unknown: hold it, and let the next Sync find out. Now that
+    // Sync asks by order number, that is a question with an answer.
+    if (!err || err.kind === "unknown") {
+      return {
+        order_number: parcel.order_number,
+        ok: false,
+        waybill: null,
+        uncertain: true,
+        error:
+          err?.message ??
+          "The send did not complete — Sync will find it if Delhivery has it.",
+      };
+    }
+
+    return {
+      order_number: parcel.order_number,
+      ok: false,
+      waybill: null,
+      uncertain: false,
+      error: err.message,
+    };
+  }
 }
 
 /**
