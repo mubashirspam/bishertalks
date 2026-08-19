@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertCircle, Phone, MessageCircle, ArrowRight, Gift } from "lucide-react";
+import { AlertCircle, Phone, MessageCircle, ArrowRight, Gift, PenLine } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
@@ -37,6 +37,7 @@ interface Row {
   amount_paise: number;
   quantity: number;
   is_gift: boolean;
+  is_signed: boolean;
   payment_status: string;
   address_line1: string | null;
   razorpay_order_id: string | null;
@@ -216,6 +217,14 @@ async function OrdersTable(props: QueryArgs) {
                             className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-primary-50 text-primary-700 border border-primary-200 text-[10px] font-bold align-middle"
                           >
                             <Gift className="w-2.5 h-2.5" /> Gift
+                          </span>
+                        )}
+                        {o.is_signed && (
+                          <span
+                            title="Signed — every copy signed before wrapping"
+                            className="ml-1.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold align-middle"
+                          >
+                            <PenLine className="w-2.5 h-2.5" /> Signed
                           </span>
                         )}
                       </td>

@@ -2,13 +2,14 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Gift, Loader2, Check } from "lucide-react";
+import { Gift, Loader2, Check, PenLine } from "lucide-react";
 import { MAX_GIFT_CHARGE_PAISE, type GiftSettings } from "@/lib/gift";
 
 /**
- * Gift wrapping: on or off, and what it costs.
+ * Gift wrapping: on or off, what it costs, and whether signed copies come with
+ * it.
  *
- * Two fields, so there is no edit mode to open — the form is the card. Saving
+ * Three fields, so there is no edit mode to open — the form is the card. Saving
  * is explicit rather than on-change, because the fee is a number people type a
  * digit at a time and an auto-save would briefly sell wrapping at ₹7 on the way
  * to ₹79.
@@ -16,19 +17,28 @@ import { MAX_GIFT_CHARGE_PAISE, type GiftSettings } from "@/lib/gift";
  * The fee box stays editable while wrapping is switched off. Turning it off for
  * a week and setting next month's price are two things someone may well do in
  * the same visit, and disabling the box would make the second impossible.
+ *
+ * Signing has a switch and no fee: it is free (0041), and the only decision
+ * left is whether it is on offer. It is only ever offered inside the gift
+ * option, so wrapping off means neither is available whatever the signing
+ * switch says — stated on the card rather than enforced by greying the row out,
+ * because a control that disables itself for reasons the reader has to guess is
+ * worse than a sentence.
  */
 export default function GiftSettingsCard({ settings }: { settings: GiftSettings }) {
   const router = useRouter();
 
   const [enabled, setEnabled] = useState(settings.isEnabled);
   const [rupees, setRupees] = useState(String(Math.round(settings.chargePaise / 100)));
+  const [signedEnabled, setSignedEnabled] = useState(settings.signedIsEnabled);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
 
   const dirty =
     enabled !== settings.isEnabled ||
-    Math.round(Number(rupees) || 0) !== Math.round(settings.chargePaise / 100);
+    Math.round(Number(rupees) || 0) !== Math.round(settings.chargePaise / 100) ||
+    signedEnabled !== settings.signedIsEnabled;
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,7 +50,11 @@ export default function GiftSettingsCard({ settings }: { settings: GiftSettings 
       const res = await fetch("/api/admin/gift", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ is_enabled: enabled, charge_rupees: rupees }),
+        body: JSON.stringify({
+          is_enabled: enabled,
+          charge_rupees: rupees,
+          signed_is_enabled: signedEnabled,
+        }),
       });
       const data = await res.json();
 
@@ -73,7 +87,8 @@ export default function GiftSettingsCard({ settings }: { settings: GiftSettings 
           </h2>
           <p className="text-neutral-500 text-sm mt-1">
             An add-on at checkout: the parcel is wrapped and your message is
-            written on a card inside.
+            written on a card inside, and the books can be signed at no extra
+            charge.
           </p>
         </div>
 
@@ -122,7 +137,54 @@ export default function GiftSettingsCard({ settings }: { settings: GiftSettings 
             />
           </div>
         </div>
+      </div>
 
+      {/* Below wrapping and indented under it, because that is the shape of the
+          thing being described: an option inside an option. */}
+      <div className="mt-5 pt-5 border-t border-neutral-200">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <h3 className="font-semibold text-sm text-neutral-900 flex items-center gap-2">
+            <PenLine className="w-4 h-4 text-primary-500" /> Signed copies
+          </h3>
+          <span
+            className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${
+              settings.signedIsEnabled && settings.isEnabled
+                ? "bg-green-50 text-green-700 border border-green-200"
+                : "bg-neutral-100 text-neutral-500 border border-neutral-200"
+            }`}
+          >
+            {settings.signedIsEnabled && settings.isEnabled
+              ? "Offered inside the gift option"
+              : settings.signedIsEnabled
+                ? "Hidden — gift wrapping is off"
+                : "Not offered"}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-5 mt-4">
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={signedEnabled}
+              onChange={(e) => setSignedEnabled(e.target.checked)}
+              className="w-4 h-4 accent-primary-500 cursor-pointer"
+            />
+            <span className="text-sm text-neutral-700">Offer signed copies</span>
+          </label>
+
+          {/* No fee box, and the reason said out loud — an empty space where a
+              price belongs reads as a field that failed to load. */}
+          <p className="text-xs text-neutral-500">
+            Free. A gift buyer ticks it and the total does not move, however
+            many books are in the parcel.
+          </p>
+        </div>
+      </div>
+
+      {/* One button for both sections, below both. Two Saves on one card is a
+          way to change the wrapping fee and walk away with the signing fee
+          still unsaved. */}
+      <div className="flex flex-wrap items-center gap-4 mt-5">
         <button
           type="submit"
           disabled={saving || !dirty}
@@ -144,9 +206,11 @@ export default function GiftSettingsCard({ settings }: { settings: GiftSettings 
       {/* Said plainly, because "will this change what I already sold?" is the
           first thing anyone wonders before touching a price. */}
       <p className="text-[11px] text-neutral-400 mt-4 leading-relaxed">
-        Applies to new orders only — an order already placed keeps the fee it was
-        charged, and still needs wrapping. Turning it off hides the option at
-        checkout; it does not cancel anything already paid for.
+        Applies to new orders only — an order already placed keeps the fee it
+        was charged, and still needs wrapping and signing. Turning either off
+        hides it at checkout; it does not cancel anything already paid for.
+        Signing is offered inside the gift option, so switching wrapping off
+        hides both.
       </p>
     </form>
   );

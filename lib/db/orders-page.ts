@@ -50,6 +50,7 @@ export interface OrdersPageRow {
   amount_paise: number;
   quantity: number;
   is_gift: boolean;
+  is_signed: boolean;
   payment_status: string;
   address_line1: string | null;
   razorpay_order_id: string | null;

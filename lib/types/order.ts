@@ -41,6 +41,8 @@ export interface Order {
   gift_message: string | null;
   /** What they were charged for wrapping, snapshotted at checkout. */
   gift_charge_paise: number;
+  /** Sign every copy before wrapping it (0040). Gifts only, and free (0041). */
+  is_signed: boolean;
   promo_code: string | null;
   discount_paise: number;
   payment_status: PaymentStatus;

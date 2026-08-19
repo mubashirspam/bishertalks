@@ -49,6 +49,14 @@ export interface LabelOrder {
    * on the admin order page, for whoever writes the card.
    */
   is_gift?: boolean | null;
+  /**
+   * Every copy in this parcel is signed (0040).
+   *
+   * On the label because it changes what goes in the box, not just how it is
+   * wrapped: an unsigned copy packed against a signed order is a parcel that
+   * comes back. Only ever true alongside is_gift.
+   */
+  is_signed?: boolean | null;
   created_at: string;
 }
 
@@ -78,8 +86,10 @@ export function senderFromEnv(): SenderDetails {
  * The count is the operative word: a label reading "x 1" on a three-book order
  * is how someone packs one book and closes the box.
  */
-const contentsLine = (quantity: number, isGift: boolean) =>
-  `Neuro Code (Book) x ${quantity}${isGift ? " — GIFT WRAPPED" : ""}`;
+const contentsLine = (quantity: number, isGift: boolean, isSigned: boolean) =>
+  `Neuro Code (Book) x ${quantity}` +
+  (isSigned ? " — SIGNED" : "") +
+  (isGift ? " — GIFT WRAPPED" : "");
 
 export function buildLabelSheet(
   orders: LabelOrder[],
@@ -173,6 +183,12 @@ function drawLabel(
 
   if (copies > 1) marker(`${copies} BOOKS`);
   if (o.is_gift) marker("GIFT");
+  // Last, so it is the first dropped if the header runs out of room — markers
+  // are laid left to right and `marker` skips any that would collide. Nothing
+  // is lost when that happens: the contents line at the foot always carries it,
+  // and GIFT is the one whose absence a packer cannot recover from once the
+  // parcel is taped shut.
+  if (o.is_signed) marker("SIGNED");
 
   cy += 7;
   doc.line(left, cy, right, cy, { gray: 0.7, width: 0.7 });
@@ -234,7 +250,7 @@ function drawLabel(
   const footTop = y + CELL_H - FOOTER_H;
   doc.line(left, footTop, right, footTop, { gray: 0.8, width: 0.5 });
 
-  doc.text(left, footTop + 12, `Contents: ${contentsLine(copies, !!o.is_gift)}`, {
+  doc.text(left, footTop + 12, `Contents: ${contentsLine(copies, !!o.is_gift, !!o.is_signed)}`, {
     size: 7.5,
     gray: 0.35,
     maxWidth: INNER_W,

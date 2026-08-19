@@ -6,7 +6,13 @@ import Link from "next/link";
 import { ArrowLeft, Lock, ShoppingBag, Tag, Check, Truck } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 import { clampQuantity } from "@/lib/quantity";
-import { giftChargePaise, isGiftOrder, sanitizeGiftMessage, type GiftSettings } from "@/lib/gift";
+import {
+  giftChargePaise,
+  isGiftOrder,
+  isSignedOrder,
+  sanitizeGiftMessage,
+  type GiftSettings,
+} from "@/lib/gift";
 import {
   PackageItems,
   GiftOption,
@@ -34,7 +40,7 @@ export default function CheckoutForm({
   gift,
 }: {
   pricing: ProductPricing;
-  /** What wrapping costs today, and whether it is offered at all. */
+  /** What the gift add-ons cost today, and whether each is offered. */
   gift: GiftSettings;
 }) {
   const router = useRouter();
@@ -53,17 +59,24 @@ export default function CheckoutForm({
 
   const [isGift, setIsGift] = useState(false);
   const [giftMessage, setGiftMessage] = useState("");
+  const [isSigned, setIsSigned] = useState(false);
 
   // Display only. /api/orders/create multiplies the price by its own clamped
-  // copy of the quantity and adds its own copy of the gift fee, so nothing here
-  // can talk the charge down.
+  // copy of the quantity and adds its own copies of the two gift fees, so
+  // nothing here can talk the charge down.
   //
   // Wrapping is added after the promo, not before: a discount code is for the
   // book, and letting it eat into the wrapping fee would sell the paper at a
   // loss on every code that happens to be a percentage.
+  //
+  // Signing adds nothing to the total — it is free — so it appears here only as
+  // a flag. Unticking the gift box clears it without clearing the checkbox
+  // state: `isSignedOrder` refuses a signed order that isn't a gift, so the
+  // sub-option comes back as it was left if the box is ticked again.
   const basePaise = pricing.payablePaise * quantity;
   const giftOrder = isGiftOrder(isGift, gift);
   const giftPaise = giftChargePaise(isGift, gift);
+  const signedOrder = isSignedOrder(isSigned, isGift, gift);
   const totalPaise = (promo ? promo.finalPaise : basePaise) + giftPaise;
 
   useEffect(() => {
@@ -132,6 +145,7 @@ export default function CheckoutForm({
           // unticking the box must not be stored, or someone packs a card for
           // an order the customer didn't pay wrapping on.
           gift_message: giftOrder ? sanitizeGiftMessage(giftMessage) : null,
+          is_signed: signedOrder,
         }),
       });
       const createData = await createRes.json();
@@ -259,6 +273,9 @@ export default function CheckoutForm({
             onChange={setIsGift}
             message={giftMessage}
             onMessage={setGiftMessage}
+            signed={isSigned}
+            onSigned={setIsSigned}
+            quantity={quantity}
             disabled={loading}
           />
 

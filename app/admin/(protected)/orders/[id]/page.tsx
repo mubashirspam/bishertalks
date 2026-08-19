@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail, Link2, Copy, Check, PencilLine, X, Receipt, Gift } from "lucide-react";
+import { ArrowLeft, Save, Package, Truck, MapPin, CreditCard, Phone, MessageCircle, History, Mail, Link2, Copy, Check, PencilLine, X, Receipt, Gift, PenLine } from "lucide-react";
 import { formatIST, timeAgo } from "@/lib/format-date";
 import { describeAudit } from "@/lib/audit";
 import {
@@ -443,8 +443,24 @@ export default function AdminOrderDetailPage() {
       {order.is_gift && (
         <div className="mb-6 bg-primary-50 border border-primary-200 rounded-2xl p-5 shadow-sm">
           <h2 className="font-semibold text-sm text-primary-900 flex items-center gap-2">
-            <Gift className="w-4 h-4 text-primary-600" /> Gift order — wrap before shipping
+            <Gift className="w-4 h-4 text-primary-600" />
+            {order.is_signed
+              ? "Gift order — get every copy signed, then wrap"
+              : "Gift order — wrap before shipping"}
           </h2>
+
+          {/* Above the message, because it is the step that has to happen
+              first and the one that cannot be done after the box is taped. */}
+          {order.is_signed && (
+            <p className="mt-3 flex items-start gap-2 text-sm font-semibold text-primary-900 bg-white border border-primary-200 rounded-xl px-4 py-3">
+              <PenLine className="w-4 h-4 mt-0.5 flex-shrink-0 text-primary-600" />
+              <span>
+                Signed copies — all {order.quantity} book
+                {order.quantity === 1 ? "" : "s"} in this parcel go to Bisher to
+                be signed before wrapping.
+              </span>
+            </p>
+          )}
           {order.gift_message ? (
             <>
               <p className="text-xs font-semibold text-primary-700 uppercase tracking-wider mt-4 mb-1.5">
@@ -463,7 +479,8 @@ export default function AdminOrderDetailPage() {
           )}
           <p className="text-xs text-primary-700 mt-3">
             No invoice or price goes in the parcel. Charged ₹
-            {Math.round(order.gift_charge_paise / 100)} for wrapping.
+            {Math.round(order.gift_charge_paise / 100)} for wrapping
+            {order.is_signed && " — signing is free"}.
           </p>
         </div>
       )}

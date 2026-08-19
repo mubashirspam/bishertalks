@@ -30,6 +30,8 @@ export interface OrderRow {
   is_gift: boolean;
   gift_message: string | null;
   gift_charge_paise: number;
+  /** Signed copies (0040). Only ever set on a gift, and free (0041). */
+  is_signed: boolean;
   discount_paise: number;
   promo_code: string | null;
   payment_status: string;
@@ -55,7 +57,7 @@ export interface OrderRow {
 
 export const ORDER_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,quantity," +
-  "is_gift,gift_message,gift_charge_paise,discount_paise,promo_code," +
+  "is_gift,gift_message,gift_charge_paise,is_signed,discount_paise,promo_code," +
   "payment_status,status,address_line1,address_line2,city,district,state,pincode," +
   "razorpay_order_id,razorpay_payment_id,checkout_type,created_at,address_submitted_at," +
   "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note";

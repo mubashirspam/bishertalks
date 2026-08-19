@@ -108,6 +108,7 @@ export default async function BookCTA() {
             {gift.isEnabled && (
               <p className="mt-4 text-center md:text-left text-xs text-neutral-500 dark:text-neutral-400">
                 🎁 Gift wrapping and a personal message available at checkout
+                {gift.signedIsEnabled && " — signed copies too"}
               </p>
             )}
           </div>

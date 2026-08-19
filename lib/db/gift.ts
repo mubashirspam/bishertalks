@@ -9,27 +9,44 @@ import {
 } from "@/lib/gift";
 
 /**
- * Reading and writing the gift wrapping settings (migration 0029).
+ * Reading and writing the gift wrapping settings (migrations 0029 and 0040).
  *
  * Kept apart from lib/gift.ts because that module is imported by the checkout
  * forms, which are client components — dragging the service-role client into
  * that import graph would put the database key in the browser bundle.
  */
 
-const COLUMNS = "is_enabled,charge_paise";
+const COLUMNS = "is_enabled,charge_paise,signed_is_enabled";
 
 interface Row {
   is_enabled: boolean;
   charge_paise: number;
+  signed_is_enabled: boolean;
 }
 
+/**
+ * The signing switch is defaulted per field rather than with the row.
+ *
+ * On a database still behind 0040 the select itself errors — PostgREST refuses
+ * the whole request over a column that does not exist — and both callers catch
+ * that and return the defaults. What this guards is the narrower case: a row
+ * read successfully but shaped by something else (a hand-written seed, a
+ * restored backup) with no signing field on it. Defaulting just that leaves the
+ * wrapping fee alone, where defaulting the row would quietly reset a price
+ * someone had set.
+ */
 const shape = (row: Row | null): GiftSettings =>
   row
-    ? { isEnabled: row.is_enabled, chargePaise: row.charge_paise }
+    ? {
+        isEnabled: row.is_enabled,
+        chargePaise: row.charge_paise,
+        signedIsEnabled:
+          row.signed_is_enabled ?? DEFAULT_GIFT_SETTINGS.signedIsEnabled,
+      }
     : DEFAULT_GIFT_SETTINGS;
 
 /**
- * What wrapping costs right now, and whether it is on offer at all.
+ * What wrapping costs right now, and whether either add-on is on offer at all.
  *
  * Memoised per request: the checkout page reads it to draw the option and the
  * create route reads it to charge for one, and neither should pay for a second
@@ -51,7 +68,7 @@ export const getGiftSettings = cache(async function getGiftSettings(): Promise<G
     // Migrations here are applied by hand, so "relation does not exist" is a
     // real possibility on a database the code has already been deployed to.
     console.error(
-      "[Gift] settings read failed — is migration 0029 applied?",
+      "[Gift] settings read failed — are migrations 0029 and 0040 applied?",
       error.message
     );
     return DEFAULT_GIFT_SETTINGS;
@@ -113,6 +130,9 @@ export async function updateGiftSettings(
           Math.max(0, Math.round(settings.chargePaise)),
           MAX_GIFT_CHARGE_PAISE
         ),
+        // No fee beside it: signing is free (0041), so this is the whole of
+        // what there is to save about it.
+        signed_is_enabled: settings.signedIsEnabled,
         updated_at: new Date().toISOString(),
       },
       { onConflict: "id" }

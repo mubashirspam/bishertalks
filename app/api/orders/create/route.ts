@@ -15,7 +15,12 @@ import {
 } from "@/lib/db/attribution";
 import { applyReferral, type AppliedReferral } from "@/lib/db/referrals";
 import { clampQuantity } from "@/lib/quantity";
-import { giftChargePaise, isGiftOrder, sanitizeGiftMessage } from "@/lib/gift";
+import {
+  giftChargePaise,
+  isGiftOrder,
+  isSignedOrder,
+  sanitizeGiftMessage,
+} from "@/lib/gift";
 import { getGiftSettings } from "@/lib/db/gift";
 import { claimPaidTransition } from "@/lib/payment-claim";
 
@@ -95,6 +100,14 @@ export async function POST(request: NextRequest) {
     const isGift = isGiftOrder(body.is_gift, giftSettings);
     const giftPaise = giftChargePaise(body.is_gift, giftSettings);
     const giftMessage = isGift ? sanitizeGiftMessage(body.gift_message) : null;
+
+    // Signed copies — free (0041), so there is nothing to price, only a flag
+    // to get right. Same rules as wrapping, one step stricter: signing is only
+    // offered inside the gift option, so this reads `body.is_gift` as well as
+    // `body.is_signed`. A request asking for signing without wrapping is stored
+    // as nothing, which is what orders_signed_needs_gift_check (0040) would
+    // insist on if it got that far.
+    const isSigned = isSignedOrder(body.is_signed, body.is_gift, giftSettings);
 
     const { payablePaise } = await getProductPricing();
     // The course is not multiplied — one login per customer, however many
@@ -251,13 +264,14 @@ export async function POST(request: NextRequest) {
               tax_amount: 0,
               quantity: 1,
               name: quantity > 1 ? `Neuro Code × ${quantity}` : "Neuro Code",
-              // Gift wrapping rides in the description for the same reason the
-              // copy count does: it is inside `price` already, and a second
-              // line item would have to be reconciled against
+              // The gift add-ons ride in the description for the same reason
+              // the copy count does: they are inside `price` already, and a
+              // second line item would have to be reconciled against
               // line_items_total on an amount a discount doesn't divide evenly.
               description:
                 `Book by Bisher KC${quantity > 1 ? ` — ${quantity} copies` : ""}` +
-                (isGift ? " — gift wrapped" : ""),
+                (isGift ? " — gift wrapped" : "") +
+                (isSigned ? " — signed" : ""),
               image_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/images/book_front.png`,
             },
           ],
@@ -303,6 +317,10 @@ export async function POST(request: NextRequest) {
       gift_message: giftMessage,
       // Snapshotted, so raising the fee later can't rewrite this order.
       gift_charge_paise: giftPaise,
+      // Written unconditionally for the same reason as is_gift above: a lead
+      // row that asked for signing on a previous attempt must not keep the flag
+      // when the customer changed their mind before paying.
+      is_signed: isSigned,
       promo_code: appliedPromo,
       discount_paise: discountPaise,
       payment_status: "pending",

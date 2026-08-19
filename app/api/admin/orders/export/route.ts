@@ -13,6 +13,7 @@ import { toCSV, toXLSX } from "@/lib/export";
 const HEADERS = [
   "Order number", "Date & time (IST)", "Stage", "Name", "Phone", "Email",
   "Amount (₹)", "Books", "Gift", "Gift message", "Gift charge (₹)",
+  "Signed",
   "Discount (₹)", "Promo", "Payment status", "Fulfilment status",
   "Address", "Landmark", "Area", "District", "State", "Pincode",
   "Razorpay payment ID", "Checkout", "Address submitted (IST)",
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest) {
     o.is_gift ? "Yes" : "",
     o.gift_message ?? "",
     o.gift_charge_paise ? rupees(o.gift_charge_paise) : "",
+    o.is_signed ? "Yes" : "",
     rupees(o.discount_paise),
     o.promo_code ?? "",
     o.payment_status,

@@ -41,6 +41,8 @@ export interface DeliveryRow {
   /** Wrap it, and write the card the admin order page shows (0027). */
   is_gift: boolean;
   gift_message: string | null;
+  /** Sign every copy before wrapping it (0040) — printed on the label. */
+  is_signed: boolean;
   status: string;
   courier_name: string | null;
   tracking_number: string | null;
@@ -67,7 +69,7 @@ export interface DeliveryRow {
 
 export const DELIVERY_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district,state,pincode," +
-  "amount_paise,quantity,is_gift,gift_message," +
+  "amount_paise,quantity,is_gift,gift_message,is_signed," +
   "status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
   "assigned_agent_id,assigned_at,courier_entered_at," +
   "courier_id,courier_sent_at,courier_send_error," +

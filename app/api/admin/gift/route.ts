@@ -8,7 +8,14 @@ import { MAX_GIFT_CHARGE_PAISE } from "@/lib/gift";
 import { audit } from "@/lib/audit";
 
 /**
- * Turn gift wrapping on or off, and set what it costs.
+ * Turn gift wrapping on or off, set what it costs, and say whether signed
+ * copies are offered inside it.
+ *
+ * One fee, because signing is free (0041). Both switches save together from one
+ * form: they live on the same settings row and the same card, so splitting them
+ * would mean two round trips to save what someone edited in one sitting — and a
+ * window where wrapping is off but signing, which is only offered inside it, is
+ * still marked on.
  *
  * Gated on `promos.manage` rather than a new permission of its own: that is
  * already "who decides what a customer pays at checkout", which is exactly what
@@ -47,6 +54,7 @@ export async function PATCH(request: NextRequest) {
   const saved = await updateGiftSettings({
     isEnabled: body.is_enabled === true,
     chargePaise,
+    signedIsEnabled: body.signed_is_enabled === true,
   });
 
   if (!saved) {
@@ -59,7 +67,11 @@ export async function PATCH(request: NextRequest) {
     actor: auth.staff,
     action: "gift.settings.update",
     entity: "gift_settings",
-    meta: { is_enabled: saved.isEnabled, charge_paise: saved.chargePaise },
+    meta: {
+      is_enabled: saved.isEnabled,
+      charge_paise: saved.chargePaise,
+      signed_is_enabled: saved.signedIsEnabled,
+    },
   });
 
   // The checkout is force-dynamic, so it picks this up on the next request by

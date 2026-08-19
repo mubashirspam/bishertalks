@@ -158,6 +158,8 @@ export interface PortalRow {
   /** Wrap it before it goes out (0027). The message stays on the order page. */
   is_gift: boolean;
   gift_message: string | null;
+  /** Get every copy signed before wrapping it (0040). */
+  is_signed: boolean;
   status: OrderStatus;
   courier_entered_at: string | null;
   /** The number this parcel went to the courier under — see migration 0024. */
@@ -178,7 +180,7 @@ export interface PortalRow {
 
 const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
-  "state,pincode,amount_paise,quantity,is_gift,gift_message," +
+  "state,pincode,amount_paise,quantity,is_gift,gift_message,is_signed," +
   "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
   "tracking_number,assigned_agent_id,created_at";

@@ -704,6 +704,14 @@ export default function PortalGrid({
                         🎁 gift
                       </span>
                     )}
+                    {r.is_signed && (
+                      <span
+                        title="Signed — every copy goes to Bisher to be signed before it is wrapped"
+                        className="ml-1.5 inline-flex px-1.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold align-middle"
+                      >
+                        ✒️ signed
+                      </span>
+                    )}
                   </td>
 
                   <td className={`${cell} whitespace-nowrap border-r border-neutral-100`}>

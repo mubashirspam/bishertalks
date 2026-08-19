@@ -1,5 +1,5 @@
 import Image from "next/image";
-import { Gift, ShieldCheck, Minus, Plus, Check } from "lucide-react";
+import { Gift, ShieldCheck, Minus, Plus, Check, PenLine } from "lucide-react";
 import { OFFER, NLP_COURSE } from "@/app/neuro-code/content";
 import { MAX_BOOKS } from "@/lib/quantity";
 import { giftRupees, MAX_GIFT_MESSAGE, type GiftSettings } from "@/lib/gift";
@@ -172,6 +172,11 @@ function Stepper({
  * The message is optional even when the box is ticked. Someone may just want
  * the paper.
  *
+ * Signing lives inside this box rather than beside it, and only appears once
+ * the box is ticked. It is sold as part of the gift, not as a third line on the
+ * page — and a checkout that grows a new priced checkbox for everyone, most of
+ * whom are buying a book for themselves, is a checkout that converts worse.
+ *
  * Renders nothing at all when wrapping is switched off in the admin. A greyed
  * out option with no explanation is worse than no option: it reads as a broken
  * page at the moment someone is deciding whether to trust you with a card.
@@ -182,14 +187,22 @@ export function GiftOption({
   onChange,
   message,
   onMessage,
+  signed,
+  onSigned,
+  quantity,
   disabled,
 }: {
-  /** What wrapping costs, and whether it is on offer at all. */
+  /** What the add-ons cost, and whether each is on offer at all. */
   settings: GiftSettings;
   checked: boolean;
   onChange: (next: boolean) => void;
   message: string;
   onMessage: (next: string) => void;
+  /** Sign the books before wrapping them. Free — see lib/gift.ts. */
+  signed: boolean;
+  onSigned: (next: boolean) => void;
+  /** Copies in the basket, so the label can say "books" rather than "book". */
+  quantity: number;
   disabled?: boolean;
 }) {
   const left = MAX_GIFT_MESSAGE - message.length;
@@ -229,6 +242,38 @@ export function GiftOption({
 
       {checked && (
         <div className="px-4 pb-4">
+          {settings.signedIsEnabled && (
+            <label className="flex items-start gap-3 mb-4 cursor-pointer rounded-xl border border-primary-200 dark:border-primary-500/30 bg-white/70 dark:bg-neutral-800/50 p-3">
+              <input
+                type="checkbox"
+                checked={signed}
+                disabled={disabled}
+                onChange={(e) => onSigned(e.target.checked)}
+                className="mt-0.5 w-4 h-4 flex-shrink-0 accent-primary-500 cursor-pointer disabled:cursor-not-allowed"
+              />
+              <span className="flex-1 min-w-0">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-sm text-neutral-900 dark:text-white flex items-center gap-1.5">
+                    <PenLine className="w-4 h-4 text-primary-500" /> Signed by
+                    Bisher
+                  </span>
+                  {/* Said in the same slot the wrapping fee occupies, so the
+                      eye that went looking for a price finds the answer there
+                      rather than having to conclude it from a total that did
+                      not move. */}
+                  <span className="font-bold text-sm text-green-600 dark:text-green-400 flex-shrink-0">
+                    Free
+                  </span>
+                </span>
+                <span className="block text-neutral-500 dark:text-neutral-400 text-xs mt-1 leading-relaxed">
+                  {quantity > 1
+                    ? `All ${quantity} copies signed by hand before wrapping`
+                    : "Signed by hand before it is wrapped"}
+                </span>
+              </span>
+            </label>
+          )}
+
           <label
             htmlFor="gift-message"
             className="text-xs font-semibold text-neutral-500 uppercase tracking-wider block mb-1.5"

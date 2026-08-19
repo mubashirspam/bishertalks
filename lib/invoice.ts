@@ -68,6 +68,9 @@ export function buildInvoice(order: InvoiceOrder): Buffer {
   // subtotal would divide it across the copies and quote a per-book rate the
   // customer was never charged — on a two-copy gift, ₹779.50 a book for a book
   // that costs ₹699.
+  //
+  // Signing is not a line at all: it is free (0041), and a ₹0 row on a bill
+  // invites the question of what it is doing there.
   const giftPaise = Math.max(0, order.gift_charge_paise ?? 0);
 
   // The pre-discount book total, derived from what was actually charged so the
