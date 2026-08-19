@@ -22,6 +22,12 @@ export interface DeliveryFilters {
   courier?: string;
   /** A handover_state value (0035) — what is actually happening to it. */
   handover?: string;
+  /** Copies in the parcel: "multi" for 2+, "single" for exactly one, or "all". */
+  books?: string;
+  /** Gift wrapping: "yes" for gifts only, "no" for plain parcels, or "all". */
+  gift?: string;
+  /** Signed copies: "yes" for the ones that need signing, or "all". */
+  signed?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -43,6 +49,9 @@ export interface DeliveryRow {
   gift_message: string | null;
   /** Sign every copy before wrapping it (0040) — printed on the label. */
   is_signed: boolean;
+  /** When it was paid (0043), and the order date derived from it. */
+  paid_at: string | null;
+  ordered_at: string;
   status: string;
   courier_name: string | null;
   tracking_number: string | null;
@@ -74,7 +83,7 @@ export const DELIVERY_COLUMNS =
   "assigned_agent_id,assigned_at,courier_entered_at," +
   "courier_id,courier_sent_at,courier_send_error," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
-  "shipped_at,delivered_at,created_at";
+  "shipped_at,delivered_at,created_at,paid_at,ordered_at";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -103,7 +112,7 @@ export function buildDeliveryQuery(
     .select(countOnly ? "id" : columns, { count: "exact", head: countOnly })
     .eq("payment_status", "paid")
     .not("address_line1", "is", null)
-    .order("created_at", { ascending: filters.sort === "oldest" });
+    .order("ordered_at", { ascending: filters.sort === "oldest" });
 
   if (isDeliveryStage(filters.stage)) {
     query = applyDeliveryFilter(query, filters.stage);
@@ -128,9 +137,26 @@ export function buildDeliveryQuery(
     query = query.eq("courier_id", filters.courier);
   }
 
-  // created_at is UTC; the admin thinks in IST calendar days.
-  if (isDate(filters.from)) query = query.gte("created_at", istDayStartUTC(filters.from));
-  if (isDate(filters.to)) query = query.lt("created_at", istDayEndUTC(filters.to));
+  // What is physically in the parcel — the two things that change how it is
+  // packed, and the reason someone filters this screen before a packing run.
+  //
+  // `quantity` is NOT NULL DEFAULT 1 and `is_gift` NOT NULL DEFAULT FALSE, so
+  // plain comparisons catch every old row without an `or (... is null)` arm.
+  if (filters.books === "multi") query = query.gte("quantity", 2);
+  else if (filters.books === "single") query = query.eq("quantity", 1);
+
+  if (filters.gift === "yes") query = query.eq("is_gift", true);
+  else if (filters.gift === "no") query = query.eq("is_gift", false);
+
+  if (filters.signed === "yes") query = query.eq("is_signed", true);
+
+  // The dates are IST calendar days; ordered_at is UTC. Converted, or the
+  // filter is 5h30m out and silently drops early-morning orders.
+  //
+  // ordered_at matches the orders list and the portal's ist_day. Every row in
+  // this scope is paid, so for all of them ordered_at is the payment date.
+  if (isDate(filters.from)) query = query.gte("ordered_at", istDayStartUTC(filters.from));
+  if (isDate(filters.to)) query = query.lt("ordered_at", istDayEndUTC(filters.to));
 
   if (filters.q) {
     const q = filters.q.replace(/[%,()]/g, "");
@@ -186,5 +212,8 @@ export function parseDeliveryFilters(
     agent: get("agent"),
     courier: get("courier"),
     handover: get("handover"),
+    books: get("books"),
+    gift: get("gift"),
+    signed: get("signed"),
   };
 }

@@ -27,6 +27,8 @@ export interface InvoiceOrder {
   pincode: string | null;
   amount_paise: number;
   quantity: number | null;
+  /** When the payment was confirmed (0043). Null on orders paid before it. */
+  paid_at: string | null;
   /** Gift wrapping charged on this order, or 0 / null (migration 0027). */
   gift_charge_paise: number | null;
   discount_paise: number;
@@ -78,9 +80,15 @@ export function buildInvoice(order: InvoiceOrder): Buffer {
   const subtotalPaise = order.amount_paise - giftPaise + (order.discount_paise || 0);
   const ratePaise = subtotalPaise / copies;
 
-  // Roughly when the money landed — same stand-ins the admin page uses; there
-  // is no paid_at column.
-  const paidAt = order.invoice_email_sent_at ?? order.address_submitted_at ?? order.created_at;
+  // When the money landed. Exact since 0043; the stand-ins behind it are for
+  // orders paid before that column existed, and created_at is the last resort
+  // rather than the first answer — on a lead that came back days later it would
+  // date the bill to the day they first opened the checkout.
+  const paidAt =
+    order.paid_at ??
+    order.invoice_email_sent_at ??
+    order.address_submitted_at ??
+    order.created_at;
 
   // ── Header ────────────────────────────────────────────────────────────────
   let y = 56;

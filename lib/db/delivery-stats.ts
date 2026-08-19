@@ -33,7 +33,7 @@ const THROUGHPUT_DAYS = 14;
 // while the tabs, which filter in SQL, counted it as Routed. Two numbers on one
 // screen disagreeing by exactly the parcels that have a courier and no agent.
 const STATS_COLUMNS =
-  "status,assigned_agent_id,assigned_at,courier_id,courier_entered_at,shipped_at,delivered_at,created_at";
+  "status,assigned_agent_id,assigned_at,courier_id,courier_entered_at,shipped_at,delivered_at,created_at,ordered_at";
 
 interface StatsRow {
   status: string;
@@ -44,6 +44,8 @@ interface StatsRow {
   shipped_at: string | null;
   delivered_at: string | null;
   created_at: string;
+  /** The order date (0043) — fulfilment lag is measured from here. */
+  ordered_at: string;
 }
 
 export interface AgentStat {
@@ -142,13 +144,15 @@ export const deliveryStats = cache(async function deliveryStats(
 
     // Still ours to chase: assigned, and not yet handed to the courier.
     if (stage === "assigned") {
-      const waiting = now - new Date(row.assigned_at ?? row.created_at).getTime();
+      // ordered_at, not created_at: counting the days a customer spent
+      // deciding as days we failed to ship would overstate every lag figure.
+      const waiting = now - new Date(row.assigned_at ?? row.ordered_at).getTime();
       if (!row.courier_entered_at) {
         if (waiting > 48 * HOUR) over48h += 1;
         else if (waiting > 24 * HOUR) over24h += 1;
       }
-      if (!oldestUnshipped || row.created_at < oldestUnshipped) {
-        oldestUnshipped = row.created_at;
+      if (!oldestUnshipped || row.ordered_at < oldestUnshipped) {
+        oldestUnshipped = row.ordered_at;
       }
     }
 

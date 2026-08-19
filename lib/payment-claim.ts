@@ -16,6 +16,13 @@ import { notifyAfterResponse } from "@/lib/notify";
  * The .neq("paid") claim is what makes it safe: /api/orders/verify races these
  * too, and only the winner runs the side effects.
  *
+ * `paid_at` is deliberately absent from the update below. A database trigger
+ * stamps it on the pending -> paid transition (migration 0043), so it is set
+ * exactly once, by whichever writer wins the claim — and it is still set on a
+ * path this file knows nothing about, including a row flipped to paid by hand
+ * in the Supabase UI. `ordered_at` then derives from it, and that is what every
+ * screen sorts and displays by.
+ *
  * Returns the order number when this call won the claim, null when the order
  * was already paid (or doesn't exist).
  */

@@ -15,7 +15,8 @@ import {
  */
 
 export interface RevenueRow {
-  created_at: string;
+  /** The order date — when it was paid (0043). */
+  ordered_at: string;
   amount_paise: number | null;
   /** Copies in the order. Null on rows written before the column existed. */
   quantity: number | null;
@@ -117,7 +118,7 @@ function bucketize(rows: RevenueRow[], grain: Grain): Bucket[] {
   );
 
   for (const row of rows) {
-    const b = map.get(keyOf(row.created_at));
+    const b = map.get(keyOf(row.ordered_at));
     if (b) {
       b.paise += row.amount_paise ?? 0;
       b.orders += 1;
@@ -153,7 +154,7 @@ export default function RevenueCharts({ rows }: { rows: RevenueRow[] }) {
   const sources = useMemo(() => {
     const bySource = new Map<TrafficSource, number>();
     for (const row of rows) {
-      if (!windowKeys.has(keyOf(row.created_at))) continue;
+      if (!windowKeys.has(keyOf(row.ordered_at))) continue;
       const s = isTrafficSource(row.source) ? row.source : "direct";
       bySource.set(s, (bySource.get(s) ?? 0) + (row.amount_paise ?? 0));
     }

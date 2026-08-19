@@ -44,6 +44,7 @@ interface Row {
   city: string | null;
   state: string | null;
   created_at: string;
+  ordered_at: string;
   source: string | null;
   utm_campaign: string | null;
   follow_up_status: string | null;
@@ -168,15 +169,16 @@ async function OrdersTable(props: QueryArgs) {
                     { label: "Follow-up" },
                     { label: "Came from", narrow: true },
                     { label: "Amount", narrow: true },
-                    // Not "Date": this column is created_at, which is when the
-                    // order row was made — the moment checkout began, lead or
-                    // not. A lead that pays three days later keeps the day it
-                    // started, and calling that the order date made the panel
-                    // look like it disagreed with Razorpay.
+                    // ordered_at (0043), not created_at. This used to be
+                    // labelled "Started" because created_at is when checkout
+                    // began — a lead that paid three days later kept the day it
+                    // started, which made the panel look like it disagreed with
+                    // Razorpay. It is the payment date now, and the column can
+                    // honestly be called what everyone was already reading it as.
                     {
-                      label: "Started",
+                      label: "Ordered",
                       title:
-                        "When checkout began. A lead that paid days later still shows the day it started — the payment time is on the order page.",
+                        "When the order was confirmed — the day the money landed. For a lead that never paid, the day checkout began.",
                     },
                     { label: "", key: "view" },
                   ] as { label: string; narrow?: boolean; key?: string; title?: string }[]).map((h) => (
@@ -312,10 +314,10 @@ async function OrdersTable(props: QueryArgs) {
                       </td>
                       <td className="px-4 py-3 text-xs whitespace-nowrap">
                         <p className="text-neutral-700 font-medium">
-                          {formatISTShort(o.created_at)}
+                          {formatISTShort(o.ordered_at)}
                         </p>
                         <p className="text-neutral-400 mt-0.5">
-                          {timeAgo(o.created_at)}
+                          {timeAgo(o.ordered_at)}
                         </p>
                       </td>
                       <td className="pl-1 pr-3 py-3">

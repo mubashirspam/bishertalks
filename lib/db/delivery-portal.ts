@@ -175,7 +175,10 @@ export interface PortalRow {
   courier_last_scan_at: string | null;
   tracking_number: string | null;
   assigned_agent_id: string | null;
+  /** When checkout began. The parcel's own date is `ordered_at` (0043). */
   created_at: string;
+  paid_at: string | null;
+  ordered_at: string;
 }
 
 const PORTAL_COLUMNS =
@@ -183,7 +186,7 @@ const PORTAL_COLUMNS =
   "state,pincode,amount_paise,quantity,is_gift,gift_message,is_signed," +
   "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
-  "tracking_number,assigned_agent_id,created_at";
+  "tracking_number,assigned_agent_id,created_at,paid_at,ordered_at";
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
 

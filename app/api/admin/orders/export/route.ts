@@ -11,7 +11,7 @@ import { FOLLOW_UP_LABELS, isFollowUpStatus } from "@/lib/follow-up";
 import { toCSV, toXLSX } from "@/lib/export";
 
 const HEADERS = [
-  "Order number", "Date & time (IST)", "Stage", "Name", "Phone", "Email",
+  "Order number", "Ordered on (IST)", "Checkout started (IST)", "Stage", "Name", "Phone", "Email",
   "Amount (₹)", "Books", "Gift", "Gift message", "Gift charge (₹)",
   "Signed",
   "Discount (₹)", "Promo", "Payment status", "Fulfilment status",
@@ -65,6 +65,10 @@ export async function GET(request: NextRequest) {
 
   const rows = ((data ?? []) as unknown as OrderRow[]).map((o) => [
     o.order_number,
+    // The order date — the day it was paid. `created_at` follows it as its own
+    // column rather than replacing it: the gap between the two is the whole
+    // drop-off-and-came-back story, and it is worth being able to sort on.
+    formatIST(o.ordered_at),
     formatIST(o.created_at),
     STAGE_LABELS[orderStage(o)],
     o.buyer_name ?? "",

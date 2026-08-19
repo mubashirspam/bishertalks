@@ -408,22 +408,40 @@ export default function AdminOrderDetailPage() {
     }
   };
 
-  const date = `${formatIST(order.created_at)} (${timeAgo(order.created_at)})`;
+  const date = `${formatIST(order.ordered_at)} (${timeAgo(order.ordered_at)})`;
 
   /**
-   * Roughly when the money landed.
+   * When the money landed.
    *
-   * There is no paid_at column, and created_at is the wrong answer: it is when
-   * checkout began, which for a lead that came back days later is nowhere near
-   * the payment. The receipt email goes out inside payment verification, so its
-   * timestamp is within seconds of the capture; the address submission is the
-   * next best thing on the flows that have no email address. Both are labelled
-   * as approximate, because the exact capture time lives in Razorpay.
+   * Exact since 0043, which stamps paid_at in the database at the moment of the
+   * pending -> paid transition. Orders paid before that migration have no
+   * paid_at — nothing was backfilled — so they still fall back to the old
+   * approximation: the receipt email goes out inside payment verification, so
+   * its timestamp is within seconds of the capture, and the address submission
+   * is the next best thing on flows with no email address.
+   *
+   * `exact` is what decides whether this is labelled "Paid" or "Paid ≈". A
+   * tilde on a figure that is precise is its own small lie.
    */
+  const paidExact = order.paid_at != null;
   const paidAt =
     order.payment_status === "paid"
-      ? (order.invoice_email_sent_at ?? order.address_submitted_at ?? null)
+      ? (order.paid_at ??
+          order.invoice_email_sent_at ??
+          order.address_submitted_at ??
+          null)
       : null;
+
+  /**
+   * Show the funnel-entry date only when it says something the order date does
+   * not — i.e. when this was a lead that came back later. On the common case,
+   * where someone opened the checkout and paid inside ten minutes, a second
+   * near-identical timestamp is noise.
+   */
+  const startedSeparately =
+    order.paid_at != null &&
+    new Date(order.paid_at).getTime() - new Date(order.created_at).getTime() >
+      30 * 60 * 1000;
 
   const currentStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
 
@@ -814,19 +832,37 @@ export default function AdminOrderDetailPage() {
               <div className="flex justify-between">
                 <span
                   className="text-neutral-500"
-                  title="When checkout began — not necessarily when it was paid"
+                  title="When the order was confirmed — the day the money landed"
                 >
-                  Started
+                  Ordered
                 </span>
                 <span className="text-neutral-900">{date}</span>
               </div>
+              {/* Only when it is a different story from the line above. */}
+              {startedSeparately && (
+                <div className="flex justify-between">
+                  <span
+                    className="text-neutral-500"
+                    title="When this customer first typed their number into the checkout. They came back later to pay — the row is the same one, which is why the two dates differ."
+                  >
+                    Checkout started
+                  </span>
+                  <span className="text-neutral-500">
+                    {formatIST(order.created_at)}
+                  </span>
+                </div>
+              )}
               {paidAt && (
                 <div className="flex justify-between">
                   <span
                     className="text-neutral-500"
-                    title="Taken from the receipt email, which is sent as the payment is verified — within a few seconds of the capture. Razorpay has the exact time."
+                    title={
+                      paidExact
+                        ? "Stamped by the database at the moment the payment was confirmed."
+                        : "Paid before the paid_at column existed, so this is taken from the receipt email — sent within a few seconds of the capture. Razorpay has the exact time."
+                    }
                   >
-                    Paid ≈
+                    {paidExact ? "Paid" : "Paid ≈"}
                   </span>
                   <span className="text-neutral-900">{formatIST(paidAt)}</span>
                 </div>

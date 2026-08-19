@@ -388,7 +388,7 @@ export default function DeliveryTable({
                       className="w-4 h-4 rounded border-neutral-300 cursor-pointer accent-primary-500"
                     />
                   </th>
-                  {["Order", "Deliver to", "Stage", "Agent", "Confirmed", "Label", "Ordered"].map((h) => (
+                  {["Order", "Deliver to", "Contents", "Stage", "Agent", "Confirmed", "Label", "Ordered"].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-xs font-semibold text-neutral-500 uppercase tracking-wider"
@@ -481,6 +481,44 @@ export default function DeliveryTable({
                           )}
                         </p>
                       </td>
+                      {/* What is in the parcel and what it was paid for.
+                          Packing decisions live here — copies, wrapping and
+                          signing all change what someone puts in the box — and
+                          the amount is the figure a customer quotes on the
+                          phone, so it saves opening the order page to check. */}
+                      <td className="px-4 py-3 align-top text-xs whitespace-nowrap">
+                        <p className="text-neutral-900 font-semibold">
+                          ₹{Math.round(o.amount_paise / 100).toLocaleString("en-IN")}
+                        </p>
+                        <p className="text-neutral-500 mt-0.5">
+                          {o.quantity > 1 ? `${o.quantity} books` : "1 book"}
+                        </p>
+                        {(o.is_gift || o.is_signed) && (
+                          <p className="flex flex-wrap items-center gap-1 mt-1">
+                            {o.is_gift && (
+                              <span
+                                title={
+                                  o.gift_message
+                                    ? "Gift — wrap it, and write the card (message on the order page)"
+                                    : "Gift — wrap it. No message; send a blank card."
+                                }
+                                className="inline-flex px-1.5 rounded-full bg-primary-100 text-primary-800 text-[10px] font-bold"
+                              >
+                                🎁 gift
+                              </span>
+                            )}
+                            {o.is_signed && (
+                              <span
+                                title="Signed — every copy goes to Bisher to be signed before it is wrapped"
+                                className="inline-flex px-1.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold"
+                              >
+                                ✒️ signed
+                              </span>
+                            )}
+                          </p>
+                        )}
+                      </td>
+
                       <td className="px-4 py-3 align-top">
                         <span
                           className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium border whitespace-nowrap ${DELIVERY_BADGE[s]}`}
@@ -609,15 +647,15 @@ export default function DeliveryTable({
                       </td>
                       <td className="px-4 py-3 align-top text-xs whitespace-nowrap">
                         <p className="text-neutral-700 font-medium">
-                          {formatISTShort(o.created_at)}
+                          {formatISTShort(o.ordered_at)}
                         </p>
-                        <p className="text-neutral-400 mt-0.5">{timeAgo(o.created_at)}</p>
+                        <p className="text-neutral-400 mt-0.5">{timeAgo(o.ordered_at)}</p>
                       </td>
                     </tr>
                     {expanded.has(o.order_number) && (
                       <tr className="bg-neutral-50 border-b border-neutral-100 last:border-0">
                         <td />
-                        <td colSpan={7} className="px-4 py-3 text-xs text-neutral-600 leading-relaxed">
+                        <td colSpan={8} className="px-4 py-3 text-xs text-neutral-600 leading-relaxed">
                           <p>
                             {[o.address_line1, o.address_line2, o.city, o.district]
                               .filter(Boolean)

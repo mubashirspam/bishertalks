@@ -646,7 +646,7 @@ export default function PortalGrid({
                   </td>
 
                   <td className={`${cell} text-neutral-500 whitespace-nowrap border-r border-neutral-100`}>
-                    {formatISTShort(r.created_at)}
+                    {formatISTShort(r.ordered_at)}
                   </td>
 
                   {/* Name — the copy button on this one takes the whole block,

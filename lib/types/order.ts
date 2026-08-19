@@ -90,7 +90,31 @@ export interface Order {
   /** Recovery payment link generated from admin (migration 0013). */
   payment_link_id: string | null;
   payment_link_url: string | null;
+  /**
+   * When checkout began — the moment a valid mobile number was first typed.
+   *
+   * NOT the order date. A customer who abandons and comes back days later is
+   * still the same row (see /api/leads), so this can be far from the payment.
+   * Show `ordered_at` instead; this one answers "when did they first show up?"
+   */
   created_at: string;
+  /**
+   * When the money landed and the order was confirmed (migration 0043).
+   *
+   * Null on anything unpaid, and null on orders paid before 0043 — nothing was
+   * backfilled, so an old row falls through to created_at via `ordered_at`.
+   * Stamped by a database trigger rather than by application code, so no write
+   * path can forget it.
+   */
+  paid_at: string | null;
+  /**
+   * The order date, and the one every screen sorts, filters and displays by.
+   *
+   * Generated as COALESCE(paid_at, created_at) — read-only, and it cannot drift
+   * from its inputs. For a paid order this is the confirmation date; for a lead
+   * that never paid it is when they started.
+   */
+  ordered_at: string;
   /**
    * When the delivery address was submitted (migration 0004).
    *

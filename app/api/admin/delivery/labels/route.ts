@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
       .eq("payment_status", "paid")
       .not("address_line1", "is", null)
       .in("order_number", orderNumbers)
-      .order("created_at", { ascending: true });
+      .order("ordered_at", { ascending: true });
 
     if (error) {
       console.error("[Labels] query failed:", error.message);

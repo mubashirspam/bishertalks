@@ -45,7 +45,12 @@ export interface OrderRow {
   razorpay_order_id: string | null;
   razorpay_payment_id: string | null;
   checkout_type: string | null;
+  /** When checkout began. Not the order date — see `ordered_at`. */
   created_at: string;
+  /** When it was paid (0043). Null if unpaid, or paid before that migration. */
+  paid_at: string | null;
+  /** COALESCE(paid_at, created_at) — what this screen sorts and filters by. */
+  ordered_at: string;
   address_submitted_at: string | null;
   source: string | null;
   first_source: string | null;
@@ -59,7 +64,8 @@ export const ORDER_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,quantity," +
   "is_gift,gift_message,gift_charge_paise,is_signed,discount_paise,promo_code," +
   "payment_status,status,address_line1,address_line2,city,district,state,pincode," +
-  "razorpay_order_id,razorpay_payment_id,checkout_type,created_at,address_submitted_at," +
+  "razorpay_order_id,razorpay_payment_id,checkout_type," +
+  "created_at,paid_at,ordered_at,address_submitted_at," +
   "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -72,17 +78,24 @@ export function buildOrdersQuery(filters: OrderFilters) {
   let query = supabaseAdmin
     .from("orders")
     .select(ORDER_COLUMNS, { count: "exact" })
-    .order("created_at", { ascending: false });
+    // ordered_at, not created_at: an order paid last night after its customer
+    // first opened the checkout five days ago belongs at the top of this list,
+    // not five days down it.
+    .order("ordered_at", { ascending: false });
 
   const stage = filters.stage;
   if (stage && stage !== "all") {
     query = applyStageFilter(query, stage as OrderStage);
   }
 
-  // Dates are IST calendar days but created_at is UTC — convert, or the filter
+  // Dates are IST calendar days but ordered_at is UTC — convert, or the filter
   // is 5h30m out and silently drops early-morning orders.
-  if (isDate(filters.from)) query = query.gte("created_at", istDayStartUTC(filters.from));
-  if (isDate(filters.to)) query = query.lt("created_at", istDayEndUTC(filters.to));
+  //
+  // Both ends read ordered_at, and they have to agree: a range with one end on
+  // created_at would drop exactly the orders this column exists for — the ones
+  // paid days after checkout started.
+  if (isDate(filters.from)) query = query.gte("ordered_at", istDayStartUTC(filters.from));
+  if (isDate(filters.to)) query = query.lt("ordered_at", istDayEndUTC(filters.to));
 
   // Plain equality: the column defaults to 'direct' and was backfilled, so
   // there are no NULLs to special-case. The search box below owns the one

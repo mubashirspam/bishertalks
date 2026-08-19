@@ -69,24 +69,29 @@ async function DashboardBody() {
     fetchAllRows<{
       amount_paise: number | null;
       quantity: number | null;
-      created_at: string;
+      ordered_at: string;
       source: string | null;
     }>(
       (from, to) =>
         supabaseAdmin
           .from("orders")
-          .select("amount_paise,quantity,created_at,source")
+          .select("amount_paise,quantity,ordered_at,source")
           .eq("payment_status", "paid")
-          .order("created_at", { ascending: true })
+      // ordered_at, not created_at: every row here is paid, so this is the
+      // payment date — and money must be counted on the day it arrived, not on
+      // the day its customer first opened the checkout.
+          .order("ordered_at", { ascending: true })
           .range(from, to),
       { label: "dashboard totals" }
     ),
     count((q) => q.eq("payment_status", "paid").is("address_line1", null)),
     supabaseAdmin
       .from("orders")
-      .select("order_number,buyer_name,buyer_phone,amount_paise,payment_status,address_line1,razorpay_order_id,created_at")
-      .gte("created_at", todayStart)
-      .order("created_at", { ascending: false })
+      .select("order_number,buyer_name,buyer_phone,amount_paise,payment_status,address_line1,razorpay_order_id,ordered_at")
+      // "Today's orders" means paid today. On created_at this panel silently
+      // omitted anyone who started checkout earlier in the week and paid today.
+      .gte("ordered_at", todayStart)
+      .order("ordered_at", { ascending: false })
       .limit(8),
   ]);
 
@@ -104,7 +109,7 @@ async function DashboardBody() {
   const totalsSince = (since: string) =>
     paid.reduce(
       (acc, o) => {
-        if (o.created_at >= since) {
+        if (o.ordered_at >= since) {
           acc.paise += o.amount_paise ?? 0;
           acc.orders += 1;
           acc.books += o.quantity ?? 1;
@@ -220,7 +225,7 @@ async function DashboardBody() {
                   </p>
                   <p className="text-neutral-400 text-xs mt-0.5">
                     <span className="font-mono">{o.order_number}</span>
-                    <span> · {formatISTShort(o.created_at)} ({timeAgo(o.created_at)})</span>
+                    <span> · {formatISTShort(o.ordered_at)} ({timeAgo(o.ordered_at)})</span>
                   </p>
                 </div>
                 <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium whitespace-nowrap ${STAGE_BADGE[stage]}`}>

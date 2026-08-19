@@ -135,7 +135,7 @@ export async function getTradingHistory(): Promise<TradingHistory> {
   const { rows } = await fetchAllRows<{
     amount_paise: number | null;
     quantity: number | null;
-    created_at: string;
+    ordered_at: string;
     shipped_at: string | null;
     delivered_at: string | null;
     returned_at: string | null;
@@ -143,9 +143,10 @@ export async function getTradingHistory(): Promise<TradingHistory> {
     (from, to) =>
       supabaseAdmin
         .from("orders")
-        .select("amount_paise, quantity, created_at, shipped_at, delivered_at, returned_at")
+        .select("amount_paise, quantity, ordered_at, shipped_at, delivered_at, returned_at")
         .eq("payment_status", "paid")
-        .order("created_at", { ascending: true })
+        // The day the money arrived, not the day checkout began — see 0043.
+        .order("ordered_at", { ascending: true })
         .range(from, to),
     { label: "trading history" }
   );
@@ -153,8 +154,8 @@ export async function getTradingHistory(): Promise<TradingHistory> {
   const booksSold = rows.reduce((s, o) => s + (o.quantity ?? 1), 0);
   const revenuePaise = rows.reduce((s, o) => s + (o.amount_paise ?? 0), 0);
 
-  const firstOrderAt = rows[0]?.created_at ?? null;
-  const lastOrderAt = rows[rows.length - 1]?.created_at ?? null;
+  const firstOrderAt = rows[0]?.ordered_at ?? null;
+  const lastOrderAt = rows[rows.length - 1]?.ordered_at ?? null;
 
   // Measured to now, not to the last order: a quiet week is part of the average
   // and hiding it would flatter every projection built on top.
@@ -165,7 +166,7 @@ export async function getTradingHistory(): Promise<TradingHistory> {
   const booksSince = (days: number) => {
     const cutoff = Date.now() - days * 86_400_000;
     return rows
-      .filter((o) => new Date(o.created_at).getTime() >= cutoff)
+      .filter((o) => new Date(o.ordered_at).getTime() >= cutoff)
       .reduce((s, o) => s + (o.quantity ?? 1), 0);
   };
 

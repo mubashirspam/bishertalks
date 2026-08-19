@@ -73,7 +73,9 @@ export default async function ThankYouPage({
   const whatsappHref = `https://wa.me/${support}?text=${encodeURIComponent(
     `Hi! I just placed order ${order.order_number} for Neuro Code.`
   )}`;
-  const date = new Date(order.created_at).toLocaleDateString("en-IN", {
+  // ordered_at, not created_at — a returning lead paid today, whatever day
+  // they first opened the checkout. (This page selects *, so it is present.)
+  const date = new Date(order.ordered_at).toLocaleDateString("en-IN", {
     day: "numeric", month: "long", year: "numeric",
   });
 

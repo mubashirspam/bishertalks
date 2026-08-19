@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
         .select("order_number,tracking_number,courier_reference")
         .or("tracking_number.not.is.null,courier_reference.not.is.null")
         .not("status", "in", "(delivered,returned,cancelled)")
-        .order("created_at", { ascending: false })
+        .order("ordered_at", { ascending: false })
         .range(from, from + 999);
 
       if (error) {

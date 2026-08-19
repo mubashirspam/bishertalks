@@ -57,20 +57,30 @@ export interface OrdersPageRow {
   city: string | null;
   state: string | null;
   created_at: string;
+  paid_at: string | null;
+  ordered_at: string;
   source: string | null;
   utm_campaign: string | null;
 }
 
 /** Same trick for the delivery queue. */
 export const fetchDeliveryPage = cache(async function fetchDeliveryPage(
-  stage: string | undefined,
-  q: string | undefined,
-  from: string | undefined,
-  to: string | undefined,
-  sort: string | undefined,
+  /**
+   * Every filter, as a canonical query string — `stage=all&gift=yes&…`.
+   *
+   * One argument rather than one per filter, and a string because `cache` keys
+   * on argument identity: an object would be a fresh key on every call and
+   * quietly double the queries, which is the whole reason this module exists.
+   *
+   * It used to take the filters as eight positional primitives, and `courier`
+   * and `handover` were never among them — so choosing a courier moved the tab
+   * counts and the stats strip, which read the filters directly, while the rows
+   * underneath ignored it. Adding a filter now means adding it to
+   * `parseDeliveryFilters` and nowhere else; there is no second list to forget.
+   */
+  filterKey: string,
   pageNum: number,
-  perPage: number,
-  agent?: string
+  perPage: number
 ) {
   // Defaulting is `parseDeliveryFilters`' job — it's what the tab counts and
   // the label PDF already go through. This function used to re-derive the
@@ -78,7 +88,9 @@ export const fetchDeliveryPage = cache(async function fetchDeliveryPage(
   // here didn't: picking "Newest first" clears the ?sort param, the stale
   // fallback read the absent value as "oldest", and the sort silently never
   // worked. One source of truth, so it can't drift again.
-  const filters: DeliveryFilters = parseDeliveryFilters({ stage, q, from, to, sort, agent });
+  const filters: DeliveryFilters = parseDeliveryFilters(
+    new URLSearchParams(filterKey)
+  );
 
   const { data, count, error } = await buildDeliveryQuery(filters).range(
     pageNum * perPage,
@@ -89,3 +101,19 @@ export const fetchDeliveryPage = cache(async function fetchDeliveryPage(
 
   return { rows: data ?? [], count: count ?? 0, filters };
 });
+
+/**
+ * The filter half of a search-params object, as a stable string.
+ *
+ * Sorted, so two URLs carrying the same filters in a different order are one
+ * cache key rather than two. `page` is dropped because it is not a filter —
+ * leaving it in would make every page of the same query miss the memo.
+ */
+export function deliveryFilterKey(
+  params: Record<string, string | undefined>
+): string {
+  const entries = Object.entries(params)
+    .filter(([k, v]) => k !== "page" && v)
+    .sort(([a], [b]) => a.localeCompare(b)) as [string, string][];
+  return new URLSearchParams(entries).toString();
+}

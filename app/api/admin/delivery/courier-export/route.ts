@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
       .from("orders")
       .select("order_number,courier_reference,tracking_number,status,courier_id")
       .or("tracking_number.not.is.null,courier_reference.not.is.null")
-      .order("created_at", { ascending: true })
+      .order("ordered_at", { ascending: true })
       .range(from, from + 999);
 
     if (error) {

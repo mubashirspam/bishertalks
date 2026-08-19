@@ -21,7 +21,8 @@ import { useMemo, useState } from "react";
  */
 
 export interface HourlyRow {
-  created_at: string;
+  /** The order date — when it was paid (0043). */
+  ordered_at: string;
 }
 
 const IST_MS = 5.5 * 60 * 60 * 1000;
@@ -154,8 +155,8 @@ export default function HourlyOrders({ rows }: { rows: HourlyRow[] }) {
       days.map((d) => [d, Array(HOURS).fill(0)])
     );
     for (const row of rows) {
-      const hours = map.get(dayKey(row.created_at));
-      if (hours) hours[hourOf(row.created_at)] += 1;
+      const hours = map.get(dayKey(row.ordered_at));
+      if (hours) hours[hourOf(row.ordered_at)] += 1;
     }
     return map;
   }, [rows, days]);

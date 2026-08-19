@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
        address_line1, address_line2, city, district, state, pincode,
        amount_paise, quantity, gift_charge_paise, discount_paise, promo_code,
        razorpay_payment_id, payment_status,
-       created_at, invoice_email_sent_at, address_submitted_at`
+       created_at, paid_at, invoice_email_sent_at, address_submitted_at`
     )
     .eq("order_number", String(order_number))
     .maybeSingle();

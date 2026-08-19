@@ -17,7 +17,7 @@ async function getOrder(id: string): Promise<Order | null> {
     .select(
       `order_number, buyer_name, city, state, status, payment_status,
        amount_paise, tracking_number, courier_name, expected_delivery,
-       created_at, address_line1, address_line2, pincode,
+       created_at, ordered_at, address_line1, address_line2, pincode,
        label_downloaded_at, shipped_at, delivered_at`
     )
     .eq("order_number", id)
@@ -59,7 +59,10 @@ async function getReferralBlock(orderNumber: string) {
  */
 function stepDates(order: Order): Record<OrderStatus, string | null> {
   return {
-    confirmed: order.created_at,
+    // ordered_at, not created_at: "Order Confirmed" is a payment event, and a
+    // customer who abandoned checkout on Monday and paid on Friday should not
+    // be told their order was confirmed on Monday.
+    confirmed: order.ordered_at,
     processing: order.label_downloaded_at,
     shipped: order.shipped_at,
     out_for_delivery: null,
@@ -114,7 +117,8 @@ export default async function TrackPage({
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
   const referral = await getReferralBlock(order.order_number);
 
-  const date = new Date(order.created_at).toLocaleDateString("en-IN", {
+  // The order date the customer will check against their bank statement.
+  const date = new Date(order.ordered_at).toLocaleDateString("en-IN", {
     day: "numeric", month: "short", year: "numeric",
   });
 

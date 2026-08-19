@@ -91,6 +91,10 @@ export async function POST(request: NextRequest) {
         status: "confirmed",
         razorpay_payment_id,
         razorpay_signature,
+        // No paid_at here: a trigger stamps it on this exact transition
+        // (migration 0043). This route and claimPaidTransition race each
+        // other, both guarded by .neq("payment_status","paid") below, so the
+        // stamp fires once — for whichever of them wins.
       })
       .eq("order_number", order_number)
       // The signature proves this Razorpay payment is genuine — it does NOT

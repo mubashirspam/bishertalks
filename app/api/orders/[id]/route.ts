@@ -36,7 +36,7 @@ export async function GET(
        courier_id, courier_sent_at, courier_send_error,
        courier_last_scan, courier_last_scan_at,
        invoice_email_sent_at, payment_link_id, payment_link_url,
-       created_at, address_submitted_at, razorpay_payment_id`
+       created_at, paid_at, ordered_at, address_submitted_at, razorpay_payment_id`
     )
     .eq("order_number", id)
     .single();

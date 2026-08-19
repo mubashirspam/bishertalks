@@ -57,7 +57,14 @@ export interface LabelOrder {
    * comes back. Only ever true alongside is_gift.
    */
   is_signed?: boolean | null;
-  created_at: string;
+  /**
+   * The order date — when it was paid (0043).
+   *
+   * Not created_at, which is when checkout began. A customer who abandoned on
+   * Monday and paid on Friday would otherwise get a parcel stamped Monday, and
+   * the first thing they check against their bank statement is the date.
+   */
+  ordered_at: string;
 }
 
 export interface SenderDetails {
@@ -256,7 +263,7 @@ function drawLabel(
     maxWidth: INNER_W,
   });
 
-  const ordered = new Date(o.created_at).toLocaleDateString("en-IN", {
+  const ordered = new Date(o.ordered_at).toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "numeric",
     month: "short",

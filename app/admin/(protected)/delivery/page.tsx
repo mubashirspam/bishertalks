@@ -7,7 +7,7 @@ import {
   type DeliveryRow,
 } from "@/lib/db/delivery-query";
 import { deliveryStats } from "@/lib/db/delivery-stats";
-import { fetchDeliveryPage } from "@/lib/db/orders-page";
+import { fetchDeliveryPage, deliveryFilterKey } from "@/lib/db/orders-page";
 import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
 import { listCouriers } from "@/lib/db/couriers";
 import { canSendAutomatically } from "@/lib/couriers";
@@ -27,15 +27,19 @@ export const dynamic = "force-dynamic";
 /** Bigger than the funnel list: this page is worked in batches, not read. */
 const PER_PAGE = 50;
 
+/**
+ * What the three boundaries below need.
+ *
+ * Deliberately not one field per filter. That is what this used to be, and the
+ * list fell behind `DeliveryFilters` twice — `courier` and `handover` were
+ * never added, so choosing either moved the tab counts and left the rows alone.
+ * Everything now travels as the raw params or as the key derived from them, and
+ * a new filter needs no change here at all.
+ */
 interface Args {
-  stage?: string;
-  q?: string;
-  from?: string;
-  to?: string;
-  sort?: string;
-  /** A staff id, or "none" — whose parcels we're looking at. */
-  agent?: string;
   pageNum: number;
+  /** Every filter as one canonical string — see deliveryFilterKey. */
+  filterKey: string;
   params: Record<string, string | undefined>;
 }
 
@@ -48,13 +52,8 @@ export default async function AdminDeliveryPage({
 
   const params = await searchParams;
   const args: Args = {
-    stage: params.stage,
-    q: params.q,
-    from: params.from,
-    to: params.to,
-    sort: params.sort,
-    agent: params.agent,
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
+    filterKey: deliveryFilterKey(params),
     params,
   };
 
@@ -125,16 +124,10 @@ async function Stats(args: Args) {
 /** The worklist itself, plus paging. */
 async function QueueTable(args: Args) {
   const [{ rows, count }, agents, staff, couriers] = await Promise.all([
-    fetchDeliveryPage(
-      args.stage,
-      args.q,
-      args.from,
-      args.to,
-      args.sort,
-      args.pageNum,
-      PER_PAGE,
-      args.agent
-    ),
+    // Every filter travels in one string, so the rows can never disagree with
+    // the tab counts and the stats strip above them — all three now read the
+    // same set through parseDeliveryFilters.
+    fetchDeliveryPage(args.filterKey, args.pageNum, PER_PAGE),
     listDeliveryAgents(),
     // Every staff member, not just assignable ones: a parcel assigned to
     // someone since switched off still has to show their name.

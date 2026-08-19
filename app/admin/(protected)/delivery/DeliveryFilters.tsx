@@ -19,6 +19,25 @@ import {
   HANDOVER_HINTS,
 } from "@/lib/delivery/handover";
 
+/**
+ * What is in the parcel — the two questions asked before a packing run.
+ *
+ * Wording matched to the orders screen's own copies filter, so the same word
+ * means the same thing on both and nobody has to learn it twice.
+ */
+const BOOK_COUNTS = [
+  { label: "Any copies", value: "all" },
+  { label: "2 or more books", value: "multi" },
+  { label: "Single copy", value: "single" },
+];
+
+const GIFT_CHOICES = [
+  { label: "Gift or not", value: "all" },
+  { label: "Gift wrapped", value: "yes" },
+  { label: "Signed copies", value: "signed" },
+  { label: "Not a gift", value: "no" },
+];
+
 const PRESETS = [
   { label: "Today", days: 0 },
   { label: "7 days", days: 6 },
@@ -58,6 +77,11 @@ export default function DeliveryFilters({
   const agent = params.get("agent") ?? "";
   const courier = params.get("courier") ?? "";
   const handover = params.get("handover") ?? "";
+  const books = params.get("books") ?? "all";
+  // One dropdown, two URL parameters: "signed" is a narrower case of a gift
+  // rather than a third independent thing, and two selects for four mutually
+  // exclusive answers is a worse control than one.
+  const gift = params.get("signed") === "yes" ? "signed" : (params.get("gift") ?? "all");
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   // Must match the default in parseDeliveryFilters (lib/db/delivery-query.ts).
@@ -77,7 +101,15 @@ export default function DeliveryFilters({
     navigate(`/admin/delivery?${next}`);
   };
 
-  const hasFilters = !!from || !!to || !!params.get("q") || !!agent || !!courier || !!handover;
+  const hasFilters =
+    !!from ||
+    !!to ||
+    !!params.get("q") ||
+    !!agent ||
+    !!courier ||
+    !!handover ||
+    books !== "all" ||
+    gift !== "all";
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -221,6 +253,56 @@ export default function DeliveryFilters({
             </div>
           )}
 
+          {/* How many copies. The pile worth separating before packing: a
+              multi-copy parcel is a different box and a different weight. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              Copies
+            </label>
+            <select
+              value={books}
+              onChange={(e) =>
+                push({ books: e.target.value === "all" ? null : e.target.value })
+              }
+              className={`${field} cursor-pointer`}
+            >
+              {BOOK_COUNTS.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Wrapping and signing — the parcels that need a person and a table
+              rather than a jiffy bag, which is why they are worth pulling out
+              of the queue as their own run. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              Gift
+            </label>
+            <select
+              value={gift}
+              onChange={(e) => {
+                const v = e.target.value;
+                // Signed implies gift — signing is only ever sold inside the
+                // gift option — so the narrower filter alone is enough, and
+                // setting both would just be the same rows twice over.
+                push({
+                  gift: v === "yes" || v === "no" ? v : null,
+                  signed: v === "signed" ? "yes" : null,
+                });
+              }}
+              className={`${field} cursor-pointer`}
+            >
+              {GIFT_CHOICES.map((g) => (
+                <option key={g.value} value={g.value}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
           <div>
             <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
               Order
@@ -268,7 +350,11 @@ export default function DeliveryFilters({
               <button
                 onClick={() => {
                   setQ("");
-                  push({ from: null, to: null, q: null, agent: null, courier: null, handover: null });
+                  push({
+                    from: null, to: null, q: null, agent: null,
+                    courier: null, handover: null, books: null, signed: null,
+                    gift: null,
+                  });
                 }}
                 className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
               >
