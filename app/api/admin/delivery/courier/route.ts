@@ -92,7 +92,17 @@ export async function POST(request: NextRequest) {
   // systems describing different journeys — cancel it with them first.
   const { data, error } = await supabaseAdmin
     .from("orders")
-    .update({ courier_id: courierId, updated_at: new Date().toISOString() })
+    .update({
+      courier_id: courierId,
+      // A new routing decision starts clean. Without this, a parcel the last
+      // courier refused keeps that refusal after being moved to a different
+      // one — it would still read `send_refused` (0044) and still show the old
+      // courier's reason on the row, which is a lie about the courier now
+      // carrying it. The claim is already null on everything reachable here:
+      // `.is("courier_sent_at", null)` below is what makes that true.
+      courier_send_error: null,
+      updated_at: new Date().toISOString(),
+    })
     .in("order_number", orderNumbers)
     .is("courier_sent_at", null)
     .select("order_number,pincode");

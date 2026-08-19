@@ -15,6 +15,7 @@
  * The flow these describe, in order:
  *
  *   unassigned         nobody has decided anything yet
+ *   send_refused       the courier looked at it and said no
  *   to_hand_over       ours, going to KKR, not given to them yet
  *   awaiting_manifest  KKR has the data; they manifest at Delhivery
  *   with_courier       manifested — Delhivery's scans drive it from here
@@ -24,6 +25,7 @@
 
 export const HANDOVER_STATES = [
   "unassigned",
+  "send_refused",
   "to_hand_over",
   "awaiting_manifest",
   "with_courier",
@@ -36,6 +38,7 @@ export type HandoverState = (typeof HANDOVER_STATES)[number];
 
 export const HANDOVER_LABELS: Record<HandoverState, string> = {
   unassigned: "Unassigned",
+  send_refused: "Refused",
   to_hand_over: "To hand over",
   awaiting_manifest: "Awaiting manifest",
   with_courier: "With Delhivery",
@@ -46,6 +49,8 @@ export const HANDOVER_LABELS: Record<HandoverState, string> = {
 
 export const HANDOVER_HINTS: Record<HandoverState, string> = {
   unassigned: "No courier chosen. Tick it and assign it to KKR.",
+  send_refused:
+    "The courier refused this parcel and nobody is carrying it. The reason is on the row — tick it and assign it to a different courier, which clears the refusal.",
   to_hand_over: "Assigned to KKR but not handed over yet — download the sheet for them.",
   awaiting_manifest: "KKR has the data. They manifest it at Delhivery; the waybill appears here when they do.",
   with_courier: "Manifested at Delhivery. Status comes from their scans.",
@@ -57,6 +62,9 @@ export const HANDOVER_HINTS: Record<HandoverState, string> = {
 /** The ones where somebody has to do something. */
 export const HANDOVER_NEEDS_ACTION: readonly HandoverState[] = [
   "unassigned",
+  // Nothing will move this one on its own. It is the most actionable state
+  // here: a person has to pick a different courier.
+  "send_refused",
   "to_hand_over",
   "not_manifested",
 ];
@@ -64,6 +72,7 @@ export const HANDOVER_NEEDS_ACTION: readonly HandoverState[] = [
 /** Chip colour by meaning: green settled, amber waiting, red stuck. */
 export const HANDOVER_TONE: Record<HandoverState, string> = {
   unassigned: "border-neutral-500 bg-neutral-100 text-neutral-800",
+  send_refused: "border-red-600 bg-red-50 text-red-700",
   to_hand_over: "border-blue-500 bg-blue-50 text-blue-700",
   awaiting_manifest: "border-amber-500 bg-amber-50 text-amber-800",
   with_courier: "border-green-600 bg-green-50 text-green-700",

@@ -26,6 +26,36 @@ const LABELS_PER_PAGE = 6;
 const MAX_LABELS = 300;
 
 /**
+ * Parcels per request when routing a selection.
+ *
+ * The route accepts 300, and sending 48 in one call was the shape this used to
+ * have: one request, one spinner on a button, and nothing to look at for the
+ * thirty seconds it took to talk to Delhivery about all of them. Worse, a slow
+ * batch could outlive the function's own time limit and leave the browser with
+ * no answer at all about parcels that had already been manifested.
+ *
+ * Ten is small enough that each round trip returns quickly — so the bar moves,
+ * and a failure costs at most ten parcels' worth of uncertainty — and large
+ * enough that a full day is a handful of calls rather than fifty.
+ */
+const ROUTE_CHUNK = 10;
+
+/** What a routing run did, accumulated across its chunks. */
+type RunResult = {
+  courierName: string | null;
+  /** True when the run cleared the courier rather than setting one. */
+  cleared: boolean;
+  routed: number;
+  sent: number;
+  held: number;
+  skipped: number;
+  /** Refused by the courier, with the reason it gave. */
+  failed: { order_number: string; error: string }[];
+  /** Refused before asking, because the courier does not reach the pincode. */
+  unserviceable: string[];
+};
+
+/**
  * The delivery worklist — an owner's view of every agent's parcels.
  *
  * Nothing here changes a parcel's status. Shipped and delivered are ticked off
@@ -68,6 +98,10 @@ export default function DeliveryTable({
   const [courierId, setCourierId] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
+  /** Non-null while a routing run is in flight — drives the progress panel. */
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  /** The last run's outcome. Set as it goes, so the panel fills in live. */
+  const [result, setResult] = useState<RunResult | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const toggleExpanded = (n: string) =>
@@ -95,6 +129,7 @@ export default function DeliveryTable({
   const done = (text: string, bad?: boolean) => {
     setMessage({ text, bad });
     setBusy(null);
+    setProgress(null);
     if (!bad) setSelected(new Set());
     router.refresh();
   };
@@ -141,54 +176,104 @@ export default function DeliveryTable({
 
 
   /**
-   * Say which courier carries the ticked parcels. Assignment only — it sends
-   * nothing, which is the point: choosing a courier is a decision that can be
-   * made days early and changed freely, and sending is the irreversible one.
+   * Route the ticked parcels to a courier, and hand them over.
+   *
+   * Sent in chunks rather than as one request, so there is something to watch
+   * and something to salvage. A batch of fifty used to be a single call behind
+   * a button that said "Assigning…" and nothing else — no way to tell a slow
+   * Delhivery from a stuck one, and if the function timed out the browser
+   * learned nothing about parcels that may already have been manifested.
+   *
+   * Each chunk is independently safe. The claim in lib/db/courier-send.ts is
+   * what prevents a double send, not the shape of this loop, so a run that dies
+   * halfway leaves the parcels it already handled correctly recorded and the
+   * rest untouched.
+   *
+   * The panel fills in as it goes rather than at the end, because the first
+   * refusal is worth seeing before the last chunk finishes.
    */
   const setCourier = async (to: string | null) => {
     setBusy("courier");
     setMessage(null);
+    setResult(null);
 
-    try {
-      const res = await fetch("/api/admin/delivery/courier", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ order_numbers: ids, courier_id: to }),
-      });
-      const json = await res.json().catch(() => ({}));
-
-      if (!res.ok) return done(json.error ?? "Could not set the courier", true);
-
-      const bits: string[] = [
-        to
-          ? json.sent
-            ? `${json.sent} sent to ${json.courier_name}`
-            : `${json.updated} parcel${json.updated === 1 ? "" : "s"} routed to ${json.courier_name}`
-          : `Courier cleared on ${json.updated} parcel${json.updated === 1 ? "" : "s"}`,
-      ];
-      if (json.sent && json.updated > json.sent) {
-        bits.push(`${json.updated - json.sent} routed but not sent`);
-      }
-      if (json.failed?.length) bits.push(`${json.failed.length} refused`);
-      // The one that needs a person: we do not know whether these exist at the
-      // courier, so they are held rather than quietly retried.
-      if (json.held) bits.push(`${json.held} held — check the courier before retrying`);
-      if (json.skipped) bits.push(`${json.skipped} skipped — already with a courier`);
-
-      // Named, not counted. These need moving somewhere else, and a number
-      // alone leaves someone hunting for which ones.
-      const bad: string[] = json.unserviceable ?? [];
-      if (bad.length) {
-        bits.push(
-          `${R_BAD} ${json.courier_name} does not deliver to ${bad.length} of them: ${bad.join(", ")}`
-        );
-      }
-      done(bits.join(" · "), bad.length > 0 || !!json.failed?.length || !!json.held);
-    } catch {
-      done("Could not set the courier — check your connection.", true);
+    const batches: string[][] = [];
+    for (let i = 0; i < ids.length; i += ROUTE_CHUNK) {
+      batches.push(ids.slice(i, i + ROUTE_CHUNK));
     }
-  };
 
+    const acc: RunResult = {
+      courierName: null,
+      cleared: !to,
+      routed: 0,
+      sent: 0,
+      held: 0,
+      skipped: 0,
+      failed: [],
+      unserviceable: [],
+    };
+
+    setProgress({ done: 0, total: ids.length });
+
+    for (const batch of batches) {
+      let json: Record<string, never> | Record<string, unknown> = {};
+      try {
+        const res = await fetch("/api/admin/delivery/courier", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order_numbers: batch, courier_id: to }),
+        });
+        json = await res.json().catch(() => ({}));
+
+        // A rejected chunk stops the run. Carrying on would keep pushing
+        // parcels at a courier that has already said no to the request itself
+        // — a bad key or a switched-off partner fails the same way every time.
+        if (!res.ok) {
+          setResult(acc.routed || acc.sent ? { ...acc } : null);
+          return done(
+            (json.error as string) ?? "Could not set the courier",
+            true
+          );
+        }
+      } catch {
+        setResult(acc.routed || acc.sent ? { ...acc } : null);
+        return done("Could not set the courier — check your connection.", true);
+      }
+
+      acc.courierName = (json.courier_name as string) ?? acc.courierName;
+      acc.routed += (json.updated as number) ?? 0;
+      acc.sent += (json.sent as number) ?? 0;
+      acc.held += (json.held as number) ?? 0;
+      acc.skipped += (json.skipped as number) ?? 0;
+      const f = json.failed as RunResult["failed"] | undefined;
+      if (f?.length) acc.failed.push(...f);
+      const u = json.unserviceable as string[] | undefined;
+      if (u?.length) acc.unserviceable.push(...u);
+
+      setProgress((p) => ({
+        done: Math.min((p?.done ?? 0) + batch.length, ids.length),
+        total: ids.length,
+      }));
+      // A fresh object each time, or React sees the same reference and the
+      // panel never repaints mid-run.
+      setResult({ ...acc, failed: [...acc.failed], unserviceable: [...acc.unserviceable] });
+    }
+
+    setProgress(null);
+    setBusy(null);
+    setResult(acc);
+
+    // Leave exactly the parcels that need another decision ticked, so the next
+    // action is one click: choose a different courier and press Assign. A run
+    // with nothing to fix clears the selection as it always did.
+    const needsAnother = [
+      ...acc.failed.map((x) => x.order_number),
+      ...acc.unserviceable,
+    ];
+    setSelected(new Set(needsAnother));
+
+    router.refresh();
+  };
 
   /**
    * Ask the courier where the ticked parcels are.
@@ -305,7 +390,11 @@ export default function DeliveryTable({
                 className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
               >
                 <Truck className="w-3.5 h-3.5" />
-                {busy === "courier" ? "Assigning…" : `Assign to ${couriers[0].name}`}
+                {busy === "courier"
+                  ? progress
+                    ? `${progress.done}/${progress.total}…`
+                    : "Assigning…"
+                  : `Assign to ${couriers[0].name}`}
               </button>
             ) : (
               <>
@@ -330,7 +419,11 @@ export default function DeliveryTable({
                   className={`${btn} bg-neutral-900 text-white hover:bg-neutral-700`}
                 >
                   <Truck className="w-3.5 h-3.5" />
-                  {busy === "courier" ? "Assigning…" : "Assign"}
+                  {busy === "courier"
+                    ? progress
+                      ? `${progress.done}/${progress.total}…`
+                      : "Assigning…"
+                    : "Assign"}
                 </button>
               </>
             )}
@@ -350,6 +443,70 @@ export default function DeliveryTable({
           </>
         )}
       </div>
+
+      {/* ── Progress ─────────────────────────────────────────────────────── */}
+      {progress && (
+        <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm mb-4">
+          <div className="flex items-center justify-between gap-4 mb-2">
+            <p className="text-sm font-semibold text-neutral-900 flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary-500 animate-pulse" />
+              Handing parcels over…
+            </p>
+            <p className="text-xs text-neutral-500 tabular-nums">
+              {progress.done} of {progress.total}
+            </p>
+          </div>
+          <div className="h-2 rounded-full bg-neutral-100 overflow-hidden">
+            <div
+              className="h-full rounded-full bg-primary-500 transition-all duration-300"
+              style={{
+                width: `${Math.round((progress.done / Math.max(1, progress.total)) * 100)}%`,
+              }}
+            />
+          </div>
+          {/* Running totals, not just a bar. A bar says how long is left; this
+              says whether it is going well, which is the thing worth knowing
+              before it finishes — a run refusing everything is worth stopping. */}
+          {result && (
+            <p className="flex flex-wrap items-center gap-x-3 text-xs mt-2">
+              {result.sent > 0 && (
+                <span className="text-green-700 font-medium">
+                  {result.sent} sent
+                </span>
+              )}
+              {result.failed.length + result.unserviceable.length > 0 && (
+                <span className="text-red-700 font-medium">
+                  {result.failed.length + result.unserviceable.length} refused
+                </span>
+              )}
+              {result.held > 0 && (
+                <span className="text-amber-700 font-medium">
+                  {result.held} held
+                </span>
+              )}
+              {result.skipped > 0 && (
+                <span className="text-neutral-500">{result.skipped} skipped</span>
+              )}
+            </p>
+          )}
+
+          {/* Said plainly, because the honest answer to "can I close this tab?"
+              is no — the run lives in this page, not on the server. */}
+          <p className="text-[11px] text-neutral-400 mt-2">
+            Sent {ROUTE_CHUNK} at a time. Keep this tab open until it finishes —
+            parcels already handed over are safely recorded either way.
+          </p>
+        </div>
+      )}
+
+      {/* ── What the run did ─────────────────────────────────────────────── */}
+      {result && !progress && (
+        <RunSummary
+          result={result}
+          onDismiss={() => setResult(null)}
+          onSelectRefused={(numbers) => setSelected(new Set(numbers))}
+        />
+      )}
 
       {message && (
         <div
@@ -603,7 +760,26 @@ export default function DeliveryTable({
                         )}
 
                         {/* A send that failed or never came back. Loud, because
-                            the alternative is a parcel quietly going nowhere. */}
+                            the alternative is a parcel quietly going nowhere.
+                            The chip distinguishes the two cases the text alone
+                            cannot: REFUSED means the claim was given back and
+                            this parcel is going nowhere until somebody routes
+                            it elsewhere, while an error with the claim still
+                            held is one where the outcome is simply unknown and
+                            re-sending could duplicate a real shipment. */}
+                        {o.courier_send_error && (
+                          <p className="mt-1">
+                            {!o.courier_sent_at ? (
+                              <span className="inline-flex px-1.5 rounded-full bg-red-100 text-red-800 text-[10px] font-bold uppercase tracking-wide">
+                                Refused
+                              </span>
+                            ) : (
+                              <span className="inline-flex px-1.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold uppercase tracking-wide">
+                                Held
+                              </span>
+                            )}
+                          </p>
+                        )}
                         {o.courier_send_error && (
                           <p
                             title={o.courier_send_error}
@@ -673,6 +849,134 @@ export default function DeliveryTable({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What a routing run actually did, with the refusals named.
+ *
+ * The summary used to be one sentence — "48 sent to KKR Logistics (Delhivery) ·
+ * 2 routed but not sent · 2 refused" — which told you a number and left you to
+ * find the two parcels yourself among fifty rows, then open each one to read
+ * why. The reasons were already in the response and were being thrown away.
+ *
+ * So each refusal is a line: which parcel, what the courier said, and a way
+ * straight to it. The refused parcels are also left ticked by the run itself,
+ * which makes the fix the next thing you do rather than something you go
+ * hunting for.
+ */
+function RunSummary({
+  result,
+  onDismiss,
+  onSelectRefused,
+}: {
+  result: RunResult;
+  onDismiss: () => void;
+  onSelectRefused: (numbers: string[]) => void;
+}) {
+  const where = result.courierName ?? "the courier";
+
+  // One list, whatever the reason. To the person fixing them, "the courier
+  // said no" and "the courier does not go there" are the same job.
+  const refused: { order_number: string; error: string }[] = [
+    ...result.failed,
+    ...result.unserviceable.map((n) => ({
+      order_number: n,
+      error: `${where} does not deliver to this pincode.`,
+    })),
+  ];
+
+  // Everything routed that did not reach the courier and is not accounted for
+  // by one of the named piles below. `held` has to come off too — a held parcel
+  // has already been described, and counting it here as well would report more
+  // parcels than the run touched.
+  const routedNotSent = Math.max(
+    0,
+    result.routed - result.sent - result.held - refused.length
+  );
+
+  return (
+    <div className="bg-white border border-neutral-200 rounded-2xl shadow-sm mb-4 overflow-hidden">
+      <div className="flex items-start gap-3 px-4 py-3 border-b border-neutral-100">
+        {refused.length || result.held ? (
+          <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" />
+        ) : (
+          <Check className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600" />
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-neutral-900">
+            {result.cleared
+              ? `Courier cleared on ${result.routed} parcel${result.routed === 1 ? "" : "s"}`
+              : result.sent
+                ? `${result.sent} sent to ${where}`
+                : `${result.routed} parcel${result.routed === 1 ? "" : "s"} routed to ${where}`}
+          </p>
+
+          {/* The rest of the arithmetic, only where there is any. Zero rows
+              here would be four lines of nothing on a clean run. */}
+          <ul className="text-xs text-neutral-500 mt-1 space-y-0.5">
+            {routedNotSent > 0 && (
+              <li>{routedNotSent} routed but not sent</li>
+            )}
+            {result.held > 0 && (
+              <li className="text-amber-700">
+                {result.held} held — we could not confirm what happened. Check{" "}
+                {where} before sending these again; they may already be there.
+              </li>
+            )}
+            {result.skipped > 0 && (
+              <li>{result.skipped} skipped — already with a courier</li>
+            )}
+          </ul>
+        </div>
+
+        <button
+          onClick={onDismiss}
+          title="Dismiss"
+          className="text-neutral-400 hover:text-neutral-700 transition-colors"
+        >
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {refused.length > 0 && (
+        <div className="bg-red-50/60 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+            <p className="text-xs font-semibold text-red-800">
+              {refused.length} refused — pick a different courier for these
+            </p>
+            <button
+              onClick={() => onSelectRefused(refused.map((r) => r.order_number))}
+              className="text-xs font-medium text-red-700 hover:text-red-900 underline underline-offset-2"
+            >
+              Select all {refused.length}
+            </button>
+          </div>
+
+          <ul className="space-y-1">
+            {refused.map((r) => (
+              <li
+                key={r.order_number}
+                className="flex flex-wrap items-baseline gap-x-2 text-xs"
+              >
+                <Link
+                  href={`/admin/orders/${r.order_number}`}
+                  className="font-mono font-semibold text-red-800 hover:underline"
+                >
+                  {r.order_number}
+                </Link>
+                <span className="text-red-700">{r.error}</span>
+              </li>
+            ))}
+          </ul>
+
+          <p className="text-[11px] text-red-600/80 mt-2">
+            These are ticked already. Choose another courier above and press
+            Assign — that clears the refusal and routes them afresh.
+          </p>
         </div>
       )}
     </div>
