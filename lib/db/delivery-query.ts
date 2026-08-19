@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { unstable_cache } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   applyDeliveryFilter,
@@ -6,6 +7,7 @@ import {
   DELIVERY_STAGES,
 } from "@/lib/delivery-stage";
 import { istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
+import { DELIVERY_TAG, DELIVERY_CACHE_SECONDS } from "@/lib/db/cache-tags";
 
 export interface DeliveryFilters {
   /** A DeliveryStage, or undefined / "all" for the whole queue. */
@@ -193,6 +195,44 @@ export const deliveryStageCounts = cache(async function deliveryStageCounts(
     stages.map((stage, i) => [stage, results[i].count ?? 0])
   );
 });
+
+/**
+ * Parcels nobody is carrying yet — the sidebar's badge.
+ *
+ * Cached across requests, which the counts above deliberately are not. The
+ * difference is who is asking: the tab counts belong to the delivery screen and
+ * must agree with the rows beside them, while this one is a badge rendered by
+ * the admin layout on *every* admin page.
+ *
+ * That made it the most-run query in the application. It counts through
+ * `portal_orders` — a view with a join to `couriers` and a CASE expression — so
+ * no index can help it, and it was paying that scan to draw a number next to a
+ * nav item, on screens that have nothing to do with delivery.
+ *
+ * A minute stale is the right answer for a badge. `revalidateDelivery()` drops
+ * it early when something actually moves.
+ *
+ * Lives here rather than in the layout so the layout holds no SQL, and so the
+ * next thing that wants this number gets the cached one.
+ */
+export const countUnassignedParcels = unstable_cache(
+  async (): Promise<number> => {
+    const { count, error } = await buildDeliveryQuery(
+      { stage: "new" },
+      { countOnly: true }
+    );
+
+    // Not thrown: this feeds one badge, and an admin panel that 500s because a
+    // count failed would be a far worse outcome than a missing number.
+    if (error) {
+      console.error("[Sidebar] new-parcel count failed:", error.message);
+      return 0;
+    }
+    return count ?? 0;
+  },
+  ["delivery-unassigned-count"],
+  { tags: [DELIVERY_TAG], revalidate: DELIVERY_CACHE_SECONDS }
+);
 
 /** Read filters off a URL / request, ignoring anything we don't recognise. */
 export function parseDeliveryFilters(

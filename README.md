@@ -82,3 +82,41 @@ Supabase SQL editor. Applied through `0003`.
 Catalogue reads are cached and tagged, and every admin mutation flushes the tag
 from inside the DB layer (`lib/db/cache-tags.ts`) rather than from the routes —
 so a new admin route can't forget to invalidate.
+
+## Hosting regions
+
+**Keep these two together.** `vercel.json` pins functions to `hnd1` (Tokyo)
+because the Supabase project lives in `ap-northeast-1` (Tokyo). JSON takes no
+comments, so the reason is here.
+
+They were apart, and it was the single worst thing about the site's speed:
+functions ran in Vercel's default `iad1` (Washington) while the database sat in
+Tokyo, so every query crossed the Pacific — round trips of roughly 450ms, which
+`lib/admin-auth.ts` still records in a comment. An admin page makes on the order
+of ten sequential queries, so that was ~5 seconds of pure waiting before
+anything rendered.
+
+Co-located, those round trips are single-digit milliseconds. Tokyo is also
+closer to customers in Kerala than Washington is, so both legs improved.
+
+If the Supabase project is ever moved — `ap-south-1` (Mumbai) would be better
+still for Indian customers — change `regions` here in the same breath. Note that
+Supabase cannot move a project's region in place: it means restoring a backup
+into a new project, so it is a planned migration, not a setting.
+
+Edge Middleware (`proxy.ts`) is exempt — it runs at every PoP by design and
+cannot be pinned.
+
+## Admin panel performance
+
+Two rules the admin depends on, both easy to undo by accident:
+
+- **Links inside `/admin` must not prefetch.** Use
+  `components/admin/AdminLink`, never `next/link`. Every admin route is
+  `force-dynamic`, so prefetching one runs the whole auth + layout + page chain
+  server-side for a page nobody opened. With ordinary links, one scroll of the
+  delivery queue produced ~116 auth calls and ~58 edge requests; `/auth/v1/user`
+  was 85% of all Supabase traffic and the instance sat at 84% compute.
+- **Nothing expensive belongs in the admin layout.** It renders on every admin
+  page. The sidebar's parcel count reads through `countUnassignedParcels()`,
+  which is cached and tagged (`DELIVERY_TAG`).

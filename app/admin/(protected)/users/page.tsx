@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { SkeletonFilters, SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { User } from "@/lib/types/db";
 import { getCourseList } from "@/lib/db/courses";

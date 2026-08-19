@@ -67,3 +67,34 @@ export const GIFT_CACHE_SECONDS = 300;
 export function revalidateGift(): void {
   revalidateTag(GIFT_TAG, { expire: 0 });
 }
+
+/**
+ * The delivery queue's work counts — currently the sidebar's "new parcels" badge.
+ *
+ * Unlike the three above, this does not cache content someone edits. It caches
+ * a number that is expensive to produce: the count runs against `portal_orders`,
+ * a view with a join and a CASE, so nothing about it can use an index, and the
+ * admin layout asked for it on *every* render of *every* admin page.
+ *
+ * Short-lived on purpose. A badge that is up to a minute stale is a badge; a
+ * badge that costs a scan per page view is a bill.
+ */
+export const DELIVERY_TAG = "delivery";
+
+/**
+ * A minute, not the five the others use.
+ *
+ * This one tracks work in progress rather than settings — somebody assigns a
+ * parcel and reasonably expects the badge to follow within the time it takes to
+ * look up at it. Long enough to collapse a burst of page views into one query,
+ * short enough that nobody mistrusts the number.
+ */
+export const DELIVERY_CACHE_SECONDS = 60;
+
+/**
+ * Drop the cached counts. Called after anything that changes what is waiting —
+ * assigning a parcel to an agent, routing it to a courier, or cancelling it.
+ */
+export function revalidateDelivery(): void {
+  revalidateTag(DELIVERY_TAG, { expire: 0 });
+}

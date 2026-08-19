@@ -31,6 +31,27 @@ export async function proxy(request: NextRequest) {
 
 /** Session check for the admin panel. */
 async function adminGate(request: NextRequest) {
+  // A prefetch is not a navigation, and gets no session check.
+  //
+  // `getUser()` below is a network round trip to Supabase Auth — the single
+  // most-made request in this application, once measured at 85% of all Supabase
+  // traffic. Prefetches were most of that: Next fetches a route when its link
+  // scrolls into view, and every one of those paid for a full auth call before
+  // rendering a page nobody had opened.
+  //
+  // Links inside /admin no longer prefetch (see components/admin/AdminLink),
+  // so this should now be unreachable in normal use. It stays as the backstop:
+  // one ordinary `next/link` added to an admin table in six months' time costs
+  // a wasted render, not a hundred auth calls.
+  //
+  // Safe because a prefetch never needs the redirect. Nothing is shown to
+  // anyone from this response — the real gate is `getCurrentStaff()` in the
+  // admin layout, which runs when the page is actually visited, and
+  // `requirePermission` in every API route regardless.
+  if (request.headers.get("Next-Router-Prefetch") === "1") {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(

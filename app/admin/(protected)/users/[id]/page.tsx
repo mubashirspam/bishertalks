@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";

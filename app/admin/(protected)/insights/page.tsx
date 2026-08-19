@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import { TrendingUp, Info, ChevronDown, ChevronRight } from "lucide-react";
 import { getInsights, getLinkBreakdown } from "@/lib/db/insights";
 import { SOURCE_LABELS, SOURCE_BADGE } from "@/lib/attribution";

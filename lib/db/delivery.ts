@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { sendOrderNotifications, type OrderEvent } from "@/lib/notify";
 import { NOTIFY_STATUSES } from "@/lib/delivery-stage";
 import { approveCommissions, voidCommissions } from "@/lib/db/referrals";
+import { revalidateDelivery } from "@/lib/db/cache-tags";
 import type { OrderStatus } from "@/lib/types/order";
 
 /**
@@ -69,16 +70,24 @@ export function unmarkLabelsDownloaded(orderNumbers: string[]): Promise<string[]
  * assigned: the RPC skips anything outside the shippable scope, and the caller
  * needs the real count rather than the number of boxes that were ticked.
  */
-export function assignOrders(
+export async function assignOrders(
   orderNumbers: string[],
   agentId: string | null,
   actorId: string | null
 ): Promise<string[]> {
-  return rpc("assign_orders", {
+  const assigned = await rpc("assign_orders", {
     p_order_numbers: orderNumbers,
     p_agent_id: agentId,
     p_actor_id: actorId,
   });
+
+  // This is precisely what the sidebar badge counts — parcels nobody is
+  // carrying yet — so the cached count is dropped here rather than in the two
+  // routes that call this, where the second one to be written would forget.
+  // Same placement rule as revalidateGift in lib/db/gift.ts.
+  if (assigned.length) revalidateDelivery();
+
+  return assigned;
 }
 
 /**

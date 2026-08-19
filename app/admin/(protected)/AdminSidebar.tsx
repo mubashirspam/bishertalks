@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Truck, Menu, X } from "lucide-react";

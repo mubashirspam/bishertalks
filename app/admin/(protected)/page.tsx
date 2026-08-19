@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import {
   IndianRupee, CalendarDays, CalendarRange, CalendarCheck, AlertCircle, ArrowRight, Clock,
 } from "lucide-react";

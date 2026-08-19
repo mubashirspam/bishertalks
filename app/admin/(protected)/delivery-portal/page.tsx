@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
 import {

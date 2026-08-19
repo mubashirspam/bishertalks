@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
-import Link from "next/link";
+import Link from "@/components/admin/AdminLink";
 import { Pencil } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import NewCourseButton from "./NewCourseButton";
