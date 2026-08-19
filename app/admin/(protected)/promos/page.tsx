@@ -2,9 +2,11 @@ import { Suspense } from "react";
 import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import { listPromoCodes } from "@/lib/db/promo";
 import { getGiftSettings } from "@/lib/db/gift";
+import { getCheckoutSettings } from "@/lib/db/checkout-settings";
 import AddPromoForm from "./AddPromoForm";
 import PromoRow from "./PromoRow";
 import GiftSettingsCard from "./GiftSettingsCard";
+import PromoFieldCard from "./PromoFieldCard";
 import { requirePageAccess } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +27,11 @@ export default async function Page() {
 async function PromosBody() {
   await requirePageAccess("promos.manage");
 
-  const [promos, gift] = await Promise.all([listPromoCodes(), getGiftSettings()]);
+  const [promos, gift, checkout] = await Promise.all([
+    listPromoCodes(),
+    getGiftSettings(),
+    getCheckoutSettings(),
+  ]);
 
   return (
     <div>
@@ -41,11 +47,19 @@ async function PromosBody() {
           two fields do not earn a nav item. */}
       <GiftSettingsCard settings={gift} />
 
+      {/* Above the table it governs: "these codes exist but nobody can enter
+          them" is the most confusing state this screen has, so the switch that
+          causes it is the thing you read first. */}
+      <PromoFieldCard settings={checkout} />
+
       <div className="flex items-start justify-between mb-6 gap-4 flex-wrap">
         <div>
           <h2 className="text-lg font-black text-neutral-900">Promo codes</h2>
           <p className="text-neutral-500 text-sm mt-1">
-            {promos.length} code{promos.length === 1 ? "" : "s"} · applied at checkout
+            {promos.length} code{promos.length === 1 ? "" : "s"} ·{" "}
+            {checkout.promoFieldIsEnabled
+              ? "applied at checkout"
+              : "field hidden — nobody can enter one"}
           </p>
         </div>
         <AddPromoForm />

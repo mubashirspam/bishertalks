@@ -22,6 +22,8 @@ import {
   sanitizeGiftMessage,
 } from "@/lib/gift";
 import { getGiftSettings } from "@/lib/db/gift";
+import { getCheckoutSettings } from "@/lib/db/checkout-settings";
+import { promoCodeAllowed } from "@/lib/checkout-settings";
 import { claimPaidTransition } from "@/lib/payment-claim";
 
 function generateOrderNumber(): string {
@@ -119,7 +121,14 @@ export async function POST(request: NextRequest) {
 
     // Validate only. Redemption happens in /api/orders/verify once payment
     // actually succeeds, so abandoned checkouts no longer burn a redemption.
-    if (promoCode) {
+    //
+    // Gated on the promo field being on offer at all (0042), read live for the
+    // same reason the gift settings are: a page left open since before the
+    // field was hidden still posts a `promoCode`, and hiding a box in the
+    // browser is not what stops a discount — this is. Silent rather than an
+    // error, matching how an invalid code already behaves: the order proceeds
+    // at full price instead of failing at the payment step.
+    if (promoCode && promoCodeAllowed(await getCheckoutSettings())) {
       const promo = await validatePromo(promoCode, subtotalPaise);
       if (promo.valid && promo.discountPaise > 0) {
         amountPaise = promo.finalPaise;

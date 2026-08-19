@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 import { clampQuantity } from "@/lib/quantity";
+import type { CheckoutSettings } from "@/lib/checkout-settings";
 import {
   giftChargePaise,
   isGiftOrder,
@@ -39,10 +40,13 @@ const rupees = (paise: number) => Math.round(paise / 100);
 export default function StandardCheckoutForm({
   pricing,
   gift,
+  checkout,
 }: {
   pricing: ProductPricing;
   /** What the gift add-ons cost today, and whether each is offered. */
   gift: GiftSettings;
+  /** What the checkout shows — currently just the promo field's switch. */
+  checkout: CheckoutSettings;
 }) {
   const router = useRouter();
 
@@ -496,6 +500,10 @@ export default function StandardCheckoutForm({
               disabled={loading}
             />
 
+            {/* The whole block, not just the input: with the field switched
+                off there is no way to have applied a code, so the "applied"
+                state below it cannot arise either. */}
+            {checkout.promoFieldIsEnabled && (
             <div className="mb-5 pb-5 border-b border-neutral-200 dark:border-white/8">
               {promo ? (
                 <div className="flex items-center justify-between gap-2 bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20 rounded-xl px-3 py-2.5">
@@ -534,6 +542,7 @@ export default function StandardCheckoutForm({
                 </>
               )}
             </div>
+            )}
 
             <GiftOption
               settings={gift}
