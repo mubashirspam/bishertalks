@@ -5,6 +5,7 @@ import {
   applyDeliveryFilter,
   isDeliveryStage,
   DELIVERY_STAGES,
+  type DeliveryStage,
 } from "@/lib/delivery-stage";
 import { istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
 import { DELIVERY_TAG, DELIVERY_CACHE_SECONDS } from "@/lib/db/cache-tags";
@@ -54,6 +55,14 @@ export interface DeliveryRow {
   /** When it was paid (0043), and the order date derived from it. */
   paid_at: string | null;
   ordered_at: string;
+  /**
+   * Where the parcel is in the queue, derived by the view (0045).
+   *
+   * Read this rather than recomputing it from status/agent/courier — the view
+   * is the one definition now, and the badge on a row must not be able to
+   * disagree with the tab the row is sitting in.
+   */
+  delivery_stage: DeliveryStage;
   status: string;
   courier_name: string | null;
   tracking_number: string | null;
@@ -85,7 +94,7 @@ export const DELIVERY_COLUMNS =
   "assigned_agent_id,assigned_at,courier_entered_at," +
   "courier_id,courier_sent_at,courier_send_error," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
-  "shipped_at,delivered_at,created_at,paid_at,ordered_at";
+  "shipped_at,delivered_at,created_at,paid_at,ordered_at,delivery_stage";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -183,18 +192,59 @@ export type StageCounts = Record<string, number>;
 export const deliveryStageCounts = cache(async function deliveryStageCounts(
   filters: DeliveryFilters
 ): Promise<StageCounts> {
-  const stages = ["all", ...DELIVERY_STAGES];
-
-  const results = await Promise.all(
-    stages.map((stage) =>
-      buildDeliveryQuery({ ...filters, stage }, { countOnly: true })
-    )
+  // One GROUP BY instead of eight COUNTs (migration 0045). The stage is not
+  // passed: the tabs show what every stage holds under the *other* filters, so
+  // narrowing to the selected one would make each tab report its own size.
+  const { data, error } = await supabaseAdmin.rpc(
+    "delivery_counts",
+    scopeArgs(filters)
   );
 
-  return Object.fromEntries(
-    stages.map((stage, i) => [stage, results[i].count ?? 0])
+  // Zeroes rather than a throw: the tabs are navigation, and a screen that
+  // refuses to render because a badge failed is worse than a screen of zeroes.
+  if (error) {
+    console.error("[Delivery] stage counts failed:", error.message);
+    return Object.fromEntries(["all", ...DELIVERY_STAGES].map((s) => [s, 0]));
+  }
+
+  const rows = (data ?? []) as { stage: string; n: number }[];
+
+  // Every tab needs a number, including the empty ones the GROUP BY omits.
+  const counts: StageCounts = Object.fromEntries(
+    DELIVERY_STAGES.map((s) => [s, 0])
   );
+  for (const row of rows) counts[row.stage] = Number(row.n) || 0;
+
+  // Summed here rather than asked for, so the total can never disagree with the
+  // parts it is displayed beside.
+  counts.all = DELIVERY_STAGES.reduce((n, s) => n + (counts[s] ?? 0), 0);
+
+  return counts;
 });
+
+/**
+ * The filter arguments both aggregate functions take (migration 0045).
+ *
+ * Kept beside `buildDeliveryQuery` on purpose: these two are the pair that must
+ * agree. Anything added to the query above has to be added here, to
+ * `delivery_scope` in SQL, and to `parseDeliveryFilters` — and if it is missed,
+ * the tab counts stop matching the rows inside the tab.
+ *
+ * `undefined` becomes null, which the SQL reads as "no filter".
+ */
+export function scopeArgs(filters: DeliveryFilters) {
+  return {
+    p_from: isDate(filters.from) ? istDayStartUTC(filters.from) : null,
+    p_to: isDate(filters.to) ? istDayEndUTC(filters.to) : null,
+    p_q: filters.q || null,
+    p_agent: filters.agent || null,
+    p_courier: filters.courier || null,
+    p_handover: filters.handover || null,
+    p_books: filters.books || null,
+    p_gift: filters.gift || null,
+    p_signed: filters.signed || null,
+  };
+}
 
 /**
  * Parcels nobody is carrying yet — the sidebar's badge.

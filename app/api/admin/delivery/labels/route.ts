@@ -69,8 +69,13 @@ export async function POST(request: NextRequest) {
   if (orderNumbers.length) {
     // Re-read through the same shippable scope rather than trusting the ids:
     // an order that lost its address, or was never paid, has no label.
+    //
+    // portal_orders, not orders — the same rows, plus the derived columns
+    // DELIVERY_COLUMNS now asks for. Reading the base table here would fail on
+    // `delivery_stage` (0045), and it also makes this branch and the filtered
+    // one below read from the same place, which they always should have.
     const { data, error } = await supabaseAdmin
-      .from("orders")
+      .from("portal_orders")
       .select(DELIVERY_COLUMNS)
       .eq("payment_status", "paid")
       .not("address_line1", "is", null)

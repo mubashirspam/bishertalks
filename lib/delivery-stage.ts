@@ -104,36 +104,28 @@ export function isDeliveryStage(v: string | undefined): v is DeliveryStage {
 /** Statuses a status change should notify the customer about on WhatsApp. */
 export const NOTIFY_STATUSES: OrderStatus[] = ["shipped", "delivered"];
 
-/** Not yet handed to a courier. Used by two of the filters below. */
-const PRE_SHIP = ["confirmed", "processing"];
-
 /**
- * PostgREST filters for each queue stage, so a tab is one indexed query rather
- * than "load everything and filter in memory".
+ * Filter a query to one queue stage.
  *
- * `in` rather than `or` deliberately: the list already spends its one `or` on
- * the search box, and PostgREST combining two `or` params is easy to get wrong.
+ * One equality, because `portal_orders` now derives `delivery_stage` itself
+ * (migration 0045) from the same CASE that `deliveryStage()` above implements.
+ *
+ * It used to reassemble the stage out of raw columns — `status IN (…)` plus
+ * null checks on the agent and the courier — which had to agree with
+ * `deliveryStage()` by hand, and did not always: a tab could show a different
+ * set from the badges on the rows inside it.
+ *
+ * It also fixes a live bug. The 'assigned' tab was expressed as
+ * `.or("assigned_agent_id.not.is.null,courier_id.not.is.null")`, and the search
+ * box uses the only other `or()` the query can safely carry — so searching
+ * while on that tab could return the wrong rows. An equality cannot collide
+ * with anything.
+ *
+ * Only valid against `portal_orders`. Querying `orders` directly gets no
+ * derived columns — see the labels route, which reads the view for this reason.
  */
 export function applyDeliveryFilter<T extends {
-  in: (col: string, vals: string[]) => T;
-  is: (col: string, val: null) => T;
-  not: (col: string, op: string, val: null) => T;
   eq: (col: string, val: string) => T;
-  or: (filter: string) => T;
 }>(query: T, stage: DeliveryStage): T {
-  switch (stage) {
-    // Both halves must match deliveryStage() above, or a tab shows a different
-    // set from the badge on the rows inside it.
-    case "new":
-      return query
-        .in("status", PRE_SHIP)
-        .is("assigned_agent_id", null)
-        .is("courier_id", null);
-    case "assigned":
-      return query
-        .in("status", PRE_SHIP)
-        .or("assigned_agent_id.not.is.null,courier_id.not.is.null");
-    default:
-      return query.eq("status", stage);
-  }
+  return query.eq("delivery_stage", stage);
 }

@@ -9,7 +9,6 @@ import {
   Truck, RefreshCw,
 } from "lucide-react";
 import {
-  deliveryStage,
   DELIVERY_SHORT,
   DELIVERY_BADGE,
 } from "@/lib/delivery-stage";
@@ -566,7 +565,10 @@ export default function DeliveryTable({
               </thead>
               <tbody>
                 {rows.map((o) => {
-                  const s = deliveryStage(o);
+                  // The view's own answer (0045), not a second one computed
+                  // here — the badge on a row and the tab it is sitting in have
+                  // to come from the same place, and they used not to.
+                  const s = o.delivery_stage;
                   const checked = selected.has(o.order_number);
                   return (
                     <React.Fragment key={o.id}>
