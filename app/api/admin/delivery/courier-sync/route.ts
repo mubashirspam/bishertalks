@@ -166,6 +166,17 @@ export async function POST(request: NextRequest) {
   let learned = 0;
   const moved: { order_number: string; to: string }[] = [];
 
+  /**
+   * What the courier said about each parcel we could name.
+   *
+   * Aggregate counts answer "was the sync worth pressing"; this answers "what
+   * about THIS order", which is the question someone has when they press it
+   * after a send went wrong. Absent from the list means the courier has no
+   * record of that parcel — the caller knows what it asked about, so absence
+   * is information rather than a gap.
+   */
+  const found = new Map<string, { order_number: string; waybill: string; scan: string; learned: boolean }>();
+
   /** Apply one courier answer to one order. */
   const record = async (
     parcel: { waybill: string; reference: string | null; scan: Parameters<typeof applyScan>[0] },
@@ -179,6 +190,14 @@ export async function POST(request: NextRequest) {
       await attachWaybill(orderNumber, parcel.waybill);
       learned++;
     }
+    found.set(orderNumber, {
+      order_number: orderNumber,
+      waybill: parcel.waybill,
+      scan: parcel.scan.status || "",
+      // True when this sync is what taught us the waybill — which, after a send
+      // whose outcome was unknown, is the moment the parcel stops being held.
+      learned: firstTime,
+    });
     const outcome = await applyScan(
       parcel.scan,
       { waybill: parcel.waybill, reference: orderNumber },
@@ -236,6 +255,9 @@ export async function POST(request: NextRequest) {
     checked,
     learned,
     moved: moved.length,
+    // Per parcel, for a caller that asked about specific orders. Omitted on a
+    // sweep, where it would be two thousand rows nobody is reading.
+    results: all ? [] : [...found.values()],
     // Parcels the courier has no record of — the useful signal, because it
     // usually means a sheet that was never uploaded.
     unknown: rows.length - checked,

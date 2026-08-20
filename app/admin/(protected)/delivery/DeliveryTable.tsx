@@ -16,6 +16,13 @@ import { formatISTShort, timeAgo } from "@/lib/format-date";
 import { deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import type { DeliveryRow } from "@/lib/db/delivery-query";
 import type { DeliveryAgent } from "@/lib/db/staff";
+import {
+  OUTCOME,
+  needsAttention,
+  byUrgency,
+  type ParcelOutcome,
+  type RouteOutcome,
+} from "@/lib/delivery/route-outcome";
 
 /** Mirrors lib/shipping-label.ts — duplicated rather than imported so the PDF
  *  writer doesn't get bundled into the browser for one number. */
@@ -43,6 +50,24 @@ const MAX_LABELS = 300;
  */
 const ROUTE_CHUNK = 1;
 
+/**
+ * One line in the live log — a parcel, and where the run has got to with it.
+ *
+ * `pending` and `working` are this screen's own: the server never reports them,
+ * because they describe the gap between asking about a parcel and hearing back.
+ * With one parcel per request that gap is the whole of what someone watching
+ * wants to see — which order is being checked right now, and which are still
+ * queued behind it.
+ */
+type LogState = RouteOutcome | "pending" | "working";
+
+type LogRow = {
+  order_number: string;
+  state: LogState;
+  waybill: string | null;
+  error: string | null;
+};
+
 /** What a routing run did, accumulated across its chunks. */
 type RunResult = {
   courierName: string | null;
@@ -53,11 +78,17 @@ type RunResult = {
   /** Already at the courier — the waybill was adopted, nothing was created. */
   adopted: number;
   held: number;
+  /** At the courier, but we failed to store the waybill. Never a refusal. */
+  saveFailed: number;
   skipped: number;
   /** Refused by the courier, with the reason it gave. */
   failed: { order_number: string; error: string }[];
   /** Refused before asking, because the courier does not reach the pincode. */
   unserviceable: string[];
+  /** Every parcel the run touched, in the order it was asked about. */
+  log: LogRow[];
+  /** Which courier this run was against — what a recheck has to ask. */
+  courierId: string | null;
 };
 
 /**
@@ -214,14 +245,56 @@ export default function DeliveryTable({
       sent: 0,
       adopted: 0,
       held: 0,
+      saveFailed: 0,
       skipped: 0,
       failed: [],
       unserviceable: [],
+      courierId: to,
+      // Every ticked parcel is in the log from the first frame, queued. A run
+      // that shows only what it has finished makes fifty parcels look like
+      // three until it is nearly done.
+      log: ids.map((n) => ({
+        order_number: n,
+        state: "pending" as LogState,
+        waybill: null,
+        error: null,
+      })),
     };
 
+    /** Rewrite one parcel's line, and repaint. */
+    const write = (
+      orderNumber: string,
+      state: LogState,
+      extra: { waybill?: string | null; error?: string | null } = {}
+    ) => {
+      const row = acc.log.find((r) => r.order_number === orderNumber);
+      if (!row) return;
+      row.state = state;
+      if (extra.waybill !== undefined) row.waybill = extra.waybill;
+      if (extra.error !== undefined) row.error = extra.error;
+    };
+
+    // A fresh object each time, or React sees the same reference and the panel
+    // never repaints mid-run.
+    const repaint = () =>
+      setResult({
+        ...acc,
+        failed: [...acc.failed],
+        unserviceable: [...acc.unserviceable],
+        log: acc.log.map((r) => ({ ...r })),
+      });
+
     setProgress({ done: 0, total: ids.length });
+    repaint();
 
     for (const batch of batches) {
+      // Named before the request goes out, so the row reads "checking with the
+      // courier" for exactly as long as that is what is happening. This is the
+      // only state the server cannot tell us about, and on a slow send it is
+      // the one on screen longest.
+      for (const n of batch) write(n, "working");
+      repaint();
+
       let json: Record<string, never> | Record<string, unknown> = {};
       try {
         const res = await fetch("/api/admin/delivery/courier", {
@@ -235,15 +308,37 @@ export default function DeliveryTable({
         // parcels at a courier that has already said no to the request itself
         // — a bad key or a switched-off partner fails the same way every time.
         if (!res.ok) {
-          setResult(acc.routed || acc.sent ? { ...acc } : null);
-          return done(
-            (json.error as string) ?? "Could not set the courier",
-            true
-          );
+          // The request never reached the sending code, so nothing was handed
+          // over: these parcels are refused here, not held.
+          for (const n of batch) {
+            write(n, "refused", {
+              error: (json.error as string) ?? "The request was rejected.",
+            });
+          }
+          setProgress(null);
+          repaint();
+          setBusy(null);
+          return done((json.error as string) ?? "Could not set the courier", true);
         }
       } catch {
-        setResult(acc.routed || acc.sent ? { ...acc } : null);
-        return done("Could not set the courier — check your connection.", true);
+        // We asked and never heard back. The server may have got as far as
+        // manifesting — this is precisely the case where a parcel ends up at
+        // the courier while this screen believes it never left. So it is held,
+        // not failed, and the panel offers to go and ask the courier.
+        for (const n of batch) {
+          write(n, "held", {
+            error:
+              "The answer never reached this screen. It may already be at the " +
+              "courier — check before sending it again.",
+          });
+        }
+        setProgress(null);
+        repaint();
+        setBusy(null);
+        return done(
+          "Lost contact mid-run. Check the held parcels with the courier before retrying.",
+          true
+        );
       }
 
       acc.courierName = (json.courier_name as string) ?? acc.courierName;
@@ -251,32 +346,52 @@ export default function DeliveryTable({
       acc.sent += (json.sent as number) ?? 0;
       acc.adopted += (json.adopted as number) ?? 0;
       acc.held += (json.held as number) ?? 0;
+      acc.saveFailed += (json.save_failed as number) ?? 0;
       acc.skipped += (json.skipped as number) ?? 0;
       const f = json.failed as RunResult["failed"] | undefined;
       if (f?.length) acc.failed.push(...f);
       const u = json.unserviceable as string[] | undefined;
       if (u?.length) acc.unserviceable.push(...u);
 
+      // The per-parcel verdicts. An older server that does not send them leaves
+      // the rows on whatever the counts imply, rather than stuck on "working".
+      const parcels = json.results as ParcelOutcome[] | undefined;
+      if (parcels?.length) {
+        for (const r of parcels) {
+          write(r.order_number, r.outcome, { waybill: r.waybill, error: r.error });
+        }
+      } else {
+        for (const n of batch) write(n, to ? "routed" : "cleared");
+      }
+
       setProgress((p) => ({
         done: Math.min((p?.done ?? 0) + batch.length, ids.length),
         total: ids.length,
       }));
-      // A fresh object each time, or React sees the same reference and the
-      // panel never repaints mid-run.
-      setResult({ ...acc, failed: [...acc.failed], unserviceable: [...acc.unserviceable] });
+      repaint();
     }
 
     setProgress(null);
     setBusy(null);
-    setResult(acc);
+    repaint();
 
     // Leave exactly the parcels that need another decision ticked, so the next
     // action is one click: choose a different courier and press Assign. A run
     // with nothing to fix clears the selection as it always did.
-    const needsAnother = [
-      ...acc.failed.map((x) => x.order_number),
-      ...acc.unserviceable,
-    ];
+    //
+    // Read off the log through `reassignable`, so the rule is stated once. Held
+    // and sent-but-not-saved parcels are deliberately NOT re-ticked: they are
+    // at the courier or may be, and a second Assign on them is the one action
+    // that could produce two parcels for one book.
+    const needsAnother = acc.log
+      .filter(
+        (r) =>
+          r.state !== "pending" &&
+          r.state !== "working" &&
+          needsAttention(r.state) &&
+          OUTCOME[r.state].reassignable
+      )
+      .map((r) => r.order_number);
     setSelected(new Set(needsAnother));
 
     router.refresh();
@@ -313,6 +428,93 @@ export default function DeliveryTable({
   };
 
 
+
+  /**
+   * Go and ask the courier about the parcels the run could not account for.
+   *
+   * The case this exists for: a send that reached Delhivery and whose answer we
+   * never stored — a timeout, a 500, a write that failed after they had already
+   * accepted the shipment. The parcel is on a van and our screens say it never
+   * left, which is the failure that put six parcels in exactly that state.
+   *
+   * It never sends. Sync asks by order number — the same string `manifest.ts`
+   * puts in the `order` field — so a shipment Delhivery accepted is found,
+   * its waybill stored, and the hold lifted. A parcel they genuinely never got
+   * stays held, which is the correct answer and not a reason to send blind.
+   */
+  const recheckAtCourier = async () => {
+    if (!result) return;
+
+    const pending = result.log.filter(
+      (r) => r.state !== "pending" && r.state !== "working" && OUTCOME[r.state].recheck
+    );
+    if (!pending.length) return;
+
+    const courierId = result.courierId ?? couriers[0]?.id;
+    if (!courierId) return done("No courier to ask.", true);
+
+    setBusy("recheck");
+    setMessage(null);
+
+    try {
+      const res = await fetch("/api/admin/delivery/courier-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_numbers: pending.map((r) => r.order_number),
+          courier_id: courierId,
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) return done(json.error ?? "Could not reach the courier", true);
+
+      const found = new Map<string, { waybill: string; scan: string }>(
+        ((json.results as { order_number: string; waybill: string; scan: string }[]) ?? []).map(
+          (r) => [r.order_number, { waybill: r.waybill, scan: r.scan }]
+        )
+      );
+
+      // Rewrite only the rows we asked about. A parcel the courier now
+      // confirms is `adopted` — it was already theirs, nothing was created —
+      // and one they still have no record of stays exactly as it was.
+      const log = result.log.map((row) => {
+        const hit = found.get(row.order_number);
+        if (!hit) {
+          if (!OUTCOME[row.state as RouteOutcome]?.recheck) return row;
+          return {
+            ...row,
+            error:
+              "The courier still has no record of this. Safe to send again, or " +
+              "check their dashboard.",
+          };
+        }
+        return {
+          ...row,
+          state: "adopted" as LogState,
+          waybill: hit.waybill,
+          error: hit.scan ? `Courier says: ${hit.scan}` : null,
+        };
+      });
+
+      const recovered = pending.filter((r) => found.has(r.order_number)).length;
+      setResult({
+        ...result,
+        log,
+        held: Math.max(0, result.held - recovered),
+        saveFailed: Math.max(0, result.saveFailed - recovered),
+        adopted: result.adopted + recovered,
+      });
+
+      done(
+        recovered
+          ? `${recovered} of ${pending.length} found at the courier — waybills saved, holds lifted.`
+          : `The courier has no record of ${pending.length === 1 ? "it" : "any of them"}. Nothing was changed.`,
+        !recovered
+      );
+    } catch {
+      done("Could not reach the courier — check your connection.", true);
+    }
+  };
 
   /** Prefix for the one message that is a warning rather than a result. */
   const R_BAD = "⚠";
@@ -497,6 +699,25 @@ export default function DeliveryTable({
             </p>
           )}
 
+          {/* The parcel being asked about this second. Named, because "one at
+              a time" is only reassuring if you can see which one. */}
+          {result?.log.some((r) => r.state === "working") && (
+            <p className="text-xs text-neutral-600 mt-2 flex items-center gap-1.5">
+              <RefreshCw className="w-3 h-3 animate-spin text-primary-500" />
+              Checking{" "}
+              <span className="font-mono font-semibold text-neutral-800">
+                {result.log.find((r) => r.state === "working")?.order_number}
+              </span>{" "}
+              with the courier…
+            </p>
+          )}
+
+          {result && (
+            <div className="mt-3">
+              <ParcelLog rows={result.log} live />
+            </div>
+          )}
+
           {/* Said plainly, because the honest answer to "can I close this tab?"
               is no — the run lives in this page, not on the server. */}
           <p className="text-[11px] text-neutral-400 mt-2">
@@ -511,8 +732,10 @@ export default function DeliveryTable({
       {result && !progress && (
         <RunSummary
           result={result}
+          busy={busy === "recheck"}
           onDismiss={() => setResult(null)}
           onSelectRefused={(numbers) => setSelected(new Set(numbers))}
+          onRecheck={recheckAtCourier}
         />
       )}
 
@@ -879,16 +1102,121 @@ export default function DeliveryTable({
  * which makes the fix the next thing you do rather than something you go
  * hunting for.
  */
+/** Chip colours. Tone is the only thing that varies; the shape never does. */
+const TONE: Record<string, string> = {
+  good: "bg-green-100 text-green-800",
+  warn: "bg-amber-100 text-amber-800",
+  bad: "bg-red-100 text-red-800",
+  neutral: "bg-neutral-100 text-neutral-600",
+  pending: "bg-neutral-50 text-neutral-400",
+  working: "bg-blue-100 text-blue-800",
+};
+
+/**
+ * One line per parcel: what it is, what happened, and the courier's own words.
+ *
+ * The run reported four numbers before this existed. Numbers tell you a run
+ * went badly; they do not tell you which parcel, or whether the thing that went
+ * wrong left a shipment at the courier — and those are the only two questions
+ * anyone actually has while watching fifty parcels go out one at a time.
+ *
+ * Live runs read newest-first, because the interesting line is the one that
+ * just landed. A finished run reads worst-first, because the interesting line
+ * is the one still needing a decision.
+ */
+function ParcelLog({ rows, live }: { rows: LogRow[]; live: boolean }) {
+  const settled = rows.filter((r) => r.state !== "pending" && r.state !== "working");
+
+  const ordered = live
+    ? // Only what has actually landed, newest first. A live list padded with
+      // forty "Queued" rows buries the one line that just changed.
+      [...settled].reverse()
+    : [...rows].sort((a, b) => {
+        const settledA = a.state !== "pending" && a.state !== "working";
+        const settledB = b.state !== "pending" && b.state !== "working";
+        if (settledA !== settledB) return settledA ? -1 : 1;
+        if (!settledA) return 0;
+        return byUrgency(
+          { order_number: a.order_number, outcome: a.state as RouteOutcome, waybill: null, error: null },
+          { order_number: b.order_number, outcome: b.state as RouteOutcome, waybill: null, error: null }
+        );
+      });
+
+  if (!ordered.length) return null;
+
+  return (
+    <ul className="max-h-72 overflow-y-auto divide-y divide-neutral-100 rounded-xl border border-neutral-100">
+      {ordered.map((r) => {
+        const shape =
+          r.state === "pending" || r.state === "working"
+            ? null
+            : OUTCOME[r.state as RouteOutcome];
+        const tone = shape ? shape.tone : r.state;
+        const label = shape
+          ? shape.label
+          : r.state === "working"
+            ? "Checking…"
+            : "Queued";
+
+        return (
+          <li
+            key={r.order_number}
+            className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2 text-xs"
+          >
+            <Link
+              href={`/admin/orders/${r.order_number}`}
+              className="font-mono font-semibold text-neutral-800 hover:underline"
+            >
+              {r.order_number}
+            </Link>
+
+            <span
+              className={`px-1.5 py-0.5 rounded-md font-medium ${TONE[tone] ?? TONE.neutral}`}
+            >
+              {label}
+            </span>
+
+            {r.waybill && (
+              <span className="font-mono text-neutral-600">{r.waybill}</span>
+            )}
+
+            {/* The courier's wording where there is any, ours where there is
+                not. Never both — two sentences saying the same thing in a
+                fifty-row list is fifty rows of noise. */}
+            <span className="text-neutral-500 basis-full sm:basis-auto sm:flex-1 sm:min-w-0">
+              {r.error ?? (shape ? shape.detail : "")}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function RunSummary({
   result,
+  busy,
   onDismiss,
   onSelectRefused,
+  onRecheck,
 }: {
   result: RunResult;
+  busy: boolean;
   onDismiss: () => void;
   onSelectRefused: (numbers: string[]) => void;
+  onRecheck: () => void;
 }) {
   const where = result.courierName ?? "the courier";
+
+  // Parcels whose story is unfinished: at the courier but unrecorded, or an
+  // outcome nobody ever learned. One button answers both, because the question
+  // is the same one — does the courier have this parcel?
+  const unresolved = result.log.filter(
+    (r) =>
+      r.state !== "pending" &&
+      r.state !== "working" &&
+      OUTCOME[r.state as RouteOutcome].recheck
+  );
 
   // One list, whatever the reason. To the person fixing them, "the courier
   // said no" and "the courier does not go there" are the same job.
@@ -906,7 +1234,12 @@ function RunSummary({
   // parcels than the run touched.
   const routedNotSent = Math.max(
     0,
-    result.routed - result.sent - result.held - refused.length
+    result.routed -
+      result.sent -
+      result.adopted -
+      result.held -
+      result.saveFailed -
+      refused.length
   );
 
   return (
@@ -934,8 +1267,16 @@ function RunSummary({
             )}
             {result.held > 0 && (
               <li className="text-amber-700">
-                {result.held} held — we could not confirm what happened. Check{" "}
-                {where} before sending these again; they may already be there.
+                {result.held} held — we could not confirm what happened. They
+                may already be at {where}, so nothing was retried.
+              </li>
+            )}
+            {result.saveFailed > 0 && (
+              <li className="text-amber-700">
+                {result.saveFailed} accepted by {where} but the waybill did not
+                save here. The {result.saveFailed === 1 ? "parcel is" : "parcels are"}{" "}
+                on {result.saveFailed === 1 ? "its" : "their"} way — only our
+                record is behind.
               </li>
             )}
             {result.adopted > 0 && (
@@ -959,6 +1300,41 @@ function RunSummary({
         </button>
       </div>
 
+      {/* ── The one action that repairs a half-finished send ─────────────── */}
+      {unresolved.length > 0 && (
+        <div className="bg-amber-50/70 px-4 py-3 border-b border-amber-100">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-xs text-amber-900">
+              <span className="font-semibold">
+                {unresolved.length} parcel{unresolved.length === 1 ? "" : "s"} unaccounted for.
+              </span>{" "}
+              {where} may already have {unresolved.length === 1 ? "it" : "them"}.
+              Ask before doing anything else — sending again would create a
+              second shipment for the same book.
+            </p>
+            <button
+              onClick={onRecheck}
+              disabled={busy}
+              className="text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-60 rounded-lg px-3 py-1.5 transition-colors flex items-center gap-1.5"
+            >
+              <RefreshCw className={`w-3 h-3 ${busy ? "animate-spin" : ""}`} />
+              {busy ? "Asking…" : `Check with ${where}`}
+            </button>
+          </div>
+          <p className="text-[11px] text-amber-700/80 mt-1.5">
+            Read-only at their end. A parcel they have is adopted — its waybill
+            is stored and the hold lifts. One they never received stays held.
+          </p>
+        </div>
+      )}
+
+      {/* ── Every parcel, and what became of it ──────────────────────────── */}
+      {result.log.length > 0 && (
+        <div className="px-4 py-3 border-b border-neutral-100">
+          <ParcelLog rows={result.log} live={false} />
+        </div>
+      )}
+
       {refused.length > 0 && (
         <div className="bg-red-50/60 px-4 py-3">
           <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
@@ -973,26 +1349,12 @@ function RunSummary({
             </button>
           </div>
 
-          <ul className="space-y-1">
-            {refused.map((r) => (
-              <li
-                key={r.order_number}
-                className="flex flex-wrap items-baseline gap-x-2 text-xs"
-              >
-                <Link
-                  href={`/admin/orders/${r.order_number}`}
-                  className="font-mono font-semibold text-red-800 hover:underline"
-                >
-                  {r.order_number}
-                </Link>
-                <span className="text-red-700">{r.error}</span>
-              </li>
-            ))}
-          </ul>
-
-          <p className="text-[11px] text-red-600/80 mt-2">
+          {/* Not re-listed here: the log above already names every one of them
+              with the courier's own reason. This block is the action. */}
+          <p className="text-[11px] text-red-600/80">
             These are ticked already. Choose another courier above and press
-            Assign — that clears the refusal and routes them afresh.
+            Assign — that clears the refusal and routes them afresh. Nothing was
+            created at {where}, so this is safe to repeat.
           </p>
         </div>
       )}

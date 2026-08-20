@@ -17,6 +17,7 @@ import {
   markSendUncertain,
   recordSent,
 } from "@/lib/db/courier-send";
+import type { ParcelOutcome, RouteOutcome } from "@/lib/delivery/route-outcome";
 
 /**
  * Route a batch of parcels, and hand them over.
@@ -44,6 +45,11 @@ import {
  *   { order_numbers: [...], courier_id: "uuid" }               route and send
  *   { order_numbers: [...], courier_id: "uuid", send: false }  route only
  *   { order_numbers: [...], courier_id: null }                 clear
+ *
+ * Every parcel named in the request comes back named in `results`, with what
+ * became of it — see lib/delivery/route-outcome.ts. The counts are still there
+ * and are now derived from that list rather than tallied alongside it, so the
+ * summary and the per-parcel rows cannot disagree.
  */
 
 const MAX_BATCH = 300;
@@ -116,6 +122,39 @@ export async function POST(request: NextRequest) {
     (r) => (r as { order_number: string; pincode: string | null }).order_number
   );
 
+  // ── What became of each parcel ────────────────────────────────────────────
+  // One entry per order number the caller named, refined as the run learns
+  // more. Every parcel starts `skipped`, so one that fell out of the UPDATE
+  // above — already sent, already gone — is reported as such rather than being
+  // silently absent from the answer, which is how a run could appear to have
+  // handled fifty parcels while touching thirty.
+  const outcomes = new Map<string, ParcelOutcome>();
+  for (const n of orderNumbers) {
+    outcomes.set(n, {
+      order_number: n,
+      outcome: "skipped",
+      waybill: null,
+      error: null,
+    });
+  }
+
+  const mark = (
+    orderNumber: string,
+    outcome: RouteOutcome,
+    extra: { waybill?: string | null; error?: string | null } = {}
+  ) => {
+    const row = outcomes.get(orderNumber);
+    // A number we never asked about cannot have an outcome. Should not happen —
+    // everything below comes from `updated`, which is a subset — but silently
+    // growing the ledger would make the totals lie.
+    if (!row) return;
+    row.outcome = outcome;
+    if (extra.waybill !== undefined) row.waybill = extra.waybill;
+    if (extra.error !== undefined) row.error = extra.error;
+  };
+
+  for (const n of updated) mark(n, courierId ? "routed" : "cleared");
+
   // Everything below is routing consequence, not routing itself. The courier
   // is already written; these fill in what the parcel needs to be worked on,
   // and none of them may fail the assignment.
@@ -165,18 +204,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  for (const n of unserviceable) {
+    mark(n, "unserviceable", {
+      error: `${courierName ?? "This courier"} does not deliver to this pincode.`,
+    });
+  }
+
   // ── Hand them over ────────────────────────────────────────────────────────
   // Everything above is bookkeeping and can be redone. This part cannot: an
   // accepted shipment has to be cancelled with the courier, not undone here.
-  const sent: string[] = [];
-  const failed: { order_number: string; error: string }[] = [];
-  let held = 0;
-  // Parcels Delhivery already had. Counted apart from `sent` because nothing
-  // was created for them — saying "sent" would claim an action that did not
-  // happen, and this number is the proof the duplicate check is earning its
-  // keep rather than a figure anyone needs to act on.
-  let adopted = 0;
-
+  //
+  // Each branch below writes an outcome, and the vocabulary is deliberately
+  // finer than the counters it replaced. The distinction that matters is not
+  // "did it work" but "is the parcel at the courier": `save_failed` used to be
+  // reported as a refusal, which told someone to send a parcel that was already
+  // on its way. See lib/delivery/route-outcome.ts.
   const wantsSend = body.send !== false && courierId && updated.length;
   const courier = wantsSend ? await getCourier(courierId) : null;
   const readiness = courier ? delhiveryReadiness(courier.config) : null;
@@ -193,6 +235,21 @@ export async function POST(request: NextRequest) {
       console.error("[Courier] claim failed — parcels routed but not sent");
     }
 
+    // Parcels the claim would not take. `claimForSend` re-asserts everything
+    // that makes a parcel sendable — paid, confirmed, addressed, not already at
+    // a courier — so a parcel missing here is one this screen believed was
+    // ready and the database did not. It stays routed, which is the truth, and
+    // now says so instead of vanishing from the report.
+    const claimedSet = new Set(claimed.map((p) => p.order_number));
+    for (const n of sendable) {
+      if (claimedSet.has(n)) continue;
+      mark(n, "routed", {
+        error:
+          "Routed, but not handed over — it is already at a courier, or no " +
+          "longer paid, confirmed and addressed.",
+      });
+    }
+
     if (claimed.length) {
       const numbers = claimed.map((p) => p.order_number);
       try {
@@ -200,20 +257,30 @@ export async function POST(request: NextRequest) {
 
         for (const r of results) {
           if (r.ok && r.waybill) {
-            if (r.adopted) adopted++;
             try {
               await recordSent(r.order_number, r.waybill);
-              sent.push(r.order_number);
+              // `adopted` is not a lesser `sent`: nothing was created for it.
+              // Reporting it as sent would claim an action that never happened
+              // and hide the fact that a previous run had already succeeded
+              // without us noticing.
+              mark(r.order_number, r.adopted ? "adopted" : "sent", {
+                waybill: r.waybill,
+              });
             } catch {
               // At the courier, but our note of it failed. Keep the claim:
               // releasing it would invite a duplicate shipment.
+              //
+              // This is the case that used to be filed as a refusal. It is the
+              // opposite of one — the shipment exists, only our record is
+              // missing — and Sync repairs it by asking Delhivery for the
+              // waybill under the order number we sent.
               await markSendUncertain(
                 [r.order_number],
                 `Accepted (waybill ${r.waybill}) but we could not save that`
               );
-              failed.push({
-                order_number: r.order_number,
-                error: `Sent — waybill ${r.waybill}. Enter it by hand.`,
+              mark(r.order_number, "save_failed", {
+                waybill: r.waybill,
+                error: `Accepted as waybill ${r.waybill}, but saving it here failed.`,
               });
             }
           } else if (r.uncertain) {
@@ -221,10 +288,10 @@ export async function POST(request: NextRequest) {
             // the only safe reading: releasing would offer a second manifest
             // for a shipment that may already exist.
             await markSendUncertain([r.order_number], r.error ?? "Outcome unknown");
-            held++;
+            mark(r.order_number, "held", { error: r.error ?? "Outcome unknown" });
           } else {
             await releaseClaim(r.order_number, r.error ?? "Refused");
-            failed.push({ order_number: r.order_number, error: r.error ?? "Refused" });
+            mark(r.order_number, "refused", { error: r.error ?? "Refused" });
           }
         }
       } catch (e) {
@@ -232,33 +299,49 @@ export async function POST(request: NextRequest) {
         if (!err || err.kind === "unknown") {
           // We never found out. The claim stays: this is exactly the case
           // where the shipment probably does exist.
-          await markSendUncertain(numbers, err?.message ?? "The send did not complete");
-          held = numbers.length;
+          const reason = err?.message ?? "The send did not complete";
+          await markSendUncertain(numbers, reason);
+          for (const n of numbers) mark(n, "held", { error: reason });
           console.error("[Courier] send outcome unknown:", numbers, e);
         } else {
           await Promise.all(numbers.map((n) => releaseClaim(n, err.message)));
-          for (const n of numbers) failed.push({ order_number: n, error: err.message });
+          for (const n of numbers) mark(n, "refused", { error: err.message });
         }
       }
     }
   }
 
+  // Counted off the ledger rather than tallied beside it, so the summary and
+  // the per-parcel rows are the same facts read two ways and cannot disagree.
+  const results = [...outcomes.values()];
+  const count = (o: RouteOutcome) => results.filter((r) => r.outcome === o).length;
+
   await auditMany(auth.staff, "order.courier_assigned", "order", updated, {
     courier_id: courierId,
     courier_name: courierName,
     unserviceable: unserviceable.length,
-    sent: sent.length,
+    sent: count("sent"),
   });
 
   return NextResponse.json({
+    // Every parcel the caller named, and what became of it. The screen draws
+    // one row per entry; everything below is that same list counted.
+    results,
+
     updated: updated.length,
-    sent: sent.length,
-    adopted,
-    failed,
-    held,
+    sent: count("sent"),
+    adopted: count("adopted"),
+    held: count("held"),
+    // Accepted by the courier but not written down here. Kept apart from
+    // `failed` on purpose — these parcels are on their way, and offering them
+    // to another courier would be the expensive mistake.
+    save_failed: count("save_failed"),
+    failed: results
+      .filter((r) => r.outcome === "refused")
+      .map((r) => ({ order_number: r.order_number, error: r.error ?? "Refused" })),
     // Already-sent parcels that were skipped, so the message can say so rather
     // than reporting a smaller number with no explanation.
-    skipped: orderNumbers.length - updated.length,
+    skipped: count("skipped"),
     courier_name: courierName,
     references: minted,
     // The ones this courier cannot deliver. Named, not just counted, so the
