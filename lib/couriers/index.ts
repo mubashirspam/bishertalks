@@ -19,6 +19,8 @@ export {
   type CourierHandoff,
 } from "./types";
 
+export { publicTracking, type PublicTracking } from "./public-track";
+
 /**
  * How a parcel currently assigned to this partner gets to them, said in the
  * words an admin would use. The screens show this next to the partner's name,

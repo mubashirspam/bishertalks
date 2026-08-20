@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { CheckCircle2, Circle, Package, Truck, Home, MapPin } from "lucide-react";
+import { CheckCircle2, Circle, Package, Truck, Home, MapPin, ExternalLink } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   STATUS_LABELS,
@@ -8,6 +8,8 @@ import {
   type Order,
   type OrderStatus,
 } from "@/lib/types/order";
+import { getCourier } from "@/lib/db/couriers";
+import { publicTracking } from "@/lib/couriers";
 import ReferralShare from "@/components/ReferralShare";
 import { getReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
 
@@ -16,7 +18,7 @@ async function getOrder(id: string): Promise<Order | null> {
     .from("orders")
     .select(
       `order_number, buyer_name, city, state, status, payment_status,
-       amount_paise, tracking_number, courier_name, expected_delivery,
+       amount_paise, tracking_number, courier_name, courier_id, expected_delivery,
        created_at, ordered_at, address_line1, address_line2, pincode,
        label_downloaded_at, shipped_at, delivered_at`
     )
@@ -116,6 +118,15 @@ export default async function TrackPage({
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
   const referral = await getReferralBlock(order.order_number);
+
+  // The courier's own page, for the buyer who wants every hop rather than the
+  // five steps we keep. Resolved through courier_id and never the free-text
+  // courier name: that field is whatever an admin typed, and guessing a partner
+  // from it would hand someone a link that 404s at the worst possible moment.
+  // getCourier returns null on a database that has not had 0030 applied, which
+  // costs the link and nothing else.
+  const courier = order.courier_id ? await getCourier(order.courier_id) : null;
+  const courierTracking = publicTracking(courier, order.tracking_number);
 
   // The order date the customer will check against their bank statement.
   const date = new Date(order.ordered_at).toLocaleDateString("en-IN", {
@@ -225,6 +236,20 @@ export default async function TrackPage({
                 </div>
               )}
             </div>
+
+            {/* Straight to the courier, where every scan lives. Ours is the
+                summary; theirs answers "which city is it in right now". */}
+            {courierTracking && (
+              <a
+                href={courierTracking.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary-500/10 border border-primary-500/25 text-primary-400 text-sm font-semibold hover:bg-primary-500/20 transition-all"
+              >
+                Live tracking on {courierTracking.name}
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+            )}
           </div>
         )}
 
