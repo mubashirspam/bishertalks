@@ -228,14 +228,14 @@ export function GiftOption({
         <span className="flex-1 min-w-0">
           <span className="flex items-center justify-between gap-2">
             <span className="font-semibold text-sm text-neutral-900 dark:text-white flex items-center gap-1.5">
-              <Gift className="w-4 h-4 text-primary-500" /> Make it a gift
+              <Gift className="w-4 h-4 text-primary-500" /> Premium gift package
             </span>
             <span className="font-bold text-sm text-neutral-900 dark:text-white flex-shrink-0">
               +₹{inr(giftRupees(settings))}
             </span>
           </span>
           <span className="block text-neutral-500 dark:text-neutral-400 text-xs mt-1 leading-relaxed">
-            Wrapped by hand, with your message written on a card inside
+            Hand-wrapped with your message on a card, <span className="text-primary-600 dark:text-primary-400 font-medium">plus option for signed copies</span>
           </span>
         </span>
       </label>
