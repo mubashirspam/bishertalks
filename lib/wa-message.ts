@@ -2,6 +2,7 @@ import { orderStage } from "@/lib/order-stage";
 import { deliveryStage } from "@/lib/delivery-stage";
 import { addressUrl } from "@/lib/order-token";
 import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
+import { NEXT_EDITION_PRICE, editionDispatchDayLabelMl } from "@/lib/preorder";
 
 /**
  * Pre-filled WhatsApp text for admins reaching out to a customer, matched to
@@ -38,6 +39,11 @@ function loginPhone(phone: string | null | undefined): string {
  * at all — so this hand-sent message is their only route to the course link.
  * No order number in it deliberately; the customer has no use for one, and it
  * makes the message read like a thank-you rather than a ticket.
+ *
+ * It also carries the 4th-edition pre-booking news, because this is the first
+ * thing a buyer hears after paying and "it ships in 5–7 days" is no longer
+ * true: the book is being printed. Saying so here, next to the price they are
+ * NOT being charged, is what stops the "where is my book" message on day six.
  */
 function paidThankYouMessage(o: {
   buyer_name: string | null;
@@ -47,10 +53,11 @@ function paidThankYouMessage(o: {
   const greeting = name ? `Hi ${name} 🙏` : "Hi 🙏";
 
   return `${greeting}
-*നിങ്ങളുടെ ഓർഡർ വിജയകരമായി ലഭിച്ചു!* ✅
+*നിങ്ങളുടെ ഓർഡർ സ്വീകരിച്ചിരിക്കുന്നു!* ✅
 Neuro Code ബുക്ക് ഓർഡർ ചെയ്തതിന് ഒരുപാട് നന്ദി ❤️
 
-📦 ബുക്ക് *5–7 ദിവസത്തിനുള്ളിൽ* നിങ്ങളുടെ അഡ്രസ്സിൽ എത്തിച്ചേരും.
+📦 കഴിഞ്ഞ ദിവസങ്ങളിൽ കൂടുതൽ ഓർഡർ വന്നതിനാൽ Neuro Code മൂന്നാം പതിപ്പ് കഴിഞ്ഞു. നാലാം പതിപ്പ് *${editionDispatchDayLabelMl()}* മുതലാണ് വിതരണം ചെയ്യുക.
+നാലാം പതിപ്പിന് *${NEXT_EDITION_PRICE} രൂപ* ആയിരിക്കും വില. But നിങ്ങൾ already ഓർഡർ ചെയ്തതിനാൽ same വിലയിൽ തന്നെ നൽകും.
 
 🎁 ഒപ്പം ലഭിക്കുന്ന *സൗജന്യ NLP കോഴ്‌സ്* ഇപ്പോൾ തന്നെ തുടങ്ങാം:
 ${courseUrl()}
@@ -59,8 +66,11 @@ ${courseUrl()}
 *${loginPhone(o.buyer_phone)}*
 (password ഒന്നും വേണ്ട)
 
+⏳ കോഴ്‌സ് access ഇപ്പോൾ മുതൽ *ഒരു വർഷം* വരെ ഉപയോഗിക്കാവുന്നതാണ്.
+
+സഹകരണത്തിന് നന്ദി 🙏
 എന്തെങ്കിലും സംശയമുണ്ടെങ്കിൽ ഈ നമ്പറിൽ മെസ്സേജ് ചെയ്യൂ.
-_Bisher Talks_`;
+_Team Neuro Code — Bisher Talks_`;
 }
 
 interface FunnelInput {

@@ -142,3 +142,32 @@ export function preorderArrivesBy(now: Date = new Date()): string {
     month: "short",
   });
 }
+
+/**
+ * The first day the 4th edition actually goes out, as YYYY-MM-DD.
+ *
+ * A date rather than the word "തിങ്കളാഴ്ച", for the same reason
+ * LAUNCH_OFFER_LAST_DAY is a date: a weekday typed into a Malayalam string is
+ * the line nobody remembers to touch, and it goes on promising "Monday" every
+ * week after the one it meant.
+ */
+export const EDITION_DISPATCH_FROM = "2026-08-24";
+
+/** "തിങ്കളാഴ്ച" — the day dispatch starts, in Malayalam. */
+export function editionDispatchDayLabelMl(): string {
+  // Noon, not midnight — the same trick launchOfferDayLabelMl() uses, so no
+  // timezone conversion can slide the answer onto the neighbouring day.
+  return new Date(`${EDITION_DISPATCH_FROM}T12:00:00+05:30`).toLocaleDateString("ml-IN", {
+    timeZone: "Asia/Kolkata",
+    weekday: "long",
+  });
+}
+
+/**
+ * What the 4th edition will cost once the pre-order window closes, in rupees.
+ *
+ * This is NOT what anyone is charged — that price still lives in the `courses`
+ * table. It is only the number quoted back to a buyer who already paid, to say
+ * what they are not being asked for.
+ */
+export const NEXT_EDITION_PRICE = 749;
