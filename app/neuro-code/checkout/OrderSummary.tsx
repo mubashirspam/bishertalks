@@ -1,5 +1,6 @@
 import Image from "next/image";
-import { Gift, ShieldCheck, Minus, Plus, Check, PenLine } from "lucide-react";
+import { Gift, ShieldCheck, Minus, Plus, Check, PenLine, Truck, Zap, CalendarClock } from "lucide-react";
+import type { PreorderFacts } from "@/lib/preorder";
 import { OFFER, NLP_COURSE } from "@/app/neuro-code/content";
 import { MAX_BOOKS } from "@/lib/quantity";
 import { giftRupees, MAX_GIFT_MESSAGE, type GiftSettings } from "@/lib/gift";
@@ -66,7 +67,13 @@ export function PackageItems({
             Neuro Code
           </p>
           <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5">
-            Paperback by Bisher KC
+            Paperback by Bisher KC · 4th edition
+          </p>
+          {/* Said on the line itself, not only in the delivery note below. The
+              basket is what someone re-reads before paying, and "pre-order" is
+              the word that has to survive that re-read. */}
+          <p className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+            Pre-order
           </p>
           <Stepper value={quantity} onChange={onQuantity} disabled={disabled} />
         </div>
@@ -403,6 +410,70 @@ export function OrderTotals({
  * protests too much — naming a processor people already trust does the work,
  * and the accepted methods answer the only other question anyone has here.
  */
+/**
+ * When the book comes, and what does not wait for it.
+ *
+ * This was one line in each of the two checkout forms, saying "5–7 business
+ * days" — a promise that stopped being true the moment the 3rd edition sold
+ * out and every order became a pre-order against a print run.
+ *
+ * Two facts, in this order. The wait is stated first and plainly, because a
+ * delivery estimate a buyer discovers afterwards is a refund; and the course is
+ * stated second, because "you get the course today" only reassures somebody who
+ * has already been told what they are waiting for. Softening the first with the
+ * second — or leading with the second — is how a page ends up sounding like it
+ * is managing you.
+ *
+ * One component rather than two copies, so the promise cannot drift between the
+ * Magic and Standard checkouts. They are different forms, not different offers.
+ */
+export function DeliveryPromise({ preorder }: { preorder: PreorderFacts }) {
+  return (
+    <div className="mt-2.5 rounded-xl border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-neutral-800/60 divide-y divide-neutral-200 dark:divide-white/10 overflow-hidden">
+      <div className="flex items-center gap-3 px-3.5 py-3 text-xs text-neutral-600 dark:text-neutral-400">
+        <span className="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-neutral-200 dark:bg-white/10">
+          <Truck className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
+        </span>
+        <span>
+          4th edition pre-order — delivery within{" "}
+          <strong className="text-neutral-900 dark:text-white font-semibold">
+            {preorder.deliveryDays} days
+          </strong>
+          , free across India.
+          <span className="block text-neutral-500 dark:text-neutral-500 mt-0.5">
+            Order today and it should reach you around {preorder.arrivesBy}.
+          </span>
+        </span>
+      </div>
+
+      <div className="flex items-center gap-3 px-3.5 py-3 text-xs text-green-700 dark:text-green-400">
+        <span className="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-green-100 dark:bg-green-500/15">
+          <Zap className="w-3.5 h-3.5" />
+        </span>
+        <span>
+          The <strong className="font-semibold">NLP Mastery course opens immediately</strong> —
+          you do not wait for the book to start.
+        </span>
+      </div>
+
+      {/* Only while there is a deadline. A checkout still advertising an offer
+          that ended is worse than one that never mentioned it. */}
+      {preorder.live && (
+        <div className="flex items-center gap-3 px-3.5 py-3 text-xs text-amber-700 dark:text-amber-400 bg-amber-50/70 dark:bg-amber-500/10">
+          <span className="flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-500/15">
+            <CalendarClock className="w-3.5 h-3.5" />
+          </span>
+          <span>
+            This price holds until{" "}
+            <strong className="font-semibold">{preorder.day}</strong>. It goes up
+            for the 4th edition after that.
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function PaymentTrust() {
   return (
     <div className="mt-5 flex items-center gap-2.5 rounded-xl border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-neutral-800/60 px-3.5 py-3">

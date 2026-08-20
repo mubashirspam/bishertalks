@@ -10,21 +10,63 @@
  * foreground colour and the second in orange.
  */
 
-export const EDITION = "3rd Edition";
+export const EDITION = "4th Edition";
 
-/** Seasonal campaign over the hero — take it out once August 15 has passed. */
-export const INDEPENDENCE_DAY = {
-  greeting: "സ്വാതന്ത്ര്യ ദിനാശംസകൾ",
-  date: "August 15",
-  /**
-   * The campaign badge on the hero's free-course card. Says the occasion, not
-   * "offer" — the free course is the gift, and calling it an offer reads like
-   * a discount coupon.
-   */
-  offerBadge: "സ്വാതന്ത്ര്യ ദിനത്തോടനുബന്ധിച്ച്",
-  /** What the campaign gives, said in one line under the course name. */
-  offerLead: "Neuro Code പുസ്തകത്തോടൊപ്പം NLP Mastery Course സൗജന്യം",
+/**
+ * The pre-booking campaign.
+ *
+ * This replaced the Independence Day dressing, which came out with August 15.
+ * The situation it has to explain is genuinely different from a seasonal offer:
+ * the book being sold is the 4th edition and it is still being printed, so a
+ * buyer is reserving a copy rather than taking one off a shelf. The page has to
+ * say that plainly — hiding it to protect the conversion rate buys a refund and
+ * a bad review a fortnight later.
+ *
+ * The order it says things in is deliberate: the 4th edition is open for
+ * pre-booking, the course arrives immediately, the book takes longer, and the
+ * price holds until Saturday. What happened to the previous edition is not the
+ * page's business; how long this one takes is.
+ *
+ * `{day}` is filled at render with the weekday from lib/preorder.ts, so moving
+ * the deadline moves every line that names it. See `withDay` below.
+ */
+export const PREORDER = {
+  /** The badge over the headline. What is open, not what has closed. */
+  badge: "പ്രീ-ബുക്കിംഗ് ആരംഭിച്ചു",
+  title: "നാലാം പതിപ്പ് ഇപ്പോൾ പ്രീ-ബുക്ക് ചെയ്യാം",
+
+  /** Social proof, said as a readership rather than as a print run. */
+  readers: "3,500+ വായനക്കാർ വായിച്ചുകഴിഞ്ഞു",
+
+  /** The deadline, and what happens after it. */
+  deadline: "ഈ വില {day} വരെ മാത്രം",
+  deadlineNote:
+    "{day}യ്ക് ശേഷം നാലാം പതിപ്പിന്റെ വില വർധിക്കും.",
+
+  /** The thing that makes the wait acceptable: the course does not wait. */
+  instantTitle: "NLP കോഴ്സ് ഉടൻ ലഭിക്കും",
+  instantBody:
+    "പുസ്തകം എത്താൻ കാത്തിരിക്കേണ്ട — ഓർഡർ ചെയ്ത ഉടൻ തന്നെ " +
+    "NLP Mastery Course ആരംഭിക്കാം.",
+
+  /** The honest bit. */
+  deliveryTitle: "12 ദിവസത്തിനുള്ളിൽ ഡെലിവറി",
+  deliveryBody:
+    "നാലാം പതിപ്പിന്റെ അച്ചടി പൂർത്തിയായ ഉടൻ അയക്കും. " +
+    "ഇന്ത്യയിൽ എവിടെയും സൗജന്യ ഡെലിവറി.",
+
+  /** One line under the course name in the hero card. */
+  offerLead: "Neuro Code നാലാം പതിപ്പിനൊപ്പം NLP Mastery Course സൗജന്യം",
 };
+
+/**
+ * Put the deadline's weekday into campaign copy.
+ *
+ * The copy carries `{day}` rather than "ശനിയാഴ്ച" so that changing
+ * LAUNCH_OFFER_LAST_DAY changes every line at once. A weekday typed into a
+ * Malayalam string is exactly the one nobody remembers to update.
+ */
+export const withDay = (text: string, day: string) => text.split("{day}").join(day);
 
 export const HERO = {
   headline: "YOU ARE NOT LEADING YOUR LIFE.",
@@ -34,9 +76,9 @@ export const HERO = {
     "പാറ്റേണുകളാണ്. അത്തരം പാറ്റേണുകളുടെ കോഡുകൾ തിരിച്ചറിയാനും, " +
     "മാറ്റിയെഴുതാനും, ജീവിതത്തെ പുതിയ രീതിയിൽ കാണാനും സഹായിക്കുന്ന ഒരു " +
     "മലയാള പുസ്തകം — NEURO CODE.",
-  cta: "ഇപ്പോൾ മൂന്നാം പതിപ്പ് സ്വന്തമാക്കാം",
+  cta: "ഇപ്പോൾ നാലാം പതിപ്പ് പ്രീ-ബുക്ക് ചെയ്യാം",
   rating: "4.9",
-  readers: "2,400+ വായനക്കാർ",
+  readers: "3,500+ വായനക്കാർ",
 };
 
 // ── Problems ────────────────────────────────────────────────────────────────
@@ -146,10 +188,10 @@ export const NLP_COURSE = {
 };
 
 export const OFFER = {
-  badge: "LIMITED OFFER",
+  badge: "PRE-BOOKING OPEN",
   titleTop: "NEURO CODE",
   titleAccent: "— 30 DAYS NLP COURSE",
-  bookLine: "NEURO CODE BOOK",
+  bookLine: "NEURO CODE — 4th EDITION",
   courseLine: "30 DAYS NLP COURSE",
   mrpRupees: 3000,
   /** The struck-through price every "Order Now" button compares against. */
@@ -158,8 +200,18 @@ export const OFFER = {
   bonusTitle: "NLP Mastery Course",
   bonusMeta: "30 Days · Online · Structured Learning",
   bonusBody: "Structured lessons, practical exercises, templates and implementation guidance.",
-  codTitle: "COD Available",
-  codNote: "COD orders-ന് free delivery ലഭ്യമല്ല.",
+  /**
+   * Prepaid only, and the reason is the course rather than the courier.
+   *
+   * Access to the NLP course opens on a confirmed payment, so a COD order would
+   * have to either hand over the course before anyone has paid for it, or hold
+   * it back for a fortnight — which is the one thing this whole campaign
+   * promises not to do.
+   */
+  prepaidTitle: "ഓൺലൈൻ പേയ്‌മെന്റ് മാത്രം",
+  prepaidNote:
+    "പണമടച്ച ഉടൻ NLP കോഴ്സ് ലഭ്യമാകുന്നതിനാൽ COD ലഭ്യമല്ല. " +
+    "ഓൺലൈനായി പണമടച്ചാൽ ഡെലിവറി പൂർണമായും സൗജന്യം.",
   trust: "Secure Order · All India Delivery",
   warning:
     "വെറുതെ ഒന്ന് വായിച്ചു നോക്കാനാണെങ്കിൽ Neuro Code വാങ്ങരുത്. " +
@@ -207,7 +259,7 @@ export const SECTION_TITLES = {
 export const FINAL_CTA = {
   line1: "നിങ്ങളുടെ പാറ്റേണുകൾ മാറ്റാൻ",
   accent: "ഇന്ന് തുടങ്ങാം",
-  sub: "മൂന്നാം പതിപ്പ് ഇപ്പോൾ ലഭ്യമാണ് · All India delivery free",
+  sub: "നാലാം പതിപ്പ് പ്രീ-ബുക്കിംഗ് · സൗജന്യ ഡെലിവറി · NLP കോഴ്സ് ഉടൻ",
 };
 
 /** Every call to action on the page says the same thing. */

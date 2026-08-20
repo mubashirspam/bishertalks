@@ -2,6 +2,14 @@ import type { Metadata } from "next";
 import { getCachedProductPricing } from "@/lib/db/courses";
 import NeuroCodeLanding from "./NeuroCodeLanding";
 import { getLandingContent } from "@/lib/db/landing";
+import {
+  PREORDER_DELIVERY_DAYS,
+  launchOfferIsLive,
+  launchOfferDayLabel,
+  launchOfferDayLabelMl,
+  launchOfferDateLabel,
+  preorderArrivesBy,
+} from "@/lib/preorder";
 import { faqs } from "./faqs";
 
 // Kept dynamic on purpose. The reads below are cached now, so this no longer
@@ -26,8 +34,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
   const title = "Neuro Code — The Book by Bisher KC | Free NLP Course Included";
   const description =
-    `Order Neuro Code by Bisher KC for ₹${pricing.payable} — the psychology & NLP book on rewriting your internal programming. ` +
-    "Free 14-module NLP Mastery course (42 videos, 17 worksheets, ₹2,499 value) unlocked the moment you order. Ships across India.";
+    `Pre-book the 4th edition of Neuro Code by Bisher KC for ₹${pricing.payable} — the psychology & NLP book on rewriting your internal programming. ` +
+    `Read by 3,500+ readers. Free 14-module NLP Mastery course unlocked the moment you order; ` +
+    `book delivered free across India within ${PREORDER_DELIVERY_DAYS} days.`;
 
   return {
     title,
@@ -120,10 +129,22 @@ export default async function NeuroCodePage() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+      {/* Decided here, on the server, and handed down. The route is
+          force-dynamic, so this is evaluated per request — and doing it here
+          rather than in the browser is what keeps the deadline copy from
+          rendering one way on the server and another after hydration. */}
       <NeuroCodeLanding
         pricing={pricing}
         testimonials={landing.testimonials}
         settings={landing.settings}
+        campaign={{
+          live: launchOfferIsLive(),
+          day: launchOfferDayLabel(),
+          dayMl: launchOfferDayLabelMl(),
+          date: launchOfferDateLabel(),
+          arrivesBy: preorderArrivesBy(),
+          deliveryDays: PREORDER_DELIVERY_DAYS,
+        }}
       />
     </>
   );

@@ -19,8 +19,10 @@ import {
   GiftOption,
   OrderTotals,
   PaymentTrust,
+  DeliveryPromise,
   type AppliedPromo,
 } from "./OrderSummary";
+import type { PreorderFacts } from "@/lib/preorder";
 
 declare global {
   interface Window { Razorpay: new (options: object) => { open: () => void }; }
@@ -40,12 +42,14 @@ export default function CheckoutForm({
   pricing,
   gift,
   checkout,
+  preorder,
 }: {
   pricing: ProductPricing;
   /** What the gift add-ons cost today, and whether each is offered. */
   gift: GiftSettings;
   /** What the checkout shows — currently just the promo field's switch. */
   checkout: CheckoutSettings;
+  preorder: PreorderFacts;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -311,17 +315,7 @@ export default function CheckoutForm({
           </p>
           <PaymentTrust />
 
-          {/* Time, not price — the ₹0 for delivery is a line in the package
-              above; this is the "when will it arrive" answer. */}
-          <div className="mt-2.5 group relative flex items-center gap-3 overflow-hidden rounded-xl border border-neutral-200 dark:border-white/10 bg-neutral-50 dark:bg-neutral-800/60 px-3.5 py-3 text-xs text-neutral-600 dark:text-neutral-400">
-            <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/60 dark:via-white/10 to-transparent skew-x-12 animate-shimmer" />
-            <span className="relative flex-shrink-0 flex items-center justify-center w-7 h-7 rounded-full bg-neutral-200 dark:bg-white/10">
-              <Truck className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
-            </span>
-            <span className="relative">
-              Delivery in <strong className="text-neutral-900 dark:text-white font-semibold">5–7 business days</strong>
-            </span>
-          </div>
+          <DeliveryPromise preorder={preorder} />
         </div>
       </div>
     </div>

@@ -6,7 +6,7 @@ import {
   Star, Check, ChevronDown, ChevronUp, ArrowDown, Play, Clock,
   Truck, Wallet, Gift, ShieldCheck, MessageCircle, Headphones,
   Target, Repeat, Users, Frown, UserCheck, Brain, Heart, CloudRain,
-  Search, Lightbulb, PencilLine, Quote,
+  Search, Lightbulb, PencilLine, Quote, BookOpen, Zap, CalendarClock,
 } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
@@ -16,7 +16,8 @@ import {
   VideoTestimonials, ImageTestimonials, AudioTestimonials, TextTestimonials,
 } from "./Testimonials";
 import {
-  EDITION, HERO, INDEPENDENCE_DAY, PROBLEMS, PROBLEMS_HEADING, PROBLEMS_LEAD, PROBLEMS_TITLE,
+  EDITION, HERO, PREORDER, withDay,
+  PROBLEMS, PROBLEMS_HEADING, PROBLEMS_LEAD, PROBLEMS_TITLE,
   PROBLEMS_CLOSER, CHAIN_HEADING, CODE_CHAIN, CHAIN_NOTE, PATTERN_TRIAD, STEPS,
   VIDEO_HEADING, VIDEO_NOTE, INSIDE, INSIDE_HEADING,
   OFFER, NLP_COURSE, AUTHOR, SECTION_TITLES, FINAL_CTA, TESTIMONIAL_HEADING, AUDIO_HEADING,
@@ -32,46 +33,6 @@ const ICONS: Record<string, typeof Target> = {
 const STEP_ICONS = [Search, Lightbulb, PencilLine];
 
 /** The flag as a dot — no emoji font to depend on. Ring colour comes from the caller. */
-function FlagDot({ className = "w-3.5 h-3.5" }: { className?: string }) {
-  return (
-    <span
-      className={`inline-flex flex-col rounded-full overflow-hidden flex-shrink-0 ring-1 ${className}`}
-      aria-hidden="true"
-    >
-      <span className="flex-1 bg-[#FF9933]" />
-      <span className="flex-1 bg-white" />
-      <span className="flex-1 bg-[#138808]" />
-    </span>
-  );
-}
-
-/**
- * A tricolour sash behind the book cover.
- *
- * Sits behind the image rather than over it, so only the two ends show past
- * the edges of the cover — the artwork and the title stay untouched, and the
- * book still reads as the thing being sold.
- *
- * Out with the rest of the campaign once August 15 has passed.
- */
-function FlagRibbon() {
-  return (
-    <div
-      // Wider than the book on both sides so the ends emerge; the negative
-      // inset is a share of the book's own width, so it stays proportional
-      // between the mobile and desktop sizes rather than needing two values.
-      className="absolute inset-x-[-30%] top-1/2 -translate-y-1/2 -rotate-12 rounded-full overflow-hidden shadow-lg"
-      aria-hidden="true"
-    >
-      <span className="block h-2.5 sm:h-3 bg-[#FF9933]" />
-      {/* Pure white would vanish on the light theme, so the middle band is the
-          same near-white the strip at the top of the page uses. */}
-      <span className="block h-2.5 sm:h-3 bg-neutral-100 dark:bg-neutral-200" />
-      <span className="block h-2.5 sm:h-3 bg-[#138808]" />
-    </div>
-  );
-}
-
 /**
  * The Neuro Code landing page.
  *
@@ -88,15 +49,37 @@ function FlagRibbon() {
  * the site defaults to light, the reference design was drawn in dark, and both
  * should look deliberate.
  */
+/**
+ * The pre-booking campaign, decided on the server and handed down.
+ *
+ * `live` is a comparison against the clock, so the browser must not work it out
+ * for itself: a reader loading the page across Saturday midnight would get one
+ * answer from the server and another from React, and the mismatch would land on
+ * the single most important line of copy on the page.
+ */
+export type Campaign = {
+  live: boolean;
+  /** "Saturday" / "ശനിയാഴ്ച" — the deadline, in both languages. */
+  day: string;
+  dayMl: string;
+  /** "22 Aug" — the same deadline as a date. */
+  date: string;
+  /** "1 Sept" — when a pre-order placed now should arrive. */
+  arrivesBy: string;
+  deliveryDays: number;
+};
+
 export default function NeuroCodeLanding({
   pricing,
   testimonials,
   settings,
+  campaign,
 }: {
   pricing: ProductPricing;
   /** Live testimonials from /admin/landing, already filtered and ordered. */
   testimonials: Testimonial[];
   settings: LandingSettings;
+  campaign: Campaign;
 }) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
@@ -122,39 +105,31 @@ export default function NeuroCodeLanding({
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-malayalam-bold overflow-x-hidden pb-36 lg:pb-0">
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
       <section className="relative px-5 pt-8 pb-12">
-        {/* Independence Day — the flag as a strip across the very top, the
-            middle band a whisper on light, clear on dark. */}
-        <div className="absolute top-0 inset-x-0 h-1.5 grid grid-cols-3" aria-hidden="true">
-          <span className="bg-[#FF9933]" />
-          <span className="bg-neutral-100 dark:bg-neutral-200" />
-          <span className="bg-[#138808]" />
-        </div>
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[420px] h-[420px] bg-primary-500/20 dark:bg-primary-500/15 rounded-full blur-[110px] pointer-events-none" />
-        {/* Saffron and green breathing at the edges — the flag carried into
-            the hero's glow, faint enough to stay a backdrop. */}
-        <div className="absolute top-10 -left-24 w-56 h-56 bg-[#FF9933]/15 dark:bg-[#FF9933]/10 rounded-full blur-[90px] pointer-events-none" />
-        <div className="absolute top-24 -right-24 w-56 h-56 bg-[#138808]/15 dark:bg-[#138808]/10 rounded-full blur-[90px] pointer-events-none" />
 
         <div className="relative max-w-lg mx-auto text-center">
-          <span className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200 text-[11px] font-black font-anek">
-            <FlagDot className="w-3.5 h-3.5 ring-neutral-300 dark:ring-neutral-600" />
-            {INDEPENDENCE_DAY.greeting} · {INDEPENDENCE_DAY.date}
+          {/* The edition badge, above everything.
+              It is the fact that explains every other change on this page: why
+              there is a wait, why the price has a deadline, why the button says
+              pre-book. A reader who meets "12 days" further down without having
+              met this first reads it as slow delivery rather than as a book
+              still on the press. */}
+          <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-primary-300 dark:border-primary-500/40 bg-primary-500/10 text-primary-700 dark:text-primary-300 text-[11px] font-black font-anek">
+            <BookOpen className="w-3.5 h-3.5" />
+            {EDITION} — {PREORDER.badge}
           </span>
+
+          <p className="font-anek text-[11px] font-bold text-neutral-400 dark:text-neutral-500 mt-1.5">
+            {PREORDER.readers}
+          </p>
 
           <h1 className="text-[30px] leading-[1.08] sm:text-[42px] font-black mt-5 tracking-tight">
             <span className="block">{HERO.headline}</span>
             <span className="block text-primary-500">{HERO.headlineAccent}</span>
           </h1>
 
-          <span className="inline-block mt-3 text-[11px] font-bold tracking-widest uppercase text-primary-600 dark:text-primary-400">
-            {EDITION}
-          </span>
-
           <div className="relative w-44 sm:w-52 mx-auto my-7">
             <div className="absolute -inset-4 bg-primary-500/25 blur-3xl rounded-full" />
-            {/* Between the glow and the cover: painted over the blur, under the
-                book, which is `relative` and so wins on DOM order. */}
-            <FlagRibbon />
             <Image
               src="/images/book_front.png"
               alt="Neuro Code — ന്യൂറോ കോഡ്, ബിഷർ കെ.സി."
@@ -179,20 +154,22 @@ export default function NeuroCodeLanding({
             <span className="text-neutral-500 dark:text-neutral-400 text-sm">· {HERO.readers}</span>
           </div>
 
-          {/* Free video course — the hook that sells the book, framed as the
-              Independence Day campaign: a tricolor edge, saffron badge, green
-              FREE stamp. The mechanics of the offer don't change, the dress
-              does. */}
-          <div className="relative mt-7 rounded-2xl p-[2px] bg-gradient-to-br from-[#FF9933] via-neutral-200 dark:via-neutral-700 to-[#138808]">
-            <div className="relative rounded-[14px] bg-gradient-to-br from-orange-50 via-white to-green-50 dark:from-[#FF9933]/10 dark:via-neutral-950 dark:to-[#138808]/10 p-4 overflow-hidden">
+          {/* The free course, now carrying more weight than it used to.
+              It was a bonus on a book that shipped in a week; on a pre-order it
+              is the whole of what arrives today, and it is the answer to the
+              only real objection — "so I pay now and get nothing for a
+              fortnight?". Hence the INSTANT stamp rather than a FREE one:
+              free was never in doubt, immediate is. */}
+          <div className="relative mt-7 rounded-2xl p-[2px] bg-gradient-to-br from-primary-400 via-primary-200 dark:via-primary-500/30 to-primary-500">
+            <div className="relative rounded-[14px] bg-gradient-to-br from-primary-50 via-white to-primary-50 dark:from-primary-500/10 dark:via-neutral-950 dark:to-primary-500/10 p-4 overflow-hidden">
               <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 dark:via-white/5 to-transparent skew-x-12 animate-shimmer" />
               <div className="flex items-center gap-3">
                 <span className="relative flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-primary-500 shadow-md shadow-primary-500/40">
                   <Gift className="w-5 h-5 text-white" />
                 </span>
                 <div className="text-left min-w-0">
-                  <span className="inline-block px-2 py-0.5 rounded bg-[#FF9933] text-white text-[10px] font-black font-anek">
-                    {INDEPENDENCE_DAY.offerBadge}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-green-600 text-white text-[10px] font-black font-anek">
+                    <Zap className="w-3 h-3" /> {PREORDER.instantTitle}
                   </span>
                   <p className="font-black text-[15px] mt-1 leading-tight">
                     {OFFER.bonusTitle}
@@ -217,7 +194,10 @@ export default function NeuroCodeLanding({
                 </div>
               </div>
               <p className="font-anek text-[13px] font-black text-neutral-900 dark:text-white bg-white/70 dark:bg-white/10 border border-primary-200 dark:border-white/10 rounded-xl px-3 py-1.5 mt-3 text-center shadow-sm">
-                {INDEPENDENCE_DAY.offerLead}
+                {PREORDER.offerLead}
+              </p>
+              <p className="font-anek text-[12px] leading-[1.8] text-neutral-600 dark:text-neutral-400 mt-2 text-center">
+                {PREORDER.instantBody}
               </p>
               <div className="grid grid-cols-2 gap-2 mt-3 text-center">
                 {[
@@ -233,13 +213,22 @@ export default function NeuroCodeLanding({
             </div>
           </div>
 
-          <div className="flex justify-center gap-1 mt-6" aria-hidden="true">
-            <span className="w-8 h-1 rounded-full bg-[#FF9933]" />
-            <span className="w-8 h-1 rounded-full bg-neutral-200 dark:bg-neutral-600" />
-            <span className="w-8 h-1 rounded-full bg-[#138808]" />
-          </div>
+          {/* The deadline, and only while there is one. Past Saturday this
+              disappears rather than going stale — a page still shouting about
+              an offer that ended is the fastest way to stop being believed. */}
+          {campaign.live && (
+            <div className="mt-6 rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-2.5">
+              <p className="font-anek text-[13px] font-black text-amber-900 dark:text-amber-300 flex items-center justify-center gap-1.5">
+                <CalendarClock className="w-4 h-4" />
+                {withDay(PREORDER.deadline, campaign.dayMl)}
+              </p>
+              <p className="font-anek text-[11.5px] text-amber-700 dark:text-amber-400/90 mt-0.5">
+                {withDay(PREORDER.deadlineNote, campaign.dayMl)}
+              </p>
+            </div>
+          )}
 
-          <p className="font-anek text-primary-600 dark:text-primary-400 text-sm font-bold mt-3 leading-relaxed">
+          <p className="font-anek text-primary-600 dark:text-primary-400 text-sm font-bold mt-4 leading-relaxed">
             {HERO.cta}
           </p>
 
@@ -254,8 +243,9 @@ export default function NeuroCodeLanding({
           </div>
 
           <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mt-4 text-[11px] text-neutral-500 dark:text-neutral-400">
+            <span className="flex items-center gap-1"><Zap className="w-3.5 h-3.5 text-green-600" /> NLP കോഴ്സ് ഉടൻ</span>
             <span className="flex items-center gap-1"><Truck className="w-3.5 h-3.5 text-green-600" /> Free delivery</span>
-            <span className="flex items-center gap-1"><Wallet className="w-3.5 h-3.5" /> COD ലഭ്യം</span>
+            <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {campaign.deliveryDays} ദിവസത്തിനുള്ളിൽ</span>
           </div>
         </div>
       </section>
@@ -559,7 +549,48 @@ export default function NeuroCodeLanding({
           <div className="flex items-center justify-center gap-2 mt-5 py-3 rounded-xl border border-green-500/30 bg-green-500/5 text-green-600 dark:text-green-400 text-sm font-bold">
             <Truck className="w-5 h-5" /> {OFFER.delivery}
           </div>
+
+          {/* The deadline sits inside the price card, not above it. This is the
+              one place on the page where somebody is looking at ₹699 and
+              deciding — telling them here that it moves on Saturday is
+              information; telling them anywhere else is decoration. */}
+          {campaign.live && (
+            <p className="font-anek text-[12.5px] font-black text-amber-700 dark:text-amber-400 text-center mt-3 leading-[1.7]">
+              {withDay(PREORDER.deadlineNote, campaign.dayMl)}
+            </p>
+          )}
         </Card>
+
+        {/* ── What a pre-order actually means ──────────────────────────────
+            Two cards, in this order, because they answer the two halves of the
+            same worry: what do I get now, and when does the book come. Putting
+            the wait first and the course second would be answering the harder
+            question with nothing behind it. */}
+        <div className="grid sm:grid-cols-2 gap-3 mt-3">
+          <Card className="p-4">
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-green-600 text-white text-[10px] font-black font-anek">
+              <Zap className="w-3 h-3" /> INSTANT
+            </span>
+            <p className="font-black text-[15px] mt-2">{PREORDER.instantTitle}</p>
+            <p className="text-neutral-600 dark:text-neutral-400 text-[12.5px] leading-[1.8] mt-1">
+              {PREORDER.instantBody}
+            </p>
+          </Card>
+
+          <Card className="p-4">
+            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-neutral-200 dark:bg-white/10 text-neutral-700 dark:text-neutral-300 text-[10px] font-black font-anek">
+              <Clock className="w-3 h-3" /> {campaign.deliveryDays} DAYS
+            </span>
+            <p className="font-black text-[15px] mt-2">{PREORDER.deliveryTitle}</p>
+            <p className="text-neutral-600 dark:text-neutral-400 text-[12.5px] leading-[1.8] mt-1">
+              {PREORDER.deliveryBody}
+            </p>
+            {/* A date, not a sum for the reader to do. */}
+            <p className="font-anek text-[12px] font-bold text-neutral-500 dark:text-neutral-400 mt-2">
+              ഇന്ന് ഓർഡർ ചെയ്താൽ ഏകദേശം <span className="text-neutral-900 dark:text-white">{campaign.arrivesBy}</span>-ന് എത്തും
+            </p>
+          </Card>
+        </div>
 
         {/* Free bonus */}
         <Card glow className="mt-3 p-5 flex gap-4">
@@ -580,15 +611,18 @@ export default function NeuroCodeLanding({
           </div>
         </Card>
 
-        {/* COD */}
+        {/* Prepaid only. Stated as a consequence of the course being instant
+            rather than as a rule — "no COD" on its own reads as distrust of the
+            buyer, and this is not that: it is that a confirmed payment is what
+            opens the course, and the course is what does not wait. */}
         <Card className="mt-3 p-4 flex gap-3 items-center">
           <Wallet className="w-7 h-7 text-neutral-400 flex-shrink-0" />
           <div>
             <p className="font-bold text-[15px] text-neutral-700 dark:text-neutral-300">
-              {OFFER.codTitle}
+              {OFFER.prepaidTitle}
             </p>
             <p className="text-neutral-500 dark:text-neutral-400 text-[12.5px] leading-[1.7]">
-              {OFFER.codNote}
+              {OFFER.prepaidNote}
             </p>
           </div>
         </Card>
@@ -663,22 +697,32 @@ export default function NeuroCodeLanding({
           make a long sales page stutter on a mid-range Android. At 95% opacity
           the blur was doing nothing visible anyway. */}
       <div className="fixed bottom-0 inset-x-0 z-40 lg:hidden border-t border-neutral-200 dark:border-white/10 bg-white dark:bg-neutral-950 pb-[env(safe-area-inset-bottom)]">
-        {/* The flag at the bar's top edge, mirroring the hero. */}
-        <div className="h-1 grid grid-cols-3" aria-hidden="true">
-          <span className="bg-[#FF9933]" />
-          <span className="bg-neutral-100 dark:bg-neutral-200" />
-          <span className="bg-[#138808]" />
-        </div>
-        {/* Campaign strip: the free course is what closes, not a price. */}
+        {/* Campaign strip. On a pre-order the thing that closes is not the
+            free course — it is that the course is not what you wait for. So the
+            strip carries the deadline while there is one, and falls back to the
+            course when the deadline has passed. */}
         <a
           href="#offer"
-          className="relative flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-[#FF9933] to-[#138808] text-white text-[11px] font-bold overflow-hidden"
+          className="relative flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-primary-600 to-primary-500 text-white text-[11px] font-bold overflow-hidden"
         >
           <span className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 animate-shimmer" />
-          <FlagDot className="relative w-5 h-5 ring-white/50" />
-          <span>
-            {INDEPENDENCE_DAY.offerBadge} — ₹{OFFER.mrpRupees}-ന്റെ NLP Video Course <span className="underline underline-offset-2">സൗജന്യം</span>
-          </span>
+          {campaign.live ? (
+            <>
+              <CalendarClock className="relative w-4 h-4 flex-shrink-0" />
+              <span className="relative">
+                {withDay(PREORDER.deadline, campaign.dayMl)} — ₹{OFFER.mrpRupees}-ന്റെ NLP Course{" "}
+                <span className="underline underline-offset-2">സൗജന്യം</span>
+              </span>
+            </>
+          ) : (
+            <>
+              <Gift className="relative w-4 h-4 flex-shrink-0" />
+              <span className="relative">
+                ₹{OFFER.mrpRupees}-ന്റെ NLP Video Course{" "}
+                <span className="underline underline-offset-2">സൗജന്യം</span>
+              </span>
+            </>
+          )}
         </a>
         {/* One full-width target. The old ₹3000 "OFFERS" box split the thumb's
             attention between two prices and left the buy button too narrow to
@@ -687,12 +731,11 @@ export default function NeuroCodeLanding({
           <a
             href="/neuro-code/checkout"
             onClick={order}
-            className="group relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-r from-[#FF9933] to-primary-600 px-4 py-3.5 active:scale-[0.98] text-white font-black transition-transform shadow-lg shadow-primary-500/40"
+            className="group relative flex w-full items-center justify-center overflow-hidden rounded-xl bg-gradient-to-r from-primary-500 to-primary-600 px-4 py-3.5 active:scale-[0.98] text-white font-black transition-transform shadow-lg shadow-primary-500/40"
           >
             <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/50 to-transparent skew-x-12 animate-shimmer" />
             <span className="relative flex items-baseline gap-2">
-              <FlagDot className="w-4 h-4 ring-white/50 self-center" />
-              <span className="text-[16px]">Order Now at</span>
+              <span className="text-[16px]">Pre-book at</span>
               <span className="line-through decoration-white/70 text-white/70 text-[14px] font-semibold">
                 ₹{OFFER.compareAtRupees}
               </span>

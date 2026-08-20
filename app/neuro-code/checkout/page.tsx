@@ -11,6 +11,12 @@ import {
 } from "@/lib/attribution";
 import MagicCheckoutForm from "./MagicCheckoutForm";
 import StandardCheckoutForm from "./StandardCheckoutForm";
+import {
+  PREORDER_DELIVERY_DAYS,
+  launchOfferIsLive,
+  launchOfferDayLabel,
+  preorderArrivesBy,
+} from "@/lib/preorder";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +31,23 @@ export default async function CheckoutPage() {
     getCheckoutSettings(),
   ]);
 
+  // The pre-order facts, resolved here rather than in the forms. Both are
+  // client components, and `live` is a comparison against the clock — worked
+  // out in the browser it would render one thing on the server and another
+  // after hydration, on the line that sets the delivery expectation.
+  const preorder = {
+    live: launchOfferIsLive(),
+    day: launchOfferDayLabel(),
+    arrivesBy: preorderArrivesBy(),
+    deliveryDays: PREORDER_DELIVERY_DAYS,
+  };
+
   // Magic Checkout collects the address itself, so the two forms are different
   // shapes. This flag must agree with what /api/orders/create sends to Razorpay.
   return MAGIC_CHECKOUT_ENABLED ? (
-    <MagicCheckoutForm pricing={pricing} gift={gift} checkout={checkout} />
+    <MagicCheckoutForm pricing={pricing} gift={gift} checkout={checkout} preorder={preorder} />
   ) : (
-    <StandardCheckoutForm pricing={pricing} gift={gift} checkout={checkout} />
+    <StandardCheckoutForm pricing={pricing} gift={gift} checkout={checkout} preorder={preorder} />
   );
 }
 
