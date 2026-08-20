@@ -580,8 +580,8 @@ export default function PortalGrid({
               </th>
               )}
               {(live
-                ? ["#", "Ordered", "Name", "Mobile", "Address", "Pincode", "Waybill", "Courier status"]
-                : ["#", "Ordered", "Name", "Mobile", "Address", "Pincode", "Reference"]
+                ? ["#", "Assigned", "Name", "Mobile", "Address", "Pincode", "Waybill", "Courier status"]
+                : ["#", "Assigned", "Name", "Mobile", "Address", "Pincode", "Reference"]
               ).map((h) => (
                 <th
                   key={h}
@@ -645,8 +645,21 @@ export default function PortalGrid({
                     {startIndex + i + 1}
                   </td>
 
-                  <td className={`${cell} text-neutral-500 whitespace-nowrap border-r border-neutral-100`}>
-                    {formatISTShort(r.ordered_at)}
+                  {/* The day this became somebody's job, which is the day the
+                      list is sorted by (0046). Rows that were never assigned to
+                      an agent fall back to their order date and say so — a
+                      column meaning "assigned" on most rows and "ordered" on
+                      the rest, silently, would be worse than either. */}
+                  <td
+                    className={`${cell} text-neutral-500 whitespace-nowrap border-r border-neutral-100`}
+                    title={`Ordered ${formatISTShort(r.ordered_at)}`}
+                  >
+                    {formatISTShort(r.work_at ?? r.ordered_at)}
+                    {r.work_at_is_assignment === false && (
+                      <span className="block text-[10px] text-neutral-400 leading-tight">
+                        ordered — never assigned
+                      </span>
+                    )}
                   </td>
 
                   {/* Name — the copy button on this one takes the whole block,

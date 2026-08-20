@@ -42,6 +42,12 @@ const STATUS_ACTIVE: Record<string, string> = {
  * A single date rather than a range: the portal is worked a day at a time, and
  * making someone fill two boxes to see today's parcels is friction on the most
  * common action there is.
+ *
+ * The day is the day the parcel was ASSIGNED, not the day it was ordered — the
+ * same clock the list is sorted by, see migration 0046. So "Today" means the
+ * batch handed out this morning, which is what someone opening this screen is
+ * looking for. A parcel that went straight to a courier and was never assigned
+ * to anybody falls back to its order date, and the grid marks those rows.
  */
 export default function PortalFilters({
   countSlot,
@@ -181,6 +187,7 @@ export default function PortalFilters({
           type="date"
           value={date}
           max={istToday()}
+          title="The day the parcel was assigned"
           onChange={(e) => push({ date: e.target.value || null })}
           className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary-500 transition-colors cursor-pointer"
         />
@@ -244,7 +251,7 @@ export default function PortalFilters({
           // The default stays out of the URL, so a link is only ever longer
           // for having been changed from it.
           onChange={(e) => push({ sort: e.target.value === "oldest" ? "oldest" : null })}
-          title="Which end of the queue to show first"
+          title="Which end of the queue to show first — by the day assigned"
           className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500 transition-colors"
         >
           <option value="newest">Newest first</option>

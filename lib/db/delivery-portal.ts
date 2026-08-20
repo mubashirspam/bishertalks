@@ -179,6 +179,22 @@ export interface PortalRow {
   created_at: string;
   paid_at: string | null;
   ordered_at: string;
+  /** When an agent was given it, or null if it went straight to a courier. */
+  assigned_at: string | null;
+  /**
+   * The date this screen is organised by — see migration 0046.
+   *
+   * `assigned_at` where there is one, `ordered_at` where there is not, and
+   * `work_at_is_assignment` is which. The grid has to show that difference: a
+   * quarter of the portal is courier-only parcels nobody was ever assigned, and
+   * a column that silently means "assigned" on some rows and "ordered" on
+   * others is worse than either.
+   *
+   * Only the view has these. On the fallback path below they are absent, which
+   * the grid reads as "just show the order date".
+   */
+  work_at?: string | null;
+  work_at_is_assignment?: boolean | null;
 }
 
 const PORTAL_COLUMNS =
@@ -186,7 +202,24 @@ const PORTAL_COLUMNS =
   "state,pincode,amount_paise,quantity,is_gift,gift_message,is_signed," +
   "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
-  "tracking_number,assigned_agent_id,created_at,paid_at,ordered_at";
+  "tracking_number,assigned_agent_id,created_at,paid_at,ordered_at,assigned_at";
+
+/** The view's derived columns. Absent from `orders`, so the fallback drops them. */
+const PORTAL_VIEW_COLUMNS = PORTAL_COLUMNS + ",work_at,work_at_is_assignment";
+
+/**
+ * The same list, minus everything only the view can answer.
+ *
+ * `handover_state` is derived in SQL (0035) and does not exist on `orders`, so
+ * asking the table for it fails — which meant the fallback below, the whole
+ * point of which is to survive a stale view, could not itself run. The portal
+ * did not degrade on a missing column; it went blank. Both retries selected the
+ * column that had just failed.
+ *
+ * It matters more now than it did: 0046 changes the sort key, so a deploy that
+ * lands before its migration takes this path on every request.
+ */
+const PORTAL_TABLE_COLUMNS = PORTAL_COLUMNS.replace("handover_state,", "");
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
 
@@ -238,12 +271,23 @@ function portalQuery(
     query = query.or("tracking_number.is.null,tracking_number.eq.");
   }
 
-  // created_at is UTC but the day is an IST calendar day — convert, or the
-  // filter is 5h30m out and silently drops the early-morning orders.
+  // The day picker filters on the same clock the list is sorted by — the day
+  // the parcel was assigned (0046), falling back to the day it was ordered.
+  //
+  // It used to filter on `created_at`, the moment checkout BEGAN, while the
+  // sort key was the order date. Those are different instants, so picking a day
+  // could show a parcel the heading above it dated differently. Two controls,
+  // one clock.
+  //
+  // Timestamps are UTC and the day is an IST calendar day — convert, or the
+  // filter is 5h30m out and silently drops the early-morning parcels.
   if (isDate(date)) {
+    // `work_at` exists only on the view. The fallback path keeps the old
+    // column, because a degraded screen beats a thrown query.
+    const column = table === "portal_orders" ? "work_at" : "created_at";
     query = query
-      .gte("created_at", istDayStartUTC(date))
-      .lt("created_at", istDayEndUTC(date));
+      .gte(column, istDayStartUTC(date))
+      .lt(column, istDayEndUTC(date));
   }
 
   if (status === "new") {
@@ -295,19 +339,24 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   // way round the days run, so the work left is at the top of the day rather
   // than scattered through it. Then the parcels themselves, same direction as
   // the days.
+  //
+  // The day is the ASSIGNED day now, not the order day (0046). A batch routed
+  // this morning lands together under this morning, which is how the work
+  // actually happened — before this, one morning's routing was spread across
+  // however many days of order dates it happened to cover.
   let result = await portalQuery(
     "portal_orders",
     date,
     status,
     agentId,
-    PORTAL_COLUMNS,
+    PORTAL_VIEW_COLUMNS,
     courierId,
     tracking,
     handover
   )
-    .order("ist_day", { ascending })
+    .order("work_day", { ascending })
     .order("needs_entry", { ascending: false })
-    .order("created_at", { ascending })
+    .order("work_at", { ascending })
     .range(from, to);
 
   // Migrations are applied by hand, so the view can be missing — or stale — on
@@ -319,14 +368,30 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   // "column portal_orders.<x> does not exist" is the stale case, and it is the
   // one that actually happens: the view is `SELECT o.*`, expanded once when it
   // was created, so a column added to orders is invisible here until the view
-  // is dropped and rebuilt. See migration 0028.
+  // is dropped and rebuilt. See migration 0028 — and 0046, which is the one
+  // that has to be applied for the assigned-day ordering to take effect at all.
+  //
+  // Note the fallback sorts by `created_at`, not by the assigned day: `work_at`
+  // is a view column and there is nothing to order by on the bare table. A
+  // database missing 0046 therefore keeps the OLD ordering rather than breaking
+  // — degraded and legible, which is the whole point of this path.
   if (result.error) {
     console.error(
-      "[Portal] worklist query failed — portal_orders may be stale; a column " +
-        "added to orders needs the view rebuilt (migration 0028).",
+      "[Portal] worklist query failed — portal_orders may be stale. If this " +
+        "says work_at/work_day does not exist, migration 0046 has not been " +
+        "applied and the list is falling back to the OLD order-date ordering.",
       result.error.message
     );
-    result = await portalQuery("orders", date, status, agentId, PORTAL_COLUMNS, courierId, tracking, handover)
+    result = await portalQuery(
+      "orders",
+      date,
+      status,
+      agentId,
+      PORTAL_TABLE_COLUMNS,
+      courierId,
+      tracking,
+      handover
+    )
       .order("created_at", { ascending })
       .range(from, to);
 
@@ -344,7 +409,7 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         date,
         status,
         agentId,
-        PORTAL_COLUMNS.replace("courier_reference,", ""),
+        PORTAL_TABLE_COLUMNS.replace("courier_reference,", ""),
         courierId,
         tracking,
         handover
