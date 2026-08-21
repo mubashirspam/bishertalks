@@ -43,6 +43,11 @@ export const PREORDER = {
   deadlineNote:
     "{day}യ്ക് ശേഷം നാലാം പതിപ്പിന്റെ വില വർധിക്കും.",
 
+  /** Over the countdown. The same deadline, said as a quantity of time left. */
+  countdownLead: "പ്രീ-ബുക്കിംഗ് വില അവസാനിക്കാൻ",
+  /** The sticky bar's version — shorter, because it shares a line with the clock. */
+  countdownStrip: "ഓഫർ അവസാനിക്കാൻ",
+
   /** The thing that makes the wait acceptable: the course does not wait. */
   instantTitle: "NLP കോഴ്സ് ഉടൻ ലഭിക്കും",
   instantBody:

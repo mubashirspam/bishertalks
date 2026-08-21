@@ -12,6 +12,7 @@ import type { ProductPricing } from "@/lib/db/courses";
 import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
 import { faqs } from "./faqs";
 import { Band, Card, Heading, OrderNow, Rule } from "./ui";
+import { CountdownBoxes, CountdownClock, useCountdown } from "./Countdown";
 import {
   VideoTestimonials, ImageTestimonials, AudioTestimonials, TextTestimonials,
 } from "./Testimonials";
@@ -59,6 +60,10 @@ const STEP_ICONS = [Search, Lightbulb, PencilLine];
  */
 export type Campaign = {
   live: boolean;
+  /** The instant the launch price stops, as epoch ms — what the clock counts to. */
+  endsAt: number;
+  /** How far off that was when the server rendered, so the first tick matches the HTML. */
+  remainingMs: number;
   /** "Saturday" / "ശനിയാഴ്ച" — the deadline, in both languages. */
   day: string;
   dayMl: string;
@@ -82,6 +87,17 @@ export default function NeuroCodeLanding({
   campaign: Campaign;
 }) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+
+  // The clock, seeded from the server's measurement (see Countdown.tsx).
+  const left = useCountdown(campaign.endsAt, campaign.remainingMs);
+
+  // One flag for every piece of deadline framing on the page, so they all go at
+  // the same instant. `campaign.live` is the server's answer and settles what
+  // renders first; `left.over` is what happens to somebody who had the page
+  // open when the clock ran out — the boxes hitting 00:00:00 while the copy
+  // beside them still promises a deadline is worse than never having shown a
+  // clock at all.
+  const offerLive = campaign.live && !left.over;
 
   const byKind = (kind: Testimonial["kind"]) => testimonials.filter((t) => t.kind === kind);
   const showPlaceholders = settings.show_placeholders;
@@ -216,13 +232,20 @@ export default function NeuroCodeLanding({
           {/* The deadline, and only while there is one. Past Saturday this
               disappears rather than going stale — a page still shouting about
               an offer that ended is the fastest way to stop being believed. */}
-          {campaign.live && (
-            <div className="mt-6 rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-2.5">
+          {offerLive && (
+            <div className="mt-6 rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3">
               <p className="font-anek text-[13px] font-black text-amber-900 dark:text-amber-300 flex items-center justify-center gap-1.5">
                 <CalendarClock className="w-4 h-4" />
                 {withDay(PREORDER.deadline, campaign.dayMl)}
               </p>
-              <p className="font-anek text-[11.5px] text-amber-700 dark:text-amber-400/90 mt-0.5">
+              {/* The same deadline as a number that moves. The words say which
+                  day; the clock says how long — and only the second one is
+                  hard to put off until later. */}
+              <p className="font-anek text-[10.5px] font-bold uppercase tracking-[0.14em] text-amber-700/80 dark:text-amber-400/70 mt-2.5">
+                {PREORDER.countdownLead}
+              </p>
+              <CountdownBoxes r={left} className="mt-1.5" />
+              <p className="font-anek text-[11.5px] text-amber-700 dark:text-amber-400/90 mt-2.5">
                 {withDay(PREORDER.deadlineNote, campaign.dayMl)}
               </p>
             </div>
@@ -554,10 +577,22 @@ export default function NeuroCodeLanding({
               one place on the page where somebody is looking at ₹699 and
               deciding — telling them here that it moves on Saturday is
               information; telling them anywhere else is decoration. */}
-          {campaign.live && (
-            <p className="font-anek text-[12.5px] font-black text-amber-700 dark:text-amber-400 text-center mt-3 leading-[1.7]">
-              {withDay(PREORDER.deadlineNote, campaign.dayMl)}
-            </p>
+          {offerLive && (
+            <div className="mt-3 text-center">
+              <p className="font-anek text-[12.5px] font-black text-amber-700 dark:text-amber-400 leading-[1.7]">
+                {withDay(PREORDER.deadlineNote, campaign.dayMl)}
+              </p>
+              {/* One line rather than boxes: this sits directly under ₹699, and
+                  a block of digits here would compete with the price it is
+                  supposed to be putting a deadline on. */}
+              <p className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-amber-300 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-3 py-1">
+                <Clock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
+                <span className="font-anek text-[11px] font-bold text-amber-700 dark:text-amber-400/90">
+                  {PREORDER.countdownStrip}
+                </span>
+                <CountdownClock r={left} className="text-[14px] text-amber-900 dark:text-amber-300" />
+              </p>
+            </div>
           )}
         </Card>
 
@@ -706,12 +741,22 @@ export default function NeuroCodeLanding({
           className="relative flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-primary-600 to-primary-500 text-white text-[11px] font-bold overflow-hidden"
         >
           <span className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 animate-shimmer" />
-          {campaign.live ? (
+          {offerLive ? (
             <>
               <CalendarClock className="relative w-4 h-4 flex-shrink-0" />
-              <span className="relative">
-                {withDay(PREORDER.deadline, campaign.dayMl)} — ₹{OFFER.mrpRupees}-ന്റെ NLP Course{" "}
+              {/* The offer on the left, the clock pinned right. This strip is
+                  the narrowest thing on the page, and the two halves want
+                  different treatment: the words can be clipped on a 320px
+                  screen, the digits never — a half-cut countdown is worse than
+                  no countdown. Hence `truncate` on one and `flex-shrink-0` on
+                  the other, rather than one line that shortens from the end. */}
+              <span className="relative truncate">
+                ₹{OFFER.mrpRupees}-ന്റെ NLP Course{" "}
                 <span className="underline underline-offset-2">സൗജന്യം</span>
+              </span>
+              <span className="relative ml-auto flex items-baseline gap-1 flex-shrink-0 rounded-full bg-black/20 px-2 py-0.5">
+                <span className="text-[9px] font-bold opacity-90">{PREORDER.countdownStrip}</span>
+                <CountdownClock r={left} className="text-[12px] tracking-tight" />
               </span>
             </>
           ) : (

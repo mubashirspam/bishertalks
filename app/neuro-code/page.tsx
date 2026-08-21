@@ -5,6 +5,7 @@ import { getLandingContent } from "@/lib/db/landing";
 import {
   PREORDER_DELIVERY_DAYS,
   launchOfferIsLive,
+  launchOfferEndsAt,
   launchOfferDayLabel,
   launchOfferDayLabelMl,
   launchOfferDateLabel,
@@ -139,6 +140,15 @@ export default async function NeuroCodePage() {
         settings={landing.settings}
         campaign={{
           live: launchOfferIsLive(),
+          // The clock, decided here for the same reason `live` is. The browser
+          // is handed the deadline *and* the gap the server measured, so its
+          // first render prints the second the server printed; only after
+          // hydration does it start reading the local clock. Working the gap
+          // out in the browser instead would put a different number in the DOM
+          // than the HTML carries, on the one element that is meant to be
+          // stared at.
+          endsAt: launchOfferEndsAt().getTime(),
+          remainingMs: launchOfferEndsAt().getTime() - Date.now(),
           day: launchOfferDayLabel(),
           dayMl: launchOfferDayLabelMl(),
           date: launchOfferDateLabel(),
