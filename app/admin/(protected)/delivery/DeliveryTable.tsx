@@ -100,9 +100,9 @@ type RunResult = {
  * each other's work. What this screen does is decide *whose* parcel it is:
  * tick some rows, choose an agent, and they appear on that agent's portal.
  *
- * Printing labels does the same thing — you cannot print a sheet without
- * saying who is taking it, because a printed label belonging to nobody was
- * exactly the state that used to look "handled" and reach no one.
+ * Printing labels is separate from all of that: it builds the PDF, stamps the
+ * rows as printed, and assigns nothing. It used to insist on an agent first,
+ * which is a question this screen no longer asks.
  */
 export default function DeliveryTable({
   rows,

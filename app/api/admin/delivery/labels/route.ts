@@ -10,8 +10,7 @@ import {
   DELIVERY_COLUMNS,
   type DeliveryRow,
 } from "@/lib/db/delivery-query";
-import { markLabelsDownloaded, assignOrders } from "@/lib/db/delivery";
-import { listDeliveryAgents } from "@/lib/db/staff";
+import { markLabelsDownloaded } from "@/lib/db/delivery";
 import { buildLabelSheet, LABELS_PER_PAGE } from "@/lib/shipping-label";
 import { istToday } from "@/lib/format-date";
 import { auditMany } from "@/lib/audit";
@@ -23,21 +22,19 @@ import { auditMany } from "@/lib/audit";
 const MAX_LABELS = 300;
 
 /**
- * Download address labels as a printable PDF, six to an A4 sheet, and hand
- * those parcels to a delivery agent.
+ * Download address labels as a printable PDF, six to an A4 sheet.
  *
  * Two ways to call it, both from the delivery list:
- *   { agent_id, order_numbers: [...] }  the rows the admin ticked
- *   { agent_id, filters: {...} }        everything currently matching
+ *   { order_numbers: [...] }  the rows the admin ticked
+ *   { filters: {...} }        everything currently matching
  *
- * `agent_id` is required. Printing a sheet of labels *is* the moment a batch
- * of parcels becomes someone's job, and a printed label belonging to nobody is
- * the state this whole flow exists to remove — it looked handled on the shelf
- * and appeared in no agent's portal.
+ * Printing is only printing. It used to demand an `agent_id` and hand the
+ * parcels to that agent, from when a sheet coming out of the printer was the
+ * moment a batch became someone's job. Parcels are routed to couriers now, so
+ * that gate only stood between the admin and a PDF.
  *
- * Generating the PDF also marks those orders as printed, which is now
- * information rather than a stage: it says a sheet came out of the printer,
- * and the assignment says who took it.
+ * Generating the PDF still marks those orders as printed, which is
+ * information rather than a stage: it says a sheet came out of the printer.
  */
 export async function POST(request: NextRequest) {
   // Every customer's name, phone and home address, in one file.
@@ -48,21 +45,6 @@ export async function POST(request: NextRequest) {
   const orderNumbers: string[] = Array.isArray(body.order_numbers)
     ? body.order_numbers.filter((n: unknown) => typeof n === "string").slice(0, MAX_LABELS)
     : [];
-
-  // Same check as the assign route: an id off the wire is not proof of
-  // anything, and labels printed onto a stranger's name would leave the
-  // parcels invisible to everyone who could actually post them.
-  const agentId = typeof body.agent_id === "string" ? body.agent_id : "";
-  const agent = agentId
-    ? (await listDeliveryAgents()).find((a) => a.id === agentId)
-    : undefined;
-
-  if (!agent) {
-    return NextResponse.json(
-      { error: "Choose the delivery agent these parcels are going to." },
-      { status: 400 }
-    );
-  }
 
   let rows: DeliveryRow[];
 
@@ -105,23 +87,15 @@ export async function POST(request: NextRequest) {
 
   const pdf = buildLabelSheet(rows);
 
-  // After the PDF exists, so a failed build never assigns or marks anything.
+  // After the PDF exists, so a failed build never marks anything.
   const printed = rows.map((r) => r.order_number);
   try {
-    const assigned = await assignOrders(printed, agent.id, auth.staff.id);
-    await auditMany(auth.staff, "order.assigned", "order", assigned, {
-      agent_id: agent.id,
-      agent_name: agent.name,
-      via: "labels",
-    });
-
     const marked = await markLabelsDownloaded(printed);
     await auditMany(auth.staff, "labels.printed", "order", marked);
   } catch {
     // The labels are already in the admin's hands; refusing to hand them over
-    // now would be worse than an assignment they can redo from the list — the
-    // rows stay in New, which is visibly wrong rather than silently lost.
-    // Logged inside the DB layer.
+    // because the printed-at stamp did not save would be worse than a missing
+    // stamp. Logged inside the DB layer.
   }
 
   const pages = Math.ceil(rows.length / LABELS_PER_PAGE);
