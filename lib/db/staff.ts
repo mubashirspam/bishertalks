@@ -16,9 +16,21 @@ export interface Staff {
   permissions: string[];
   is_active: boolean;
   created_at: string;
+  /**
+   * The delivery partner this login belongs to (0047).
+   *
+   * Null for everyone who is not a partner login, which is most of the table.
+   * On a `delivery` role it is what the portal scopes to — and null there means
+   * "sees nothing", never "sees everything". See lib/delivery/scope.ts.
+   */
+  courier_id: string | null;
 }
 
 const COLUMNS =
+  "id,auth_user_id,email,name,phone,role,permissions,is_active,created_at,courier_id";
+
+/** The same list before 0047 — the fallback in getStaffByAuthId below. */
+const LEGACY_COLUMNS =
   "id,auth_user_id,email,name,phone,role,permissions,is_active,created_at";
 
 /**
@@ -29,12 +41,35 @@ const COLUMNS =
  * their JWT happens to expire.
  */
 export async function getStaffByAuthId(authUserId: string): Promise<Staff | null> {
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("staff")
     .select(COLUMNS)
     .eq("auth_user_id", authUserId)
     .maybeSingle();
-  return (data as Staff) ?? null;
+
+  if (!error) return (data as Staff) ?? null;
+
+  // Migrations here are applied by hand, and this one query runs on EVERY admin
+  // request — so a deploy that lands before 0047 does would not degrade one
+  // screen, it would fail to resolve anybody and lock every member of staff out
+  // of the admin panel, including whoever needs to get in and apply it.
+  //
+  // So a missing `courier_id` falls back to the columns that existed before it.
+  // The portal then treats every delivery login as unlinked, which is the
+  // fail-closed answer: an empty portal and a message saying so, rather than a
+  // white screen nobody can act on. Applying 0047 fixes it with no redeploy.
+  console.error(
+    "[Staff] full staff read failed — is migration 0047 applied?",
+    error.message
+  );
+
+  const { data: legacy } = await supabaseAdmin
+    .from("staff")
+    .select(LEGACY_COLUMNS)
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+
+  return legacy ? ({ ...(legacy as object), courier_id: null } as Staff) : null;
 }
 
 export async function getStaffById(id: string): Promise<Staff | null> {
@@ -105,6 +140,8 @@ export interface CreateStaffInput {
   permissions: Permission[];
   authUserId: string;
   createdBy: string | null;
+  /** The partner this login works for. Only meaningful on a delivery role. */
+  courierId?: string | null;
 }
 
 export async function createStaff(input: CreateStaffInput): Promise<Staff | null> {
@@ -117,6 +154,9 @@ export async function createStaff(input: CreateStaffInput): Promise<Staff | null
       phone: input.phone || null,
       role: input.role,
       permissions: input.permissions,
+      // Only a delivery login is scoped to a partner. Storing it on a manager
+      // would be a value nothing reads and everything has to explain later.
+      courier_id: input.role === "delivery" ? input.courierId || null : null,
       is_active: true,
       created_by: input.createdBy,
     })
@@ -132,7 +172,9 @@ export async function createStaff(input: CreateStaffInput): Promise<Staff | null
 
 export async function updateStaff(
   id: string,
-  patch: Partial<Pick<Staff, "name" | "phone" | "role" | "permissions" | "is_active">>
+  patch: Partial<
+    Pick<Staff, "name" | "phone" | "role" | "permissions" | "is_active" | "courier_id">
+  >
 ): Promise<Staff | null> {
   const { data, error } = await supabaseAdmin
     .from("staff")

@@ -18,6 +18,12 @@ export const PERMISSIONS = {
   "delivery.print": "Print address labels",
   "delivery.assign": "Hand parcels to a delivery agent",
   "delivery.portal": "Use the delivery portal — tick off packing and delivery",
+  // Deliberately split out of delivery.portal. Delivered approves the
+  // referrer's commission and sends the customer a WhatsApp; returned voids
+  // it. A partner login works the portal all day without ever being the thing
+  // that settles our money — so packing and shipping are one capability and
+  // finishing is another.
+  "delivery.complete": "Mark parcels delivered or returned",
 
   "users.view": "See customers",
   "users.manage": "Add customers and grant course access",
@@ -48,7 +54,7 @@ export function isPermission(v: string): v is Permission {
 /** Grouping for the staff form — flat checkboxes for twelve items is a wall. */
 export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
   { label: "Orders", permissions: ["orders.view", "orders.edit", "orders.export"] },
-  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal"] },
+  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal", "delivery.complete"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Business", permissions: ["insights.view", "reports.view", "referrals.view", "referrals.payout", "staff.manage"] },
@@ -70,7 +76,7 @@ export const ROLE_LABELS: Record<StaffRole, string> = {
 export const ROLE_DESCRIPTIONS: Record<StaffRole, string> = {
   owner: "Full access, including staff management. Cannot be switched off.",
   manager: "Runs the shop day to day — everything except staff management.",
-  delivery: "The delivery portal only — copy addresses and tick off fulfilment. No customer list, no revenue, no exports.",
+  delivery: "A courier partner's login. Sees only their own courier's parcels — copy addresses, hand over, tick off packing and shipping. No customer list, no revenue, no marking delivered.",
   support: "Read-mostly: can look things up, but not change or download them.",
 };
 
@@ -100,11 +106,16 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
   manager: [
     "orders.view", "orders.edit", "orders.export",
     "delivery.view", "delivery.print", "delivery.assign", "delivery.portal",
+    "delivery.complete",
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
     "insights.view", "reports.view", "referrals.view",
   ],
 
+  // Not delivery.complete: a partner ships and hands over, and the parcel is
+  // marked delivered by a courier scan or by us. Grantable per account if one
+  // partner is ever trusted with it — which is the reason it is a permission
+  // and not a role test.
   delivery: ["delivery.portal"],
 
   support: ["orders.view", "users.view", "delivery.view"],

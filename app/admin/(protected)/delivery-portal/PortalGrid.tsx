@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, RefreshCw, RefreshCcwDot, Undo2 } from "lucide-react";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import PortalExport from "./PortalExport";
+import PortalAddressPdf from "./PortalAddressPdf";
 import {
   PORTAL_STATUS_STEPS,
   PORTAL_STEP_LABELS,
@@ -36,6 +37,7 @@ export default function PortalGrid({
   courierId,
   syncCourierId,
   live,
+  mayComplete,
 }: {
   rows: PortalRow[];
   startIndex: number;
@@ -60,6 +62,16 @@ export default function PortalGrid({
    * which is the right answer for a courier we hand parcels to by hand.
    */
   live: boolean;
+  /**
+   * May this user mark a parcel Delivered or Returned? (`delivery.complete`)
+   *
+   * False for a courier partner's login. Delivered approves the referrer's
+   * commission and sends the customer a WhatsApp — our money and our voice —
+   * so a partner works the parcel up to Shipped and the last step comes from a
+   * courier scan or from us. The column still SHOWS delivered when it happens;
+   * it just isn't theirs to tick.
+   */
+  mayComplete: boolean;
 }) {
   const router = useRouter();
   const [syncing, setSyncing] = useState(false);
@@ -546,6 +558,7 @@ export default function PortalGrid({
           )}
 
           <span className="ml-auto flex items-center gap-2">
+            <PortalAddressPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
             <PortalExport
               orderNumbers={pickedRows.map((r) => r.order_number)}
               onDone={sheetDownloaded}
@@ -848,6 +861,10 @@ export default function PortalGrid({
                     // later stages don't, because moving a parcel back from
                     // Shipped is a correction someone came here to make.
                     const guarded = on && step === "processing";
+                    // Read-only rather than hidden: a partner still needs to
+                    // see that a parcel arrived — the courier's scan sets it —
+                    // they just cannot be the one to say so.
+                    const locked = step === "delivered" && !mayComplete;
 
                     return (
                       <td key={step} className="px-2 py-2 text-center border-r border-neutral-100">
@@ -855,14 +872,16 @@ export default function PortalGrid({
                           on={on}
                           muted={status === "returned"}
                           tone={STEP_TONE[step]}
-                          disabled={!!busy}
+                          disabled={!!busy || locked}
                           title={
-                            guarded
-                              ? `Undo — ${PORTAL_STEP_LABELS[step]}`
-                              : `Mark ${PORTAL_STEP_LABELS[step].toLowerCase()}`
+                            locked
+                              ? "The courier's scan closes this off — you don't need to tick it"
+                              : guarded
+                                ? `Undo — ${PORTAL_STEP_LABELS[step]}`
+                                : `Mark ${PORTAL_STEP_LABELS[step].toLowerCase()}`
                           }
                           onClick={() =>
-                            guarded ? askUndoStep(r, step) : setStatus(r, step)
+                            locked ? undefined : guarded ? askUndoStep(r, step) : setStatus(r, step)
                           }
                         />
 

@@ -3,6 +3,7 @@ import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import { Shield } from "lucide-react";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { listStaff } from "@/lib/db/staff";
+import { listCouriers } from "@/lib/db/couriers";
 import StaffManager from "./StaffManager";
 
 export const dynamic = "force-dynamic";
@@ -22,7 +23,10 @@ export default async function Page() {
 
 async function StaffBody() {
   const me = await requirePageAccess("staff.manage");
-  const staff = await listStaff();
+  // A delivery login is scoped to one of these (0047), so the form needs the
+  // list to offer. Active only — linking somebody to a switched-off partner
+  // makes a login that sees nothing for a reason nobody would guess.
+  const [staff, couriers] = await Promise.all([listStaff(), listCouriers()]);
 
   return (
     <div>
@@ -37,7 +41,13 @@ async function StaffBody() {
         </p>
       </div>
 
-      <StaffManager staff={staff} currentStaffId={me.id} />
+      <StaffManager
+        staff={staff}
+        currentStaffId={me.id}
+        couriers={couriers
+          .filter((c) => c.is_active)
+          .map((c) => ({ id: c.id, name: c.name }))}
+      />
     </div>
   );
 }

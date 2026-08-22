@@ -1,5 +1,6 @@
 import { PdfDocument, A4, wrapText, measureText } from "@/lib/pdf";
 import { formatIST } from "@/lib/format-date";
+import type { CourierConfig } from "@/lib/couriers/types";
 
 /**
  * Address labels, six to an A4 sheet.
@@ -83,6 +84,26 @@ export function senderFromEnv(): SenderDetails {
     name: process.env.SHIP_FROM_NAME || "Bisher KC",
     address: process.env.SHIP_FROM_ADDRESS || "",
     phone: process.env.SHIP_FROM_PHONE || "",
+  };
+}
+
+/**
+ * The return address for one courier, falling back to the environment.
+ *
+ * Per field, not per courier: a partner that has been given its own phone but
+ * not its own street keeps the default street. Falling back as a whole object
+ * would mean half-filling the form produced a return address with a name from
+ * one place and nothing else — worse than either source on its own.
+ *
+ * `senderFromEnv()` remains the answer for anything printed across couriers,
+ * and for a parcel not routed to one at all.
+ */
+export function senderForCourier(config: CourierConfig | null | undefined): SenderDetails {
+  const fallback = senderFromEnv();
+  return {
+    name: config?.from_name?.trim() || fallback.name,
+    address: config?.from_address?.trim() || fallback.address,
+    phone: config?.from_phone?.trim() || fallback.phone,
   };
 }
 

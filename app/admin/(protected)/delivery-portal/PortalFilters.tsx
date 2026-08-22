@@ -1,13 +1,16 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { ArrowDownUp, CalendarDays, Truck, X } from "lucide-react";
+import { ArrowDownUp, CalendarDays, Gift, Truck, X } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
 import {
   PORTAL_FILTERS,
   PORTAL_FILTER_LABELS,
   PORTAL_TRACKING,
   PORTAL_TRACKING_LABELS,
+  PORTAL_PACKING,
+  PORTAL_PACKING_LABELS,
+  PORTAL_PACKING_HINTS,
 } from "@/lib/db/delivery-portal";
 import type { DeliveryAgent } from "@/lib/db/staff";
 import {
@@ -49,6 +52,19 @@ const STATUS_ACTIVE: Record<string, string> = {
  * looking for. A parcel that went straight to a courier and was never assigned
  * to anybody falls back to its order date, and the grid marks those rows.
  */
+/**
+ * Chip colours for the packing filter.
+ *
+ * Gift and Signed are warm because they are the exceptions someone has to act
+ * on; "Nothing extra" stays neutral — it is the ordinary pile, and colouring it
+ * would give the same weight to "do nothing" as to "wrap this one".
+ */
+const PACKING_TONE: Record<string, string> = {
+  gift: "border-pink-500 bg-pink-50 text-pink-700",
+  signed: "border-violet-500 bg-violet-50 text-violet-700",
+  plain: "border-neutral-400 bg-neutral-100 text-neutral-700",
+};
+
 export default function PortalFilters({
   countSlot,
   agents,
@@ -76,6 +92,7 @@ export default function PortalFilters({
   const courier = params.get("courier") ?? "";
   const tracking = params.get("tracking") ?? "";
   const handover = params.get("handover") ?? "";
+  const packing = params.get("packing") ?? "";
   const sort = params.get("sort") === "oldest" ? "oldest" : "newest";
 
   const push = (changes: Record<string, string | null>) => {
@@ -180,6 +197,37 @@ export default function PortalFilters({
         ))}
       </div>
 
+      {/* What has to happen to the parcel before the box is taped shut.
+          Its own row rather than sharing the one above: that one already
+          carries eight handover chips, and thirteen buttons on a line wrap
+          into something nobody can scan.
+
+          Worth a filter because these are rare — about ten gifts in twelve
+          hundred parcels, five of them signed. Rare is exactly the problem:
+          nobody finds ten rows by scrolling, and the mistake it prevents, an
+          unwrapped gift or an unsigned copy, is only ever discovered by the
+          customer. */}
+      <div className="flex flex-wrap items-center gap-2 pb-3 mb-3 border-b border-neutral-100">
+        <Gift className="w-4 h-4 text-neutral-400" />
+        <span className="text-xs font-medium text-neutral-500">Packing</span>
+        <button
+          onClick={() => push({ packing: null })}
+          className={chip(!packing, "border-neutral-900 bg-neutral-900 text-white")}
+        >
+          Any
+        </button>
+        {PORTAL_PACKING.map((pk) => (
+          <button
+            key={pk}
+            title={PORTAL_PACKING_HINTS[pk]}
+            onClick={() => push({ packing: packing === pk ? null : pk })}
+            className={chip(packing === pk, PACKING_TONE[pk])}
+          >
+            {PORTAL_PACKING_LABELS[pk]}
+          </button>
+        ))}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2">
         <CalendarDays className="w-4 h-4 text-neutral-400" />
 
@@ -260,7 +308,7 @@ export default function PortalFilters({
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || status || agent || courier || tracking || handover || sort === "oldest") && (
+        {(date || status || agent || courier || tracking || handover || packing || sort === "oldest") && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"

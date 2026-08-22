@@ -1,15 +1,18 @@
 import { Suspense } from "react";
 import Link from "@/components/admin/AdminLink";
 import { requirePageAccess } from "@/lib/admin-auth";
-import { can } from "@/lib/permissions";
 import {
   fetchPortalPage,
   portalSort,
   portalTracking,
+  portalPacking,
   type PortalSort,
   type PortalTracking,
+  type PortalPacking,
 } from "@/lib/db/delivery-portal";
 import { listDeliveryAgents } from "@/lib/db/staff";
+import { portalScope } from "@/lib/delivery/scope";
+import { can } from "@/lib/permissions";
 import { listCouriers } from "@/lib/db/couriers";
 import { canTrack } from "@/lib/couriers";
 import { isHandoverState } from "@/lib/delivery/handover";
@@ -36,15 +39,21 @@ interface Args {
   tracking: PortalTracking | null;
   /** A handover state to narrow to, or null for all of them. */
   handover: string | null;
+  /** Gift / signed / neither, or null for all of them. */
+  packing: PortalPacking | null;
   pageNum: number;
   /**
-   * Whose parcels to show. An agent's own id, always — it is not read from the
-   * URL for them, so there is no parameter to edit. null means "everyone",
-   * which only someone who can see the whole delivery queue ever gets.
+   * Which named agent to narrow to, or null for all of them.
+   *
+   * A filter now, and only ever a filter — it is what an owner picks to see one
+   * person's work. It stopped being how a partner is confined in 0047; that is
+   * `courierId` below.
    */
   agentId: string | null;
-  /** Whether that id came from the filter (shareable) or from who they are. */
+  /** Whether the filters came from the URL (shareable) or from who they are. */
   seesEveryone: boolean;
+  /** May they tick Delivered? False for a partner login — see the grid. */
+  mayComplete: boolean;
 }
 
 /**
@@ -62,16 +71,15 @@ export default async function DeliveryPortalPage({
 }) {
   const staff = await requirePageAccess("delivery.portal");
 
-  // Owners and managers hold delivery.view — they run the queue, so they get
-  // the agent filter. Everyone else does not, and is no longer scoped to rows
-  // bearing their own staff id.
+  // Who this login is allowed to see. Owners and managers run the queue and get
+  // every courier plus the filters; a partner login is pinned to its own
+  // courier and cannot widen that from the URL.
   //
-  // That scoping was correct when a parcel was handed to a person. It is wrong
-  // now that a parcel is handed to a courier: assigning only the courier — the
-  // whole point of the new flow — left KKR's own login staring at an empty
-  // portal, and the only way to fix it was to also assign an agent, which is
-  // exactly the duplicate decision this was meant to remove.
-  const seesEveryone = can(staff, "delivery.view");
+  // The second delivery company the old comment here anticipated has arrived,
+  // and with it the staff-to-courier link it said would be needed (0047).
+  const scope = portalScope(staff);
+  const seesEveryone = scope.seesEveryone;
+
   const [agents, couriers] = await Promise.all([
     seesEveryone ? listDeliveryAgents() : Promise.resolve([]),
     listCouriers(),
@@ -84,23 +92,47 @@ export default async function DeliveryPortalPage({
     date: params.date,
     status: params.status,
     sort: portalSort(params.sort),
-    courierId: params.courier || null,
+    // Theirs, not the URL's. `?courier=` is a filter for someone who may see
+    // every courier and is ignored for everyone else — the value below is read
+    // from their own staff row, so there is no parameter to edit.
+    courierId: seesEveryone ? params.courier || null : scope.courierId,
     tracking: portalTracking(params.tracking),
     handover: isHandoverState(params.handover) ? params.handover : null,
+    packing: portalPacking(params.packing),
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
-    // null for an agent: they see every parcel routed to a courier, which
-    // with one partner is precisely their work. If a second delivery company
-    // is ever added, this becomes "parcels for the courier this login belongs
-    // to" and needs a staff-to-courier link.
     agentId: seesEveryone ? picked : null,
     seesEveryone,
+    mayComplete: can(staff, "delivery.complete"),
   };
+
+  // A partner login nobody has linked to a courier yet. It is scoped to
+  // nothing, and an empty grid would read as "no work today" — which is the
+  // one wrong thing to tell somebody whose parcels are sitting on a shelf.
+  if (!seesEveryone && !scope.courierId) {
+    return (
+      <div className="bg-white border border-neutral-200 rounded-2xl p-12 text-center shadow-sm">
+        <p className="font-semibold text-neutral-800">
+          Your login isn&apos;t linked to a delivery partner yet.
+        </p>
+        <p className="text-sm text-neutral-500 mt-2">
+          Ask the admin to set your delivery partner — your parcels will appear
+          here as soon as they do.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <NavigationPending>
       <PortalFilters
         agents={agents}
-        couriers={couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))}
+        // Empty for a partner: there is one courier they could pick and it is
+        // already picked. Same treatment the agent dropdown gets.
+        couriers={
+          seesEveryone
+            ? couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))
+            : []
+        }
         trackedCourierIds={couriers.filter(canTrack).map((c) => c.id)}
         countSlot={
           <Suspense fallback={<span className="text-neutral-400">Counting…</span>}>
@@ -131,7 +163,8 @@ async function PortalCount(args: Args) {
     args.sort,
     args.courierId,
     args.tracking,
-    args.handover
+    args.handover,
+    args.packing
   );
   return (
     <>
@@ -150,7 +183,8 @@ async function PortalRows(args: Args) {
     args.sort,
     args.courierId,
     args.tracking,
-    args.handover
+    args.handover,
+    args.packing
   );
 
   // Names only — the grid shows which courier a parcel is routed to, so an
@@ -189,9 +223,10 @@ async function PortalRows(args: Args) {
     // "newest" is the default, so it stays out of the URL — same as the
     // filter bar writes it, or Next would treat the two as different pages.
     if (args.sort === "oldest") sp.set("sort", args.sort);
-    if (args.courierId) sp.set("courier", args.courierId);
+    if (args.seesEveryone && args.courierId) sp.set("courier", args.courierId);
     if (args.tracking) sp.set("tracking", args.tracking);
     if (args.handover) sp.set("handover", args.handover);
+    if (args.packing) sp.set("packing", args.packing);
     // Only when it's a filter someone chose. An agent's own id is who they
     // are, not where they are, and has no business in a shareable link.
     if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);
@@ -209,6 +244,7 @@ async function PortalRows(args: Args) {
         courierId={args.courierId}
         syncCourierId={syncCourier?.id ?? null}
         live={live}
+        mayComplete={args.mayComplete}
       />
 
       {totalPages > 1 && (

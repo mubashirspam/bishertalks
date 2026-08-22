@@ -3,7 +3,7 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
-import { can } from "@/lib/permissions";
+import { portalScope } from "@/lib/delivery/scope";
 import { fetchPickedForCourierSheet, takenReferences } from "@/lib/db/delivery-portal";
 import { markCourierEntered } from "@/lib/db/delivery";
 import {
@@ -63,13 +63,34 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // An agent gets their own parcels whatever they send; only someone who runs
-  // the whole queue is allowed to sheet up somebody else's.
-  const agentId = can(auth.staff, "delivery.view") ? null : auth.staff.id;
+  // A partner gets their own courier's parcels whatever order numbers they
+  // send; only someone who runs the whole queue may sheet up anybody's.
+  //
+  // Scoped on the courier since 0047. This used to pass the staff id and match
+  // on `assigned_agent_id`, which meant a partner asking for the 314 parcels
+  // routed straight to their courier — and shown to them on the same screen —
+  // got "none of those parcels can go on a sheet" every time.
+  const scope = portalScope(auth.staff);
+  const courierId = scope.seesEveryone ? null : scope.courierId;
+
+  // A partner login with no courier linked is scoped to nothing, and nothing is
+  // what it gets. Answered here rather than by an empty query so the message
+  // says what is actually wrong.
+  if (!scope.seesEveryone && !courierId) {
+    return NextResponse.json(
+      { error: "Your login isn't linked to a delivery partner yet." },
+      { status: 403 }
+    );
+  }
 
   let parcels;
   try {
-    parcels = await fetchPickedForCourierSheet(orderNumbers, agentId, COURIER_SHEET_MAX);
+    parcels = await fetchPickedForCourierSheet(
+      orderNumbers,
+      null,
+      COURIER_SHEET_MAX,
+      courierId
+    );
   } catch {
     return NextResponse.json({ error: "Could not load parcels" }, { status: 500 });
   }

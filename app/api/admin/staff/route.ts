@@ -13,6 +13,7 @@ import {
   generateTempPassword,
 } from "@/lib/db/staff";
 import { STAFF_ROLES, type StaffRole } from "@/lib/permissions";
+import { getCourier } from "@/lib/db/couriers";
 import { audit } from "@/lib/audit";
 
 const isRole = (v: unknown): v is StaffRole =>
@@ -69,6 +70,7 @@ export async function POST(request: NextRequest) {
     phone: typeof body.phone === "string" ? body.phone.trim() : null,
     role,
     permissions: sanitizePermissions(body.permissions),
+    courierId: await resolveCourier(role, body.courier_id),
     authUserId: created.user.id,
     createdBy: auth.staff.id,
   });
@@ -90,6 +92,26 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ staff, password });
+}
+
+/**
+ * The delivery partner a login belongs to, checked against the table (0047).
+ *
+ * An id off the wire is not proof of anything, and this one decides which
+ * customers' addresses an outside company can read — so it is looked up rather
+ * than trusted, and anything that is not a real courier becomes null instead of
+ * being stored. Null is safe: a delivery login with no partner sees nothing.
+ *
+ * Only meaningful on a `delivery` role. Every other role is stored as null, so
+ * a manager promoted from a partner account stops carrying a link that nothing
+ * would read but everything would have to explain.
+ */
+async function resolveCourier(role: StaffRole, raw: unknown): Promise<string | null> {
+  if (role !== "delivery") return null;
+  const id = typeof raw === "string" ? raw.trim() : "";
+  if (!id) return null;
+  const courier = await getCourier(id);
+  return courier ? courier.id : null;
 }
 
 /**
@@ -133,6 +155,14 @@ export async function PATCH(request: NextRequest) {
   if (isRole(body.role)) patch.role = body.role;
   if (body.permissions !== undefined) patch.permissions = sanitizePermissions(body.permissions);
   if (typeof body.is_active === "boolean") patch.is_active = body.is_active;
+
+  // Resolved against the role being saved, not the one on the record: a
+  // delivery login promoted to manager in the same request must drop its
+  // partner link, and a manager demoted to delivery must be able to gain one.
+  if (body.courier_id !== undefined) {
+    const role = isRole(body.role) ? body.role : target.role;
+    patch.courier_id = await resolveCourier(role, body.courier_id);
+  }
 
   // The lockout guards. Whoever is last holding the keys keeps them.
   const losingOwner =

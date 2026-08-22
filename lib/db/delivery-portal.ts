@@ -128,6 +128,39 @@ export const portalTracking = (v: string | undefined): PortalTracking | null =>
   v === "with" || v === "without" ? v : null;
 
 /**
+ * Parcels that need something done to them before the box is taped shut.
+ *
+ * Worth a filter because they are rare and unrecoverable: about 10 parcels in
+ * 1,270 are gifts and 5 of those are signed, which is far too few to find by
+ * scrolling — and the mistake they guard against, an unwrapped gift or an
+ * unsigned copy, is only discovered by the customer.
+ *
+ * Single-select rather than two checkboxes because the two are nested in the
+ * data, not independent: `is_signed` is only ever set alongside `is_gift`
+ * (verified — zero signed-but-not-gift rows), so "signed" is already a subset
+ * of "gift" and offering them as separate toggles would imply a combination
+ * that cannot exist.
+ */
+export const PORTAL_PACKING = ["gift", "signed", "plain"] as const;
+
+export type PortalPacking = (typeof PORTAL_PACKING)[number];
+
+export const PORTAL_PACKING_LABELS: Record<PortalPacking, string> = {
+  gift: "Gift wrap",
+  signed: "Signed",
+  plain: "Nothing extra",
+};
+
+export const PORTAL_PACKING_HINTS: Record<PortalPacking, string> = {
+  gift: "Wrap before it goes in the box",
+  signed: "Every copy signed — and gift wrapped",
+  plain: "Pack and send as it is",
+};
+
+export const portalPacking = (v: string | undefined): PortalPacking | null =>
+  (PORTAL_PACKING as readonly string[]).includes(v ?? "") ? (v as PortalPacking) : null;
+
+/**
  * Which end of the queue is at the top.
  *
  * "newest" is the default and the day's job — today's parcels first. "oldest"
@@ -236,7 +269,9 @@ function portalQuery(
   /** Whether the courier has a record of it. null = don't care. */
   tracking: PortalTracking | null = null,
   /** A handover_state value (migration 0035), or null for all of them. */
-  handover: string | null = null
+  handover: string | null = null,
+  /** Gift / signed / neither, or null for all of them. */
+  packing: PortalPacking | null = null
 ) {
   let query = supabaseAdmin
     .from(table)
@@ -269,6 +304,26 @@ function portalQuery(
     query = query.not("tracking_number", "is", null).neq("tracking_number", "");
   } else if (tracking === "without") {
     query = query.or("tracking_number.is.null,tracking_number.eq.");
+  }
+
+  // `is`, not `eq`, and `not.is.true` for the negative case.
+  //
+  // These are nullable booleans: a row created before the column existed holds
+  // NULL rather than false. `eq false` would silently drop every one of those
+  // from "Nothing extra" — the filter that most has to be complete, because it
+  // is the pile somebody packs without looking. `not.is.true` catches false and
+  // NULL together.
+  //
+  // Written as two `not` filters rather than two `or`s on purpose: the scope
+  // above already spends this query's one `or`, and PostgREST combining several
+  // top-level `or` parameters is not something to rest a packing instruction
+  // on. Two `not`s are ANDed with no ambiguity at all.
+  if (packing === "gift") {
+    query = query.is("is_gift", true);
+  } else if (packing === "signed") {
+    query = query.is("is_signed", true);
+  } else if (packing === "plain") {
+    query = query.not("is_gift", "is", true).not("is_signed", "is", true);
   }
 
   // The day picker filters on the same clock the list is sorted by — the day
@@ -327,7 +382,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   /** Whether the courier has a record of it, or null for either. */
   tracking: PortalTracking | null = null,
   /** A handover_state value, or null for all of them. */
-  handover: string | null = null
+  handover: string | null = null,
+  /** Gift / signed / neither, or null for all of them. */
+  packing: PortalPacking | null = null
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
@@ -352,7 +409,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     PORTAL_VIEW_COLUMNS,
     courierId,
     tracking,
-    handover
+    handover,
+    packing
   )
     .order("work_day", { ascending })
     .order("needs_entry", { ascending: false })
@@ -390,7 +448,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
       PORTAL_TABLE_COLUMNS,
       courierId,
       tracking,
-      handover
+      handover,
+      packing
     )
       .order("created_at", { ascending })
       .range(from, to);
@@ -412,7 +471,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         PORTAL_TABLE_COLUMNS.replace("courier_reference,", ""),
         courierId,
         tracking,
-        handover
+        handover,
+        packing
       )
         .order("created_at", { ascending })
         .range(from, to);
@@ -455,7 +515,16 @@ export async function fetchPickedForCourierSheet(
   orderNumbers: string[],
   /** The signed-in agent, or null for someone who may see every agent's work. */
   agentId: string | null,
-  limit: number = COURIER_SHEET_MAX
+  limit: number = COURIER_SHEET_MAX,
+  /**
+   * The partner asking, or null for someone who may sheet up anybody's parcels.
+   *
+   * This is the guard, not the order numbers: the ids come from the browser and
+   * prove nothing. A parcel belonging to another courier simply is not returned,
+   * so it never reaches the file — which matters more here than on any other
+   * route, because the file IS every customer's name, mobile and home address.
+   */
+  courierId: string | null = null
 ): Promise<CourierParcel[]> {
   if (!orderNumbers.length) return [];
 
@@ -479,8 +548,9 @@ export async function fetchPickedForCourierSheet(
 
   // Kept for an owner narrowing to one agent's parcels. A delivery login is no
   // longer scoped this way — it sees the courier's work — so this is normally
-  // null and the ids plus the conditions above are the whole guard.
+  // null and `courierId` below is what actually confines a partner.
   if (agentId) query = query.eq("assigned_agent_id", agentId);
+  if (courierId) query = query.eq("courier_id", courierId);
 
   const { data, error } = await query
     .order("created_at", { ascending: true })
@@ -576,6 +646,104 @@ export async function assignedAgentOf(
     throw new Error(error.message);
   }
   return data ? ((data.assigned_agent_id as string | null) ?? null) : undefined;
+}
+
+/**
+ * The addresses behind a set of ticked rows, for the printable sheet.
+ *
+ * Deliberately NOT `fetchPickedForCourierSheet`. That one is the handover: it
+ * only returns parcels that can still go onto an upload file, because
+ * downloading it confirms them. This is paper. A partner reprints a page they
+ * dropped, or prints one for parcels they handed over yesterday, and refusing
+ * them because a column says `courier_entered_at` would be a rule protecting
+ * nothing.
+ *
+ * The scope is the portal's own — paid, addressed, not cancelled, routed to
+ * somebody — plus the caller's courier. `courierId` is the guard: the order
+ * numbers arrive from a browser and prove nothing, and this query is every
+ * customer's name, mobile and home address.
+ */
+export async function fetchAddressesForSheet(
+  orderNumbers: string[],
+  courierId: string | null,
+  limit: number = COURIER_SHEET_MAX
+): Promise<AddressSheetRow[]> {
+  if (!orderNumbers.length) return [];
+
+  let query = supabaseAdmin
+    .from("orders")
+    .select(
+      "order_number,buyer_name,buyer_phone,address_line1,address_line2,city," +
+        // courier_id because the return address is per courier — the sheet
+        // stamps each parcel with the address it would actually come back to.
+        "district,state,pincode,quantity,is_gift,is_signed,ordered_at,courier_id"
+    )
+    .in("order_number", orderNumbers.slice(0, limit))
+    .eq("payment_status", "paid")
+    .not("address_line1", "is", null)
+    .neq("status", "cancelled")
+    .or("assigned_agent_id.not.is.null,courier_id.not.is.null");
+
+  if (courierId) query = query.eq("courier_id", courierId);
+
+  const { data, error } = await query
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error("[Portal] address sheet query failed:", error.message);
+    throw new Error(error.message);
+  }
+  return (data ?? []) as unknown as AddressSheetRow[];
+}
+
+/** Exactly what buildAddressSheet reads — see lib/address-sheet.ts. */
+export interface AddressSheetRow {
+  order_number: string;
+  buyer_name: string | null;
+  buyer_phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  district: string | null;
+  state: string | null;
+  pincode: string | null;
+  quantity: number | null;
+  is_gift: boolean | null;
+  is_signed: boolean | null;
+  ordered_at: string;
+  /** Whose return address goes on this one. Null for a parcel routed to nobody. */
+  courier_id: string | null;
+}
+
+/**
+ * Which courier is carrying this parcel — `undefined` if there is no such order.
+ *
+ * The portal's write guard since 0047, replacing the agent check above. Same
+ * reasoning, one level up: a partner's screen only ever shows their own
+ * courier's parcels, and the screen is not the enforcement. A POST carrying
+ * another partner's order number is one devtools console away, and it would
+ * expose that customer's name, mobile and home address to a competitor.
+ *
+ * `null` — routed to nobody yet — is a real answer and deliberately not an
+ * error. `mayHandle` in lib/delivery/scope.ts refuses it for a partner and
+ * allows it for an owner, which is the correct split: an unrouted parcel is
+ * the owner's to route.
+ */
+export async function courierOf(
+  orderNumber: string
+): Promise<string | null | undefined> {
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select("courier_id")
+    .eq("order_number", orderNumber)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Portal] courier lookup failed:", error.message);
+    throw new Error(error.message);
+  }
+  return data ? ((data.courier_id as string | null) ?? null) : undefined;
 }
 
 /** Longest courier AWB worth accepting — real ones run 10-20 characters. */

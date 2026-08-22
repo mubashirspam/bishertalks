@@ -179,6 +179,10 @@ function cleanConfig(raw: unknown): Record<string, string> {
     "client_name",
     "mode",
     "tracking",
+    // The return address printed on this partner's sheets. See CourierConfig.
+    "from_name",
+    "from_address",
+    "from_phone",
   ]) {
     const value = source[key];
     if (typeof value === "string" && value.trim()) out[key] = value.trim().slice(0, 200);

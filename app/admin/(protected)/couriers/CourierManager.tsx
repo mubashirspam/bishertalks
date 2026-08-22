@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Plus, X, Check, AlertCircle, Loader2, Power, Trash2, Info,
+  Plus, X, Check, AlertCircle, Loader2, Power, Trash2, Info, MapPin,
 } from "lucide-react";
 import {
   COURIER_HANDOFFS,
@@ -39,6 +39,39 @@ export default function CourierManager({
 
   const [name, setName] = useState("");
   const [handoff, setHandoff] = useState<CourierHandoff>("manual");
+
+  /** Which courier's return address is open for editing, if any. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const [from, setFrom] = useState({ name: "", address: "", phone: "" });
+
+  const openReturn = (c: Courier) => {
+    setEditing(c.id);
+    setFrom({
+      name: c.config.from_name ?? "",
+      address: c.config.from_address ?? "",
+      phone: c.config.from_phone ?? "",
+    });
+  };
+
+  const saveReturn = async (c: Courier) => {
+    // Spread the existing config, don't replace it. The PATCH stores whatever
+    // `config` it is given, so sending only the three fields below would drop
+    // pickup_location and tracking — and dropping `tracking` silently switches
+    // off live status for every parcel with that courier.
+    const ok = await call("PATCH", {
+      id: c.id,
+      config: {
+        ...c.config,
+        from_name: from.name,
+        from_address: from.address,
+        from_phone: from.phone,
+      },
+    });
+    if (ok) {
+      setMessage({ text: `Return address saved for ${c.name}.` });
+      setEditing(null);
+    }
+  };
 
   const call = async (method: string, body?: unknown, query = "") => {
     setBusy(method + query);
@@ -215,7 +248,8 @@ export default function CourierManager({
         ) : (
           <ul className="divide-y divide-neutral-100">
             {couriers.map((c) => (
-              <li key={c.id} className="p-4 flex flex-wrap items-center gap-3">
+              <li key={c.id} className="p-4">
+              <div className="flex flex-wrap items-center gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="font-semibold text-sm text-neutral-900 flex items-center gap-2 flex-wrap">
                     {c.name}
@@ -242,6 +276,7 @@ export default function CourierManager({
                     {HANDOFF_LABELS[c.handoff]}
                     {canTrack(c) && " · status comes back automatically"}
                     {c.config.pickup_location && ` · picks up from ${c.config.pickup_location}`}
+                    {c.config.from_address && " · own return address"}
                   </p>
                 </div>
 
@@ -256,6 +291,16 @@ export default function CourierManager({
                 </button>
 
                 <button
+                  onClick={() => (editing === c.id ? setEditing(null) : openReturn(c))}
+                  disabled={!!busy}
+                  title="The address a failed parcel comes back to, printed on this courier's sheets"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors disabled:opacity-40"
+                >
+                  <MapPin className="w-3.5 h-3.5" />
+                  Return address
+                </button>
+
+                <button
                   onClick={() => call("DELETE", undefined, `?id=${c.id}`)}
                   disabled={!!busy}
                   title="Delete — only possible if it has never carried a parcel"
@@ -263,6 +308,76 @@ export default function CourierManager({
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
+              </div>
+
+              {/* The FROM block printed on this courier's address sheets.
+                  Per courier because it genuinely differs: a parcel that fails
+                  at KKR comes back to KKR's counter, one posted through Speed
+                  Post to the branch it was booked at. Leaving a field empty is
+                  not an error — it falls back to the site-wide default, which
+                  is what every courier printed before this existed. */}
+              {editing === c.id && (
+                <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50/70 p-4">
+                  <p className="text-xs font-medium text-neutral-700 mb-3">
+                    Return address printed on {c.name}&apos;s sheets
+                  </p>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="text-[11px] font-medium text-neutral-500 mb-1 block">
+                        Name
+                      </label>
+                      <input
+                        value={from.name}
+                        onChange={(e) => setFrom({ ...from, name: e.target.value })}
+                        placeholder="Leave empty for the default"
+                        className="w-full bg-white border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-neutral-500 mb-1 block">
+                        Phone
+                      </label>
+                      <input
+                        value={from.phone}
+                        onChange={(e) => setFrom({ ...from, phone: e.target.value })}
+                        placeholder="Leave empty for the default"
+                        className="w-full bg-white border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+
+                  <label className="text-[11px] font-medium text-neutral-500 mb-1 mt-3 block">
+                    Address
+                  </label>
+                  <input
+                    value={from.address}
+                    onChange={(e) => setFrom({ ...from, address: e.target.value })}
+                    placeholder="Street, town, district, pincode"
+                    className="w-full bg-white border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+                  />
+                  <p className="text-[11px] text-neutral-500 mt-1.5">
+                    One line — it prints small, under the delivery address.
+                  </p>
+
+                  <div className="flex items-center gap-2 mt-4">
+                    <button
+                      onClick={() => saveReturn(c)}
+                      disabled={!!busy}
+                      className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold transition-all disabled:opacity-40"
+                    >
+                      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setEditing(null)}
+                      className="px-3.5 py-2 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
               </li>
             ))}
           </ul>

@@ -8,10 +8,11 @@ import {
   isPortalStatus,
   setCourierEntered,
   setTrackingNumber,
-  assignedAgentOf,
+  courierOf,
   PORTAL_STATUS_STEPS,
 } from "@/lib/db/delivery-portal";
 import { can } from "@/lib/permissions";
+import { portalScope, mayHandle } from "@/lib/delivery/scope";
 
 /**
  * One tick in the delivery portal.
@@ -38,19 +39,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Missing order_number" }, { status: 400 });
   }
 
-  // An agent may only touch parcels handed to them. Owners and managers — the
-  // people who can see the whole queue — are exempt, because they're the ones
-  // who fix an agent's mistake after the agent has gone home.
-  if (!can(auth.staff, "delivery.view")) {
+  // A partner may only touch parcels routed to their own courier. Owners and
+  // managers are exempt, because they're the ones who fix a partner's mistake
+  // after the partner has gone home.
+  //
+  // Scoped on the courier rather than on `assigned_agent_id` (0047). The old
+  // check was the reason this route refused 314 of the 512 parcels its own
+  // portal was showing: those went straight to a courier and were never given
+  // to a named person, so an agent check could only ever say no.
+  const scope = portalScope(auth.staff);
+  if (!scope.seesEveryone) {
     try {
-      const agent = await assignedAgentOf(orderNumber);
-      if (agent === undefined) {
+      const parcelCourier = await courierOf(orderNumber);
+      if (parcelCourier === undefined) {
         return NextResponse.json({ error: "Order not found" }, { status: 404 });
       }
-      if (!agent || agent !== auth.staff.id) {
-        console.warn(`[Portal] ${auth.staff.email} touched unassigned ${orderNumber}`);
+      if (!mayHandle(scope, parcelCourier)) {
+        console.warn(`[Portal] ${auth.staff.email} touched out-of-scope ${orderNumber}`);
         return NextResponse.json(
-          { error: "That parcel isn't assigned to you." },
+          { error: "That parcel isn't with your delivery partner." },
           { status: 403 }
         );
       }
@@ -96,6 +103,26 @@ export async function POST(request: NextRequest) {
 
   if (!isPortalStatus(status)) {
     return NextResponse.json({ error: "Unknown status" }, { status: 400 });
+  }
+
+  // Finishing a parcel is a separate capability from working one.
+  //
+  // `delivered` approves the referrer's commission and sends the customer a
+  // WhatsApp; `returned` voids it. Those are our money and our voice, and a
+  // courier partner's login holds delivery.portal without holding this. The
+  // parcel still reaches `delivered` on its own — a courier scan does it
+  // through /api/webhook/delhivery, which answers to no staff permission.
+  if ((status === "delivered" || status === "returned") &&
+      !can(auth.staff, "delivery.complete")) {
+    console.warn(`[Portal] ${auth.staff.email} denied ${status} on ${orderNumber}`);
+    return NextResponse.json(
+      {
+        error:
+          "Marking a parcel delivered or returned isn't part of your access — " +
+          "tick Shipped and it'll be closed off from here.",
+      },
+      { status: 403 }
+    );
   }
 
   try {

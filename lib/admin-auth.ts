@@ -18,6 +18,15 @@ export interface CurrentStaff {
   name: string;
   role: StaffRole;
   permissions: string[];
+  /**
+   * The delivery partner this login belongs to, or null (0047).
+   *
+   * Carried on the signed-in user because the portal and every delivery route
+   * scope on it. Resolved here, from the database, on each request — the same
+   * reason `permissions` is not trusted from the session token: an owner
+   * moving somebody to another partner expects it on their next click.
+   */
+  courier_id: string | null;
 }
 
 /**
@@ -59,6 +68,7 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
       name: staff.name,
       role: staff.role,
       permissions: staff.permissions ?? [],
+      courier_id: staff.courier_id ?? null,
     };
   }
 
@@ -69,6 +79,8 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
       name: "Owner",
       role: "owner",
       permissions: [],
+      // An owner is not a partner login and is never scoped to one.
+      courier_id: null,
     };
   }
 

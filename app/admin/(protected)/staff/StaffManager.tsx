@@ -26,6 +26,8 @@ interface Draft {
   phone: string;
   role: StaffRole;
   permissions: Permission[];
+  /** Which delivery partner this login belongs to. Only read on a delivery role. */
+  courierId: string;
 }
 
 const blank = (): Draft => ({
@@ -34,14 +36,18 @@ const blank = (): Draft => ({
   phone: "",
   role: "delivery",
   permissions: [...ROLE_PRESETS.delivery],
+  courierId: "",
 });
 
 export default function StaffManager({
   staff,
   currentStaffId,
+  couriers,
 }: {
   staff: Staff[];
   currentStaffId: string | null;
+  /** Active delivery partners a delivery login can be attached to. */
+  couriers: { id: string; name: string }[];
 }) {
   const router = useRouter();
   const [draft, setDraft] = useState<Draft | null>(null);
@@ -86,6 +92,10 @@ export default function StaffManager({
           phone: draft.phone,
           role: draft.role,
           permissions: draft.permissions,
+          // Always sent, including as "" — that is how a partner login is
+          // unlinked, and how a delivery account moved to another role stops
+          // carrying a courier it no longer means anything on.
+          courier_id: draft.courierId,
         })
       : await call("POST", draft);
 
@@ -225,6 +235,42 @@ export default function StaffManager({
             ))}
           </div>
 
+          {/* Which partner this login works for.
+              Only for a delivery role — it is the one role the portal scopes,
+              and storing it on a manager would be a value nothing reads. The
+              note underneath is not decoration: a delivery login with no
+              partner is scoped to nothing and opens an empty portal, which
+              reads as "no work today" rather than as a setting somebody
+              forgot to fill in. */}
+          {draft.role === "delivery" && (
+            <div className="mb-4">
+              <label
+                htmlFor="staff-courier"
+                className="text-xs font-medium text-neutral-500 mb-1.5 block"
+              >
+                Delivery partner
+              </label>
+              <select
+                id="staff-courier"
+                value={draft.courierId}
+                onChange={(e) => setDraft({ ...draft, courierId: e.target.value })}
+                className={`${field} w-full sm:max-w-sm`}
+              >
+                <option value="">Choose a partner…</option>
+                {couriers.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-neutral-500 mt-1.5 leading-snug">
+                {draft.courierId
+                  ? "They'll see this partner's parcels in the delivery portal, and no others."
+                  : "Until a partner is set, this login will open the portal and see nothing."}
+              </p>
+            </div>
+          )}
+
           {draft.role === "owner" ? (
             <p className="text-xs text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-2.5">
               Owners can do everything — there&apos;s nothing to tick.
@@ -350,6 +396,7 @@ export default function StaffManager({
                               phone: s.phone ?? "",
                               role: s.role,
                               permissions: s.permissions as Permission[],
+                              courierId: s.courier_id ?? "",
                             })
                           }
                           className="px-2.5 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors"

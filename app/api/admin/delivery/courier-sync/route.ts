@@ -12,6 +12,7 @@ import {
   trackingBatches,
 } from "@/lib/delhivery/track";
 import { applyScan } from "@/lib/db/courier-scan";
+import { portalScope } from "@/lib/delivery/scope";
 import { attachWaybill } from "@/lib/db/courier-send";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 
@@ -66,7 +67,13 @@ export async function POST(request: NextRequest) {
       ].slice(0, MAX)
     : [];
 
-  const courierId = typeof body.courier_id === "string" ? body.courier_id : "";
+  // A partner asks about their own courier and no other. The id off the wire
+  // is a request, not a fact: without this, a partner could name the courier
+  // they do not work for and read the scan history — and through it the
+  // movements — of a competitor's parcels.
+  const scope = portalScope(auth.staff);
+  const asked = typeof body.courier_id === "string" ? body.courier_id : "";
+  const courierId = scope.seesEveryone ? asked : (scope.courierId ?? "");
 
   /**
    * Sweep everything rather than one screenful.
@@ -82,7 +89,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Nothing to sync" }, { status: 400 });
   }
   if (!courierId) {
-    return NextResponse.json({ error: "No courier chosen" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: scope.seesEveryone
+          ? "No courier chosen"
+          : "Your login isn't linked to a delivery partner yet.",
+      },
+      { status: scope.seesEveryone ? 400 : 403 }
+    );
   }
 
   const courier = await getCourier(courierId);
@@ -116,11 +130,16 @@ export async function POST(request: NextRequest) {
     // nothing left to tell us, and asking about it spends the rate limit on a
     // question already answered.
     for (let from = 0; from < MAX_ALL; from += 1000) {
-      const { data, error } = await supabaseAdmin
+      let sweep = supabaseAdmin
         .from("orders")
         .select("order_number,tracking_number,courier_reference")
         .or("tracking_number.not.is.null,courier_reference.not.is.null")
-        .not("status", "in", "(delivered,returned,cancelled)")
+        .not("status", "in", "(delivered,returned,cancelled)");
+
+      // A sweep for a partner is a sweep of their own courier's parcels.
+      if (!scope.seesEveryone) sweep = sweep.eq("courier_id", courierId);
+
+      const { data, error } = await sweep
         .order("ordered_at", { ascending: false })
         .range(from, from + 999);
 
@@ -133,10 +152,17 @@ export async function POST(request: NextRequest) {
       if (batch.length < 1000) break;
     }
   } else {
-    const { data, error } = await supabaseAdmin
+    let picked = supabaseAdmin
       .from("orders")
       .select("order_number,tracking_number,courier_reference")
       .in("order_number", orderNumbers);
+
+    // Same guard as the sweep. The order numbers came from the browser and
+    // prove nothing; a parcel with another courier is simply not returned, so
+    // it is never asked about and never reported back.
+    if (!scope.seesEveryone) picked = picked.eq("courier_id", courierId);
+
+    const { data, error } = await picked;
 
     if (error) {
       console.error("[Sync] lookup failed:", error.message);

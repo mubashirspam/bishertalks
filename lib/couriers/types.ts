@@ -65,6 +65,24 @@ export interface CourierConfig {
    * "we can't ask them" hid a year of live tracking behind a spreadsheet.
    */
   tracking?: string;
+
+  /**
+   * The return address printed on this partner's paperwork.
+   *
+   * Per courier because it genuinely differs: a parcel handed to KKR comes back
+   * to KKR's franchise counter, one posted through Speed Post comes back to the
+   * post office branch it was booked at, and a rider's parcels come back to the
+   * office. One return address across all of them sends a failed parcel to a
+   * building that never had it.
+   *
+   * Every field is optional and falls back to the environment defaults in
+   * `senderFromEnv()` — a partner that has not been given its own address keeps
+   * printing the one that was there before, rather than printing nothing. A
+   * return address is the field whose absence makes a parcel unrecoverable.
+   */
+  from_name?: string;
+  from_address?: string;
+  from_phone?: string;
 }
 
 /** What each handoff means, in the words the admin screens use. */
