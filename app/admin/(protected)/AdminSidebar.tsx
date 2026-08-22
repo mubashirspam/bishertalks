@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Truck, Menu, X } from "lucide-react";
 import { ROLE_LABELS, ROLE_BADGE, type StaffRole } from "@/lib/permissions";
 import { visibleNav } from "@/lib/admin-nav";
+import LogoutButton from "@/components/admin/LogoutButton";
 
 /**
  * Left navigation. Client-side so the active item can be highlighted from the
@@ -56,6 +57,30 @@ export default function AdminSidebar({
       tone: "bg-blue-100 text-blue-700",
     },
   };
+
+  /**
+   * Who you are signed in as, and the way out.
+   *
+   * One block used by both layouts rather than two copies: the desktop footer
+   * had the identity and no sign-out, the mobile menu had neither, and the
+   * header that carried the only sign-out is `hidden lg:flex` whenever this
+   * sidebar renders. So on a phone an owner could not sign out at all — and on
+   * a desktop the only way out was a 12px grey word in the far corner.
+   */
+  const identity = (
+    <>
+      <p className="truncate text-xs font-medium text-neutral-700">{name}</p>
+      <p className="truncate text-[11px] text-neutral-400" title={email}>
+        {email}
+      </p>
+      <span
+        className={`mt-1.5 inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${ROLE_BADGE[role]}`}
+      >
+        {ROLE_LABELS[role]}
+      </span>
+      <LogoutButton variant="block" />
+    </>
+  );
 
   const nav = (
     <nav className="flex flex-col gap-1 px-3">
@@ -115,7 +140,10 @@ export default function AdminSidebar({
       </div>
 
       {open && (
-        <div className="lg:hidden border-b border-neutral-200 bg-white py-3">{nav}</div>
+        <div className="lg:hidden border-b border-neutral-200 bg-white py-3">
+          {nav}
+          <div className="mt-3 border-t border-neutral-100 px-6 pt-3">{identity}</div>
+        </div>
       )}
 
       {/* Desktop sidebar */}
@@ -133,14 +161,9 @@ export default function AdminSidebar({
 
         {/* Who you're signed in as, and with what. Worth showing once more
             than one person uses the panel — "why can't I see Orders?" is
-            answered by looking at the badge. */}
-        <div className="px-5 py-4 border-t border-neutral-100">
-          <p className="text-neutral-700 text-xs font-medium truncate">{name}</p>
-          <p className="text-neutral-400 text-[11px] truncate" title={email}>{email}</p>
-          <span className={`inline-flex mt-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold border ${ROLE_BADGE[role]}`}>
-            {ROLE_LABELS[role]}
-          </span>
-        </div>
+            answered by looking at the badge. The way out belongs here too:
+            it is where you look for it once your own name is on the screen. */}
+        <div className="px-5 py-4 border-t border-neutral-100">{identity}</div>
       </aside>
     </>
   );
