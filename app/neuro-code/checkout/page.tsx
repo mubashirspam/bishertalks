@@ -1,5 +1,5 @@
 import { cookies } from "next/headers";
-import { getProductPricing } from "@/lib/db/courses";
+import { getProductPricing, getScheduledPriceChange } from "@/lib/db/courses";
 import { getGiftSettings } from "@/lib/db/gift";
 import { getCheckoutSettings } from "@/lib/db/checkout-settings";
 import { MAGIC_CHECKOUT_ENABLED } from "@/lib/magic-checkout";
@@ -14,6 +14,7 @@ import StandardCheckoutForm from "./StandardCheckoutForm";
 import {
   PREORDER_DELIVERY_DAYS,
   launchOfferIsLive,
+  resolveOfferDeadline,
   launchOfferDayLabel,
   preorderArrivesBy,
 } from "@/lib/preorder";
@@ -35,9 +36,17 @@ export default async function CheckoutPage() {
   // client components, and `live` is a comparison against the clock — worked
   // out in the browser it would render one thing on the server and another
   // after hydration, on the line that sets the delivery expectation.
+  // Same deadline the landing page names: the moment the price is scheduled to
+  // change (0048). A checkout promising a different one than the page the
+  // customer arrived from is the contradiction they notice while holding a card.
+  const scheduled = await getScheduledPriceChange();
+  const deadline = resolveOfferDeadline(
+    scheduled && !scheduled.applied ? scheduled.effectiveAt : null
+  );
+
   const preorder = {
-    live: launchOfferIsLive(),
-    day: launchOfferDayLabel(),
+    live: launchOfferIsLive(Date.now(), deadline),
+    day: launchOfferDayLabel(deadline),
     arrivesBy: preorderArrivesBy(),
     deliveryDays: PREORDER_DELIVERY_DAYS,
   };

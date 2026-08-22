@@ -3,10 +3,12 @@ import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import { listPromoCodes } from "@/lib/db/promo";
 import { getGiftSettings } from "@/lib/db/gift";
 import { getCheckoutSettings } from "@/lib/db/checkout-settings";
+import { getProductPricing, getScheduledPriceChange } from "@/lib/db/courses";
 import AddPromoForm from "./AddPromoForm";
 import PromoRow from "./PromoRow";
 import GiftSettingsCard from "./GiftSettingsCard";
 import PromoFieldCard from "./PromoFieldCard";
+import PricingCard from "./PricingCard";
 import { requirePageAccess } from "@/lib/admin-auth";
 
 export const dynamic = "force-dynamic";
@@ -27,10 +29,14 @@ export default async function Page() {
 async function PromosBody() {
   await requirePageAccess("promos.manage");
 
-  const [promos, gift, checkout] = await Promise.all([
+  const [promos, gift, checkout, pricing, scheduled] = await Promise.all([
     listPromoCodes(),
     getGiftSettings(),
     getCheckoutSettings(),
+    // Uncached on purpose: an admin who just saved a price must see what they
+    // saved, not what the cache still believes.
+    getProductPricing(),
+    getScheduledPriceChange(),
   ]);
 
   return (
@@ -41,6 +47,33 @@ async function PromosBody() {
           What a customer can add or take off at the moment of paying.
         </p>
       </div>
+
+      {/* First, because it is the biggest number on the site. It used to live
+          under Courses → NLP → Offer price — the price of the product was a
+          field on the free course that comes with it. */}
+      <PricingCard
+        price={pricing.price}
+        offerPrice={pricing.offerPrice}
+        next={
+          scheduled && {
+            price: scheduled.price,
+            offerPrice: scheduled.offerPrice,
+            effectiveAtISO: scheduled.effectiveAt.toISOString(),
+            // The datetime-local input wants an IST wall clock, and the server
+            // is on UTC. Shift, then slice — letting the browser format it
+            // would show the admin's own timezone for a time that means IST.
+            effectiveAtLocal: new Date(
+              scheduled.effectiveAt.getTime() + 5.5 * 3600_000
+            )
+              .toISOString()
+              .slice(0, 16),
+            // Measured on the server so the card's countdown paints the same
+            // second the HTML carries.
+            remainingMs: scheduled.effectiveAt.getTime() - Date.now(),
+            applied: scheduled.applied,
+          }
+        }
+      />
 
       {/* Gift wrapping lives here rather than on a screen of its own: it is a
           checkout-time money setting, which is what this page already is, and

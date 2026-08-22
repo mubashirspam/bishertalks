@@ -130,8 +130,9 @@ export default function CourseFieldsForm({ course }: { course: AdminCourse }) {
         </label>
       </div>
       <p className="text-xs text-neutral-500">
-        Price/offer drive the checkout for the book-linked course. Offer price is
-        charged; the price shows struck-through.
+        These price the course on the public Courses page. The BOOK&apos;s price
+        moved to the Checkout tab &mdash; that is what the checkout charges, and
+        where a scheduled price change is set.
       </p>
 
       {error && <p className="text-red-600 text-sm">{error}</p>}

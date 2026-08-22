@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
-import { faqs } from "./faqs";
+import { buildFaqs } from "./faqs";
 import { Band, Card, Heading, OrderNow, Rule } from "./ui";
 import { CountdownBoxes, CountdownClock, useCountdown } from "./Countdown";
 import {
@@ -87,6 +87,11 @@ export default function NeuroCodeLanding({
   campaign: Campaign;
 }) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+
+  // Same deadline the countdown below is built from — the FAQ answer about how
+  // long this price lasts names the day, and naming a different one than the
+  // clock on the same page is the kind of contradiction people screenshot.
+  const faqs = buildFaqs(campaign.dayMl);
 
   // The clock, seeded from the server's measurement (see Countdown.tsx).
   const left = useCountdown(campaign.endsAt, campaign.remainingMs);

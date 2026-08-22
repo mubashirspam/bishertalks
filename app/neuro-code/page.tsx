@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { getCachedProductPricing } from "@/lib/db/courses";
+import { getCachedProductPricing, getScheduledPriceChange } from "@/lib/db/courses";
 import NeuroCodeLanding from "./NeuroCodeLanding";
 import { getLandingContent } from "@/lib/db/landing";
 import {
   PREORDER_DELIVERY_DAYS,
   launchOfferIsLive,
-  launchOfferEndsAt,
+  resolveOfferDeadline,
   launchOfferDayLabel,
   launchOfferDayLabelMl,
   launchOfferDateLabel,
   preorderArrivesBy,
 } from "@/lib/preorder";
-import { faqs } from "./faqs";
+import { buildFaqs } from "./faqs";
 
 // Kept dynamic on purpose. The reads below are cached now, so this no longer
 // costs a database round trip per visit — but prerendering the route would put
@@ -65,10 +65,24 @@ export default async function NeuroCodePage() {
   // Pricing and CMS content in parallel — neither depends on the other. Both
   // are cached and tag-invalidated on admin edit, so the page still renders per
   // request but stops paying for a database round trip on every visit.
-  const [pricing, landing] = await Promise.all([
+  const [pricing, landing, scheduled] = await Promise.all([
     getCachedProductPricing(),
     getLandingContent(),
+    getScheduledPriceChange(),
   ]);
+
+  // The deadline the page names is the moment the price actually changes (0048).
+  //
+  // A change that has already landed is history, not a deadline — falling back
+  // then gives the hardcoded date, which is also past, so the offer framing
+  // disappears rather than counting down to something that already happened.
+  const deadline = resolveOfferDeadline(
+    scheduled && !scheduled.applied ? scheduled.effectiveAt : null
+  );
+
+  // Built from the same instant as the countdown, so the FAQ answer about how
+  // long the price lasts cannot name a different day than the clock above it.
+  const faqs = buildFaqs(launchOfferDayLabelMl(deadline));
 
   // Product + Book + FAQ schema, built from the same data the page renders —
   // the live price and the on-screen FAQ — so it can't contradict the page.
@@ -139,7 +153,7 @@ export default async function NeuroCodePage() {
         testimonials={landing.testimonials}
         settings={landing.settings}
         campaign={{
-          live: launchOfferIsLive(),
+          live: launchOfferIsLive(Date.now(), deadline),
           // The clock, decided here for the same reason `live` is. The browser
           // is handed the deadline *and* the gap the server measured, so its
           // first render prints the second the server printed; only after
@@ -147,11 +161,11 @@ export default async function NeuroCodePage() {
           // out in the browser instead would put a different number in the DOM
           // than the HTML carries, on the one element that is meant to be
           // stared at.
-          endsAt: launchOfferEndsAt().getTime(),
-          remainingMs: launchOfferEndsAt().getTime() - Date.now(),
-          day: launchOfferDayLabel(),
-          dayMl: launchOfferDayLabelMl(),
-          date: launchOfferDateLabel(),
+          endsAt: deadline.getTime(),
+          remainingMs: deadline.getTime() - Date.now(),
+          day: launchOfferDayLabel(deadline),
+          dayMl: launchOfferDayLabelMl(deadline),
+          date: launchOfferDateLabel(deadline),
           arrivesBy: preorderArrivesBy(),
           deliveryDays: PREORDER_DELIVERY_DAYS,
         }}

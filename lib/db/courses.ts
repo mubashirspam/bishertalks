@@ -4,6 +4,13 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import type { Course } from "@/lib/courses-data";
 import { BOOK_BONUS_COURSE_SLUG } from "@/lib/types/db";
 import {
+  resolvePricing,
+  shapePair,
+  envFallbackRupees,
+  type ProductPricing,
+  type PricingRow,
+} from "@/lib/pricing";
+import {
   COURSES_TAG,
   COURSES_CACHE_SECONDS,
   revalidateCourses,
@@ -202,43 +209,50 @@ export async function updateCourseSettings(
   revalidateCourses();
 }
 
-export interface ProductPricing {
-  /** Original price in whole rupees (the struck-through "MRP"). */
-  price: number;
-  /** Discounted price in whole rupees, or null if there's no offer. */
-  offerPrice: number | null;
-  /** What the customer pays before any promo, in whole rupees. */
-  payable: number;
-  /** Same as payable, in paise (for Razorpay / order amount). */
-  payablePaise: number;
-}
+// Re-exported so the dozen callers that import ProductPricing from here keep
+// working — the type moved to lib/pricing.ts to get it away from the React
+// cache, not to make everyone rewrite an import.
+export type { ProductPricing };
+export { resolvePricing };
 
-interface PricingRow {
+/** The old shape, for the fallback path below. */
+interface CoursePricingRow {
   price: number | null;
   offer_price: number | null;
 }
 
-/** Turn the course row into the shape callers use. An offer only counts if it
- *  actually undercuts the price, so a stale higher "offer" can't raise it. */
-function shapePricing(row: PricingRow | null): ProductPricing {
-  const fallbackRupees = Math.round(
-    parseInt(process.env.BOOK_PRICE_PAISE || "49900", 10) / 100
-  );
+const PRICING_COLUMNS =
+  "book_price_rupees,book_offer_rupees,next_book_price_rupees," +
+  "next_book_offer_rupees,price_effective_at";
 
-  const price = row?.price ?? fallbackRupees;
-  const offerPrice =
-    row?.offer_price != null && row.offer_price < price ? row.offer_price : null;
-  const payable = offerPrice ?? price;
+const COURSE_PRICING_COLUMNS = "price,offer_price";
 
-  return { price, offerPrice, payable, payablePaise: payable * 100 };
+/**
+ * Where the price used to live, for a database that has not had 0048 applied.
+ *
+ * Migrations here are applied by hand, so a deploy can land first — and this is
+ * the number every order is charged. Falling straight to BOOK_PRICE_PAISE would
+ * quietly sell the book for ₹499. The row we are migrating away from is still
+ * correct until somebody edits the new one, so read that instead.
+ */
+async function readCoursePricing(): Promise<ProductPricing> {
+  const { data } = await supabaseAdmin
+    .from("courses")
+    .select(COURSE_PRICING_COLUMNS)
+    .eq("slug", BOOK_BONUS_COURSE_SLUG)
+    .maybeSingle();
+
+  const row = data as CoursePricingRow | null;
+  return shapePair(row?.price ?? envFallbackRupees(), row?.offer_price ?? null);
 }
-
-const PRICING_COLUMNS = "price,offer_price";
 
 /**
  * Pricing for the sellable product (the book, which bundles the bonus course).
- * Sourced from the bonus course row so admins can edit it; falls back to the
- * env BOOK_PRICE_PAISE (default ₹499) when no price has been set.
+ *
+ * Lives on `checkout_settings` since 0048 — the table behind the Checkout tab,
+ * which is where somebody looks for what a customer pays. It used to be read
+ * off the bonus course's own row, which meant the price of the product was a
+ * field on the free gift that comes with it.
  *
  * Uncached, and deliberately so: this is what /api/orders/create and
  * /api/promo/validate charge from. A cached price that lagged an admin edit
@@ -248,47 +262,132 @@ const PRICING_COLUMNS = "price,offer_price";
  * runs on every visit.
  */
 export async function getProductPricing(): Promise<ProductPricing> {
-  const { data } = await supabaseAdmin
-    .from("courses")
+  const { data, error } = await supabaseAdmin
+    .from("checkout_settings")
     .select(PRICING_COLUMNS)
-    .eq("slug", BOOK_BONUS_COURSE_SLUG)
+    .eq("id", true)
     .maybeSingle();
 
-  return shapePricing(data as PricingRow | null);
+  if (error) {
+    console.error(
+      "[Pricing] checkout_settings read failed — is migration 0048 applied? " +
+        "Falling back to the course row.",
+      error.message
+    );
+    return readCoursePricing();
+  }
+
+  const row = data as PricingRow | null;
+
+  // The columns exist but nobody has put a price in them — the migration ran
+  // and its seed did not, or the row was created empty. `resolvePricing` would
+  // fall to BOOK_PRICE_PAISE and quietly sell the book at ₹499. The course row
+  // it is being migrated away from is still right until somebody edits the new
+  // one, so prefer that.
+  if (!hasPrice(row)) {
+    console.error(
+      "[Pricing] checkout_settings has no book price — did 0048's seed run? " +
+        "Falling back to the course row."
+    );
+    return readCoursePricing();
+  }
+
+  return resolvePricing(row);
+}
+
+/** Is there a real price stored, as opposed to an empty row? */
+function hasPrice(row: PricingRow | null): row is PricingRow {
+  return row != null && row.book_price_rupees != null;
 }
 
 /**
- * Throws rather than falling back, because the result of this one gets stored.
- * Caching the env fallback would pin the wrong price on the sales page for the
- * next five minutes every time a read blipped.
- */
-const readPricingCached = cached("product-pricing", async (): Promise<ProductPricing> => {
-  const { data, error } = await supabaseAdmin
-    .from("courses")
-    .select(PRICING_COLUMNS)
-    .eq("slug", BOOK_BONUS_COURSE_SLUG)
-    .maybeSingle();
-
-  if (error) throw new Error(`product pricing read failed: ${error.message}`);
-  return shapePricing(data as PricingRow | null);
-});
-
-/**
- * Same price, for pages that only display it.
+ * The raw row, cached — NOT the resolved price.
  *
- * The landing page renders on every visit and used to pay for this read twice —
- * once in generateMetadata, once in the page body — which put two database
- * round trips in front of every visitor for a number that changes when an admin
- * edits it and not otherwise. Tagged with COURSES_TAG, so `revalidateCourses()`
- * (already called after every course mutation) makes an edit visible at once.
+ * This distinction is the whole scheduling feature. Caching the resolved price
+ * behind COURSES_CACHE_SECONDS (300s) would mean a change set for midnight
+ * arrives up to five minutes late, on every server that happened to warm its
+ * cache at 23:59. Caching the row and resolving against `Date.now()` on the way
+ * out makes the flip exact whatever the cache is doing.
+ *
+ * Throws rather than falling back, because the result gets cached: pinning a
+ * fallback for five minutes every time a read blipped is worse than one slow
+ * request.
  */
+const readPricingRowCached = cached(
+  "product-pricing-row",
+  async (): Promise<PricingRow | null> => {
+    const { data, error } = await supabaseAdmin
+      .from("checkout_settings")
+      .select(PRICING_COLUMNS)
+      .eq("id", true)
+      .maybeSingle();
+
+    if (error) throw new Error(`product pricing read failed: ${error.message}`);
+    return data as PricingRow | null;
+  }
+);
+
 export async function getCachedProductPricing(): Promise<ProductPricing> {
   try {
-    return await readPricingCached();
+    // Resolved HERE, outside the cache, against this request's clock. The cache
+    // holds the row; the schedule is applied fresh every time. THIS is what
+    // makes a change set for midnight land at midnight rather than whenever the
+    // cache next expires.
+    const row = await readPricingRowCached();
+
+    // Same guard as the live read: an empty row must not become ₹499.
+    if (!hasPrice(row)) return getProductPricing();
+
+    return resolvePricing(row);
   } catch (e) {
-    // A live read still beats showing the env fallback, and it keeps the page
-    // up if the cache layer itself is the thing that's unhappy.
+    // A live read still beats showing a fallback, and it keeps the page up if
+    // the cache layer itself is the thing that's unhappy.
     console.error("[Pricing] cached read failed, reading live:", e);
     return getProductPricing();
   }
+}
+
+/**
+ * The pending price change, for the admin card and the countdown.
+ *
+ * Separate from `getProductPricing` on purpose: that answers "what does this
+ * customer pay", which must never depend on a schedule that has not arrived.
+ * This answers "what is about to happen", which only the admin screen and the
+ * deadline copy have any business knowing.
+ *
+ * Returns null when nothing is scheduled, and keeps returning the change after
+ * its moment has passed — the card needs to say "took effect at" rather than
+ * forgetting, and `lib/preorder.ts` needs the instant either way.
+ */
+export interface ScheduledPriceChange {
+  price: number;
+  offerPrice: number | null;
+  /** When it takes over. May be in the past. */
+  effectiveAt: Date;
+  /** Has that moment already passed? */
+  applied: boolean;
+}
+
+export async function getScheduledPriceChange(): Promise<ScheduledPriceChange | null> {
+  const { data, error } = await supabaseAdmin
+    .from("checkout_settings")
+    .select(PRICING_COLUMNS)
+    .eq("id", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[Pricing] schedule read failed:", error.message);
+    return null;
+  }
+
+  const row = data as PricingRow | null;
+  if (!row?.price_effective_at || row.next_book_price_rupees == null) return null;
+
+  const effectiveAt = new Date(row.price_effective_at);
+  return {
+    price: row.next_book_price_rupees,
+    offerPrice: row.next_book_offer_rupees,
+    effectiveAt,
+    applied: effectiveAt.getTime() <= Date.now(),
+  };
 }

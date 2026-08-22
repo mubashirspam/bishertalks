@@ -60,11 +60,34 @@ export const PREORDER_DELIVERY_DAYS = 12;
  */
 export const LAUNCH_OFFER_LAST_DAY = "2026-08-22";
 
-/** The instant the launch price stops being the launch price. */
+/**
+ * The instant the launch price stops being the launch price.
+ *
+ * The FALLBACK, used when nothing is scheduled on the Checkout tab. Since 0048
+ * the real answer is `price_effective_at` — the moment the price actually
+ * changes — because a page promising a deadline that is not when the number
+ * moves is worse than one that promises nothing. See `resolveOfferDeadline`.
+ */
 export function launchOfferEndsAt(): Date {
   // Exclusive end of that IST calendar day — the same helper the admin date
   // filters use, so "Saturday" means the same midnight everywhere.
   return new Date(istDayEndUTC(LAUNCH_OFFER_LAST_DAY));
+}
+
+/**
+ * The deadline this page should actually name.
+ *
+ * `scheduledAt` is the pending price change, read from the Checkout tab by the
+ * server component. When there is one it wins: the clock on the page and the
+ * moment the customer starts being charged more are then the same instant by
+ * construction, rather than two dates somebody has to remember to keep in step.
+ *
+ * A scheduled change whose moment has already passed is NOT a deadline — it is
+ * history, and the page should stop counting to it. That is what the second
+ * half of `launchOfferIsLive` reads.
+ */
+export function resolveOfferDeadline(scheduledAt: Date | null): Date {
+  return scheduledAt ?? launchOfferEndsAt();
 }
 
 /**
@@ -75,8 +98,11 @@ export function launchOfferEndsAt(): Date {
  * one answer and the browser another for anyone loading the page across
  * midnight — a hydration mismatch on the single most important line of copy.
  */
-export function launchOfferIsLive(now: number = Date.now()): boolean {
-  return now < launchOfferEndsAt().getTime();
+export function launchOfferIsLive(
+  now: number = Date.now(),
+  deadline: Date = launchOfferEndsAt()
+): boolean {
+  return now < deadline.getTime();
 }
 
 /**
@@ -88,16 +114,32 @@ export function launchOfferIsLive(now: number = Date.now()): boolean {
  * after the deadline. Noon cannot slide across a date boundary in either
  * direction, whatever the conversion.
  */
-export function launchOfferDayLabel(): string {
-  return new Date(`${LAUNCH_OFFER_LAST_DAY}T12:00:00+05:30`).toLocaleDateString("en-IN", {
+export function launchOfferDayLabel(deadline: Date = launchOfferEndsAt()): string {
+  return atNoonBefore(deadline).toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata",
     weekday: "long",
   });
 }
 
+/**
+ * Noon on the last day the offer stands, given the instant it ends.
+ *
+ * The deadline is the EXCLUSIVE end of a day — midnight — so asking it for a
+ * weekday answers with the day after. Stepping back an hour lands inside the
+ * final day, and noon of that day cannot slide across a date boundary in either
+ * direction whatever the timezone conversion. Same trick the hardcoded version
+ * used; it just has to work from an arbitrary instant now.
+ */
+function atNoonBefore(deadline: Date): Date {
+  const istDay = new Date(deadline.getTime() - 3600_000).toLocaleDateString("en-CA", {
+    timeZone: "Asia/Kolkata",
+  });
+  return new Date(`${istDay}T12:00:00+05:30`);
+}
+
 /** "22 Aug" — the same deadline as a date, for where a weekday is too vague. */
-export function launchOfferDateLabel(): string {
-  return new Date(`${LAUNCH_OFFER_LAST_DAY}T12:00:00+05:30`).toLocaleDateString("en-IN", {
+export function launchOfferDateLabel(deadline: Date = launchOfferEndsAt()): string {
+  return atNoonBefore(deadline).toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "numeric",
     month: "short",
@@ -112,16 +154,16 @@ export function launchOfferDateLabel(): string {
  * string is the one nobody remembers to change, and it would be wrong in the
  * language most of these readers are actually reading.
  */
-export function launchOfferDayLabelMl(): string {
-  return new Date(`${LAUNCH_OFFER_LAST_DAY}T12:00:00+05:30`).toLocaleDateString("ml-IN", {
+export function launchOfferDayLabelMl(deadline: Date = launchOfferEndsAt()): string {
+  return atNoonBefore(deadline).toLocaleDateString("ml-IN", {
     timeZone: "Asia/Kolkata",
     weekday: "long",
   });
 }
 
 /** "ഓഗസ്റ്റ് 22" — the deadline as a date, in Malayalam. */
-export function launchOfferDateLabelMl(): string {
-  return new Date(`${LAUNCH_OFFER_LAST_DAY}T12:00:00+05:30`).toLocaleDateString("ml-IN", {
+export function launchOfferDateLabelMl(deadline: Date = launchOfferEndsAt()): string {
+  return atNoonBefore(deadline).toLocaleDateString("ml-IN", {
     timeZone: "Asia/Kolkata",
     day: "numeric",
     month: "long",
@@ -166,8 +208,16 @@ export function editionDispatchDayLabelMl(): string {
 /**
  * What the 4th edition will cost once the pre-order window closes, in rupees.
  *
- * This is NOT what anyone is charged — that price still lives in the `courses`
- * table. It is only the number quoted back to a buyer who already paid, to say
- * what they are not being asked for.
+ * NOT what anyone is charged. That is the scheduled price on the Checkout tab
+ * (`checkout_settings.next_book_offer_rupees`, migration 0048), and it is what
+ * customers actually pay the moment it lands. This constant is only the number
+ * quoted back to a buyer who has ALREADY paid, to tell them what they are not
+ * being asked for.
+ *
+ * KEEP IT MATCHED to the scheduled price. It is not read from the database
+ * because the message is built synchronously inside admin client components,
+ * and threading a database read through them to quote a figure at somebody who
+ * has already been charged is not worth what it would cost. It is the one
+ * number here a person has to keep in step by hand.
  */
 export const NEXT_EDITION_PRICE = 749;
