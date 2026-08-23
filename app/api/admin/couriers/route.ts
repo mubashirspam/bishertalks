@@ -183,6 +183,11 @@ function cleanConfig(raw: unknown): Record<string, string> {
     "from_name",
     "from_address",
     "from_phone",
+    // The masthead printed above it: heading, and the account a contractual
+    // booking is charged to. See CourierConfig.
+    "sheet_title",
+    "customer_id",
+    "contract_id",
   ]) {
     const value = source[key];
     if (typeof value === "string" && value.trim()) out[key] = value.trim().slice(0, 200);

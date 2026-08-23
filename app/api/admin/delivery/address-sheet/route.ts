@@ -4,14 +4,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { portalScope } from "@/lib/delivery/scope";
 import { fetchAddressesForSheet } from "@/lib/db/delivery-portal";
-import { buildAddressSheet, ADDRESSES_PER_PAGE } from "@/lib/address-sheet";
+import { buildAddressSheet } from "@/lib/address-sheet";
 import { listCouriers } from "@/lib/db/couriers";
-import { senderForCourier } from "@/lib/shipping-label";
+import { senderForCourier, sheetHeaderForCourier } from "@/lib/shipping-label";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import { istToday } from "@/lib/format-date";
 
 /**
- * The ticked parcels as a printable A4 sheet, ten addresses to a page.
+ * The ticked parcels as a printable A4 sheet, fifteen addresses to a page.
  *
  * The paper half of the Excel download. Same rows, same scope, same
  * permission — and one deliberate difference: **this route writes nothing.**
@@ -81,16 +81,25 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // The return address, per parcel rather than per sheet. Each courier has its
-  // own — a failed KKR parcel comes back to KKR's counter, a Speed Post one to
-  // the branch it was booked at — and an owner printing across couriers gets a
-  // page carrying several. A parcel routed to nobody falls back to the
-  // environment default, which is also what an unconfigured partner gets.
+  // The masthead and the return address, per courier rather than per run. Each
+  // has its own — a Speed Post sheet carries India Post's contract numbers and
+  // its parcels come back to the branch they were booked at, a KKR one carries
+  // neither and comes back to KKR's counter — and an owner printing across
+  // couriers gets a page each. A parcel routed to nobody falls back to the
+  // environment defaults, which is also what an unconfigured partner gets.
   const byId = new Map((await listCouriers()).map((c) => [c.id, c.config]));
-  const pdf = buildAddressSheet(rows, (o) =>
-    senderForCourier(o.courier_id ? byId.get(o.courier_id) : null)
+  const configOf = (o: { courier_id: string | null }) =>
+    o.courier_id ? byId.get(o.courier_id) ?? null : null;
+
+  const { pdf, pages } = buildAddressSheet(
+    rows,
+    (o) => senderForCourier(configOf(o)),
+    // The masthead comes from the same place — an India Post page carries India
+    // Post's contract numbers, a hand-over partner's carries none. The builder
+    // reports the page count rather than the caller dividing by fifteen,
+    // because it starts a fresh page per courier and the two no longer agree.
+    (o) => sheetHeaderForCourier(configOf(o))
   );
-  const pages = Math.ceil(rows.length / ADDRESSES_PER_PAGE);
 
   return new NextResponse(new Uint8Array(pdf), {
     headers: {

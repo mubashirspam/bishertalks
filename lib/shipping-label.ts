@@ -107,6 +107,57 @@ export function senderForCourier(config: CourierConfig | null | undefined): Send
   };
 }
 
+/**
+ * The masthead of an address sheet: the heading, and the account the parcel is
+ * booked against.
+ *
+ * Separate from `SenderDetails` because it answers a different question. The
+ * sender is where a failed parcel goes back to; this is what the counter reads
+ * to accept it in the first place — and a partner can need one without the
+ * other, which is why an empty `customerId` prints no band rather than an
+ * empty one.
+ */
+export interface SheetHeader {
+  title: string;
+  customerId: string;
+  contractId: string;
+}
+
+/**
+ * The default masthead — environment first, so it can be corrected without a
+ * deploy, exactly like the return address.
+ *
+ * The title falls back to a partner-neutral word rather than India Post's:
+ * a sheet printed for a courier nobody has configured should not claim to be
+ * contractual post, because the counter it is handed to would be right to
+ * refuse it.
+ */
+export function sheetHeaderFromEnv(): SheetHeader {
+  return {
+    title: process.env.SHIP_SHEET_TITLE || "PARCEL ADDRESS",
+    customerId: process.env.SHIP_CUSTOMER_ID || "",
+    contractId: process.env.SHIP_CONTRACT_ID || "",
+  };
+}
+
+/**
+ * The masthead for one courier, falling back to the environment.
+ *
+ * Per field for the same reason `senderForCourier` is: a partner given its own
+ * heading but no contract number keeps the default numbers rather than losing
+ * the heading too.
+ */
+export function sheetHeaderForCourier(
+  config: CourierConfig | null | undefined
+): SheetHeader {
+  const fallback = sheetHeaderFromEnv();
+  return {
+    title: config?.sheet_title?.trim() || fallback.title,
+    customerId: config?.customer_id?.trim() || fallback.customerId,
+    contractId: config?.contract_id?.trim() || fallback.contractId,
+  };
+}
+
 /** What's in the box. One title, one copy — this is a single-product store. */
 /**
  * What's in the parcel.

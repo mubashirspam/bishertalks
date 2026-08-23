@@ -40,22 +40,29 @@ export default function CourierManager({
   const [name, setName] = useState("");
   const [handoff, setHandoff] = useState<CourierHandoff>("manual");
 
-  /** Which courier's return address is open for editing, if any. */
+  /** Which courier's address sheet is open for editing, if any. */
   const [editing, setEditing] = useState<string | null>(null);
   const [from, setFrom] = useState({ name: "", address: "", phone: "" });
+  /** The masthead: what prints above the address, and the account it books to. */
+  const [head, setHead] = useState({ title: "", customer: "", contract: "" });
 
-  const openReturn = (c: Courier) => {
+  const openSheet = (c: Courier) => {
     setEditing(c.id);
     setFrom({
       name: c.config.from_name ?? "",
       address: c.config.from_address ?? "",
       phone: c.config.from_phone ?? "",
     });
+    setHead({
+      title: c.config.sheet_title ?? "",
+      customer: c.config.customer_id ?? "",
+      contract: c.config.contract_id ?? "",
+    });
   };
 
-  const saveReturn = async (c: Courier) => {
+  const saveSheet = async (c: Courier) => {
     // Spread the existing config, don't replace it. The PATCH stores whatever
-    // `config` it is given, so sending only the three fields below would drop
+    // `config` it is given, so sending only the fields below would drop
     // pickup_location and tracking — and dropping `tracking` silently switches
     // off live status for every parcel with that courier.
     const ok = await call("PATCH", {
@@ -65,10 +72,13 @@ export default function CourierManager({
         from_name: from.name,
         from_address: from.address,
         from_phone: from.phone,
+        sheet_title: head.title,
+        customer_id: head.customer,
+        contract_id: head.contract,
       },
     });
     if (ok) {
-      setMessage({ text: `Return address saved for ${c.name}.` });
+      setMessage({ text: `Address sheet saved for ${c.name}.` });
       setEditing(null);
     }
   };
@@ -277,6 +287,7 @@ export default function CourierManager({
                     {canTrack(c) && " · status comes back automatically"}
                     {c.config.pickup_location && ` · picks up from ${c.config.pickup_location}`}
                     {c.config.from_address && " · own return address"}
+                    {c.config.contract_id && ` · contract ${c.config.contract_id}`}
                   </p>
                 </div>
 
@@ -291,13 +302,13 @@ export default function CourierManager({
                 </button>
 
                 <button
-                  onClick={() => (editing === c.id ? setEditing(null) : openReturn(c))}
+                  onClick={() => (editing === c.id ? setEditing(null) : openSheet(c))}
                   disabled={!!busy}
-                  title="The address a failed parcel comes back to, printed on this courier's sheets"
+                  title="What prints on this courier's address sheets — heading, contract numbers, and the address a failed parcel comes back to"
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors disabled:opacity-40"
                 >
                   <MapPin className="w-3.5 h-3.5" />
-                  Return address
+                  Address sheet
                 </button>
 
                 <button
@@ -310,16 +321,69 @@ export default function CourierManager({
                 </button>
               </div>
 
-              {/* The FROM block printed on this courier's address sheets.
-                  Per courier because it genuinely differs: a parcel that fails
-                  at KKR comes back to KKR's counter, one posted through Speed
-                  Post to the branch it was booked at. Leaving a field empty is
-                  not an error — it falls back to the site-wide default, which
-                  is what every courier printed before this existed. */}
+              {/* Everything printed on this courier's address sheets, in the
+                  order it prints. Per courier because it genuinely differs: a
+                  Speed Post parcel is booked against a contract and comes back
+                  to the branch it was posted at, a KKR one has no contract and
+                  comes back to KKR's counter. Leaving a field empty is not an
+                  error — it falls back to the site-wide default, and an empty
+                  contract number simply prints no contract band. */}
               {editing === c.id && (
                 <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50/70 p-4">
-                  <p className="text-xs font-medium text-neutral-700 mb-3">
-                    Return address printed on {c.name}&apos;s sheets
+                  <p className="text-xs font-medium text-neutral-700 mb-1">
+                    Printed above every address on {c.name}&apos;s sheets
+                  </p>
+                  <p className="text-[11px] text-neutral-500 mb-3">
+                    Fifteen addresses to an A4 page, and each one carries this
+                    heading and these numbers — a cell gets cut out and travels
+                    with the parcel on its own.
+                  </p>
+
+                  <label className="text-[11px] font-medium text-neutral-500 mb-1 block">
+                    Heading
+                  </label>
+                  <input
+                    value={head.title}
+                    onChange={(e) => setHead({ ...head, title: e.target.value })}
+                    placeholder="INDIA POST PARCEL CONTRACTUAL"
+                    className="w-full bg-white border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+                  />
+                  <p className="text-[11px] text-neutral-500 mt-1.5">
+                    Prints in capitals, centred, on one line — keep it short
+                    enough to read at that size.
+                  </p>
+
+                  <div className="grid gap-3 sm:grid-cols-2 mt-3">
+                    <div>
+                      <label className="text-[11px] font-medium text-neutral-500 mb-1 block">
+                        Customer ID
+                      </label>
+                      <input
+                        value={head.customer}
+                        onChange={(e) => setHead({ ...head, customer: e.target.value })}
+                        placeholder="Leave empty if there is none"
+                        className="w-full bg-white border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] font-medium text-neutral-500 mb-1 block">
+                        Contract ID
+                      </label>
+                      <input
+                        value={head.contract}
+                        onChange={(e) => setHead({ ...head, contract: e.target.value })}
+                        placeholder="Leave empty if there is none"
+                        className="w-full bg-white border border-neutral-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-neutral-500 mt-1.5">
+                    The account the booking is charged to. Both empty and that
+                    line doesn&apos;t print at all.
+                  </p>
+
+                  <p className="text-xs font-medium text-neutral-700 mb-3 mt-5 pt-4 border-t border-neutral-200">
+                    Return address printed at the foot
                   </p>
 
                   <div className="grid gap-3 sm:grid-cols-2">
@@ -362,7 +426,7 @@ export default function CourierManager({
 
                   <div className="flex items-center gap-2 mt-4">
                     <button
-                      onClick={() => saveReturn(c)}
+                      onClick={() => saveSheet(c)}
                       disabled={!!busy}
                       className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-primary-500 hover:bg-primary-600 text-white text-xs font-semibold transition-all disabled:opacity-40"
                     >

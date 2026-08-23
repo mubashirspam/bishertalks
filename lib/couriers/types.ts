@@ -83,6 +83,31 @@ export interface CourierConfig {
   from_name?: string;
   from_address?: string;
   from_phone?: string;
+
+  /**
+   * The heading across the top of this partner's address sheets.
+   *
+   * A contractual India Post parcel is posted under a printed heading the
+   * counter recognises — "INDIA POST PARCEL CONTRACTUAL" — and a parcel handed
+   * to KKR is not. The words differ per partner, and they are the first thing
+   * the person taking the parcel reads, so they live beside the return address
+   * rather than in the code.
+   *
+   * Empty falls back to the partner-neutral default in `sheetHeaderFromEnv()`.
+   */
+  sheet_title?: string;
+  /**
+   * The account this partner books our parcels against, printed under the
+   * heading.
+   *
+   * India Post's contractual counter refuses a parcel whose customer and
+   * contract numbers are not on the paperwork — they are how the booking is
+   * charged to the account rather than paid for at the window. Per courier
+   * because they are issued per courier; blank for a partner that has none,
+   * and the band then does not print at all.
+   */
+  customer_id?: string;
+  contract_id?: string;
 }
 
 /** What each handoff means, in the words the admin screens use. */
