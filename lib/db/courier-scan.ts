@@ -7,6 +7,21 @@ import {
   type DelhiveryScan,
 } from "@/lib/delhivery/status";
 import { recordScan } from "@/lib/db/courier-send";
+import type { OrderStatus } from "@/lib/types/order";
+
+/**
+ * A scan with the carrier-specific reading already done.
+ *
+ * `next` is what this carrier says the scan means for the order — null to
+ * record the movement and change nothing, which is the common case.
+ */
+export interface NormalisedScan {
+  /** Shown on the portal row, in the carrier's own words. */
+  description: string;
+  /** ISO timestamp of the scan, or null to stamp it now. */
+  at: string | null;
+  next: OrderStatus | null;
+}
 
 /**
  * Applying a courier scan to an order.
@@ -52,22 +67,53 @@ export async function applyScan(
    * worse than saying nothing, and doing it to a few hundred people at once is
    * how a WhatsApp number gets reported.
    */
+  options: { notify?: boolean } = {}
+): Promise<ScanOutcome | null> {
+  return applyCarrierScan(
+    {
+      description: describeScan(scan),
+      at: scan.statusDateTime,
+      next: statusFromScan(scan),
+    },
+    identity,
+    options
+  );
+}
+
+/**
+ * One scan from any carrier, already read.
+ *
+ * The carrier-neutral half of the above, split out when India Post arrived.
+ * Everything below this line is true of a parcel movement whoever reported it:
+ * record what happened, refuse to move backwards, go through
+ * `setDeliveryStatus` so commissions settle, and tell the customer once.
+ *
+ * What a scan *means* is the carrier's business and stays in the carrier's own
+ * module, because the two vocabularies do not survive being merged — Delhivery
+ * says "RTO Delivered" and India Post says "Item Delivered(Sender)" for the
+ * same event, and a shared matcher would have to know both and would get one
+ * of them wrong.
+ */
+export async function applyCarrierScan(
+  scan: NormalisedScan,
+  identity: { waybill?: string | null; reference?: string | null },
   { notify = true }: { notify?: boolean } = {}
 ): Promise<ScanOutcome | null> {
   const order = await findOrder(identity);
   if (!order) {
-    // Not an error worth failing the request over — Delhivery pushes scans for
+    // Not an error worth failing the request over — a courier pushes scans for
     // parcels we may have already archived, and a 500 makes them retry forever.
     console.warn("[Scan] no order for", identity);
     return null;
   }
 
-  await recordScan(order.order_number, describeScan(scan), scan.statusDateTime);
+  await recordScan(order.order_number, scan.description, scan.at);
 
-  const next = statusFromScan(scan);
+  const next = scan.next;
   if (!next) return { order_number: order.order_number, moved_to: null };
 
-  // Forward only. Delhivery replays scans and pushes arrive out of order, so
+  // Forward only. Both carriers replay scans — Delhivery pushes out of order,
+  // and India Post's bulk tracking returns the whole history every time — so
   // without this a stale "Manifested" landing after "Delivered" would
   // un-deliver the parcel and void the referral commission with it.
   if (!canMoveTo(order.status, next)) {
