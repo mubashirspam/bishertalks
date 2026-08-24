@@ -100,9 +100,22 @@ function canMoveTo(current, next) {
 // ── Load the parcels ─────────────────────────────────────────────────────────
 console.log(`\n${BOLD}Delhivery backfill${OFF} ${DIM}${WRITE ? "WRITING" : "dry run — nothing will be saved"}${OFF}\n`);
 
+// Delhivery's parcels, and the pre-0030 back catalogue that had no courier
+// because there was nobody else. Never anyone else's: their reference index is
+// not unique on their side, so asking about an India Post parcel returns
+// whatever shipment happens to carry that string — which is how ORD-YP97XR
+// came to be holding another customer's waybill and his "Delivered" scan.
+const cRes = await sb("couriers?select=id,config");
+const delhivery = (await cRes.json())
+  .filter((c) => c?.config?.tracking === "delhivery")
+  .map((c) => c.id);
+const scope = delhivery.length
+  ? `&or=(courier_id.is.null,courier_id.in.(${delhivery.join(",")}))`
+  : "&courier_id=is.null";
+
 const res = await sb(
   `orders?select=order_number,courier_reference,tracking_number,status,courier_last_scan` +
-    `&courier_reference=not.is.null` +
+    `&courier_reference=not.is.null` + scope +
     `&status=in.(confirmed,processing,shipped,out_for_delivery)` +
     `&order=created_at.desc&limit=${LIMIT}`
 );

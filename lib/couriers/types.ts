@@ -172,3 +172,64 @@ export function canSendAutomatically(courier: Courier): boolean {
 export function canTrack(courier: Courier): boolean {
   return !!courier.config.tracking && TRACKED_INTEGRATIONS.includes(courier.config.tracking);
 }
+
+/**
+ * The code a partner's reference numbers start with.
+ *
+ * A reference used to say nothing about which partner it belonged to: every
+ * one of them was `BISH` plus digits of the customer's mobile, whoever was
+ * carrying the parcel. That is how ORD-YP97XR — an India Post parcel — came to
+ * be given `BISH40490`, the same string Delhivery already had on file for a
+ * different customer's shipment, and inherited that shipment's waybill and its
+ * "Delivered" scan. Two different couriers cannot file two different parcels
+ * under one number if the number names the courier.
+ *
+ * `BISH` is kept for Delhivery because KKR has years of sheets under it and a
+ * prefix they recognise is worth more than a tidy scheme. Everyone else gets
+ * their own.
+ *
+ * A partner added in the admin and never listed here gets a code derived from
+ * its slug. Two partners can theoretically derive the same code; that costs
+ * legibility and nothing else, because what actually makes a reference unique
+ * is the order number it ends with.
+ */
+const REFERENCE_CODES: Record<string, string> = {
+  delhivery: "BISH",
+  "delhivery-sheet": "BISH",
+  "speed-post": "SP",
+  "mubashir-logistic": "ML",
+};
+
+/** The house code, for a parcel not routed anywhere yet. */
+export const DEFAULT_REFERENCE_CODE = "BISH";
+
+export function referenceCode(
+  courier: Pick<Courier, "slug"> | null | undefined
+): string {
+  const slug = courier?.slug ?? "";
+  if (!slug) return DEFAULT_REFERENCE_CODE;
+  if (REFERENCE_CODES[slug]) return REFERENCE_CODES[slug];
+
+  // "blue-dart" → BD, "ecom" → ECOM. Letters only, so a slug that is all
+  // punctuation cannot produce an empty prefix and a reference beginning "-".
+  const parts = slug.split(/[^a-zA-Z]+/).filter(Boolean);
+  const derived =
+    parts.length > 1
+      ? parts.map((p) => p[0]).join("")
+      : (parts[0] ?? "").slice(0, 4);
+
+  return derived.toUpperCase() || DEFAULT_REFERENCE_CODE;
+}
+
+/**
+ * Does this partner ever see the reference we mint?
+ *
+ * A `sheet` partner reads it off the file they upload; an `api` partner is sent
+ * it as `order`. A `manual` one is handed a parcel across a counter and issues
+ * their own barcode — our number is never written down anywhere they can see,
+ * which is why an India Post parcel's reference can still be corrected after
+ * it has been marked entered, and a Delhivery one's cannot.
+ */
+export function referenceIsPrivate(courier: Pick<Courier, "handoff"> | null | undefined): boolean {
+  return courier?.handoff === "manual";
+}

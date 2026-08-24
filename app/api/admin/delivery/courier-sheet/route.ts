@@ -5,6 +5,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { portalScope } from "@/lib/delivery/scope";
 import { fetchPickedForCourierSheet, takenReferences } from "@/lib/db/delivery-portal";
+import { listCouriers } from "@/lib/db/couriers";
+import { referenceCode } from "@/lib/couriers";
 import { markCourierEntered } from "@/lib/db/delivery";
 import {
   buildCourierSheet,
@@ -106,18 +108,28 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Ask the database which of this batch's possible reference numbers are
-  // already in use, then let the builder pick around them. Two customers
-  // sharing the last five digits of their mobile is the whole reason for this
-  // step: the courier rejects the entire file for one repeated reference.
+  // A reference is coded for the partner carrying the parcel, and an owner can
+  // tick parcels routed to two of them, so the code is resolved per row rather
+  // than once for the file.
+  const couriers = await listCouriers();
+  const codeFor = (p: { courier_id?: string | null }) =>
+    referenceCode(couriers.find((c) => c.id === p.courier_id));
+
+  // Ask the database which of this batch's reference numbers are already in
+  // use, then let the builder pick around them. Almost always none of them
+  // now — a reference is the courier's code plus the order number, and one
+  // order has one number — but the courier rejects the entire file over a
+  // single repeat, so it is still worth the one query.
   let taken: string[];
   try {
-    taken = await takenReferences(parcels.flatMap(referenceCandidates));
+    taken = await takenReferences(
+      parcels.flatMap((p) => referenceCandidates(p, codeFor(p)))
+    );
   } catch {
     return NextResponse.json({ error: "Could not check reference numbers" }, { status: 500 });
   }
 
-  const { rows, references } = buildCourierSheet(parcels, taken);
+  const { rows, references } = buildCourierSheet(parcels, taken, codeFor);
   const onSheet = parcels.map((p) => p.order_number);
 
   let confirmed: string[];

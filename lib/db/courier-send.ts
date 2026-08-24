@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { delhiveryCourierIds } from "@/lib/db/couriers";
 import type { CourierParcel } from "@/lib/courier-sheet";
 
 /**
@@ -165,10 +166,30 @@ export async function recordSent(
  *
  * Ordered newest first: an old delivered parcel has nothing left to tell us,
  * and today's is the one someone is being asked about on the phone.
+ *
+ * Delhivery's parcels only. This asked about every parcel with a reference,
+ * whoever was carrying it, which was harmless while Delhivery was the only
+ * courier and became a way to corrupt an order the moment it was not: an India
+ * Post parcel was asked about here, Delhivery had a *different* customer's
+ * shipment on file under the same reference string, and the answer was written
+ * to our order as its waybill and its delivered status. A courier can only
+ * answer for parcels that are theirs, so only theirs are offered.
+ *
+ * A parcel with no courier at all is still included. Those are the pre-0030
+ * back catalogue — every one of them went to Delhivery, because there was
+ * nobody else — and they are the parcels this pass exists for.
  */
 export async function unmatchedSheetParcels(limit = 200): Promise<
   { order_number: string; courier_reference: string }[]
 > {
+  // No Delhivery-tracked courier configured at all: the only parcels this pass
+  // may look at are the unrouted back catalogue. Passing an empty `in.()` here
+  // would be a syntax error and take the whole query down with it.
+  const delhivery = await delhiveryCourierIds();
+  const scope = delhivery.length
+    ? `courier_id.is.null,courier_id.in.(${delhivery.join(",")})`
+    : "courier_id.is.null";
+
   const { data, error } = await supabaseAdmin
     .from("orders")
     .select("order_number,courier_reference")
@@ -176,6 +197,7 @@ export async function unmatchedSheetParcels(limit = 200): Promise<
     // `neq ""` as well as `is null`: an agent saving an empty tracking box
     // stores an empty string, which is not the same as never having one.
     .or("tracking_number.is.null,tracking_number.eq.")
+    .or(scope)
     .not("status", "in", "(delivered,returned,cancelled)")
     .order("created_at", { ascending: false })
     .limit(limit);

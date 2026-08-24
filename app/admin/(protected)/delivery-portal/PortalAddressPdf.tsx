@@ -76,7 +76,7 @@ export default function PortalAddressPdf({ orderNumbers }: { orderNumbers: strin
             ? `Tick up to ${COURIER_SHEET_MAX} parcels to print their addresses`
             : `Print ${orderNumbers.length} address${
                 orderNumbers.length === 1 ? "" : "es"
-              } — 15 to an A4 page. Changes nothing.`
+              } — 10 to an A4 page. Changes nothing.`
         }
         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-neutral-700 text-xs font-semibold hover:bg-neutral-50 hover:border-neutral-400 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
       >

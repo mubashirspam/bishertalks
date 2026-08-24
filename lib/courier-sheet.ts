@@ -110,6 +110,8 @@ export interface CourierParcel {
   quantity: number;
   /** Set once a parcel has been on a sheet before — reused, never regenerated. */
   courier_reference: string | null;
+  /** Whose parcel it is: the reference is coded per courier. */
+  courier_id?: string | null;
 }
 
 /** Just the digits, and without the country code a phone box may have kept. */
@@ -121,52 +123,68 @@ export function phoneDigits(phone: string | null | undefined): string {
 /**
  * The reference number the courier files this parcel under.
  *
- * BISH plus the last five digits of the customer's mobile: short enough to
- * read down a column, and it points at the customer when the courier calls
- * about a parcel. Five digits collide about once in a hundred thousand
- * parcels, which is rare enough to be worth the brevity and common enough that
- * it has to be handled — so a taken reference falls through to six digits,
- * then to the whole number, and finally to something that cannot collide at
- * all. The courier rejects a whole file for one repeated reference.
+ * The courier's code, then the order number: `SP-YP97XR`, `BISH-4K2M9Q`. Both
+ * halves are there for a reason, and the reason for each is a bug this has
+ * already caused.
+ *
+ * The order number, because it is unique. References used to be `BISH` plus
+ * the last five digits of the customer's mobile — short, and it pointed at the
+ * customer when the courier rang about a parcel. Five digits collide about
+ * once in a hundred thousand, which sounded rare and was not: two customers
+ * sharing a phone tail is one thing, but a *courier* holding an old parcel
+ * under that same string is another, and Delhivery's reference index is not
+ * unique on their side. An order number cannot do that to us. It is what the
+ * API push already sends as `order`, so the two ways a parcel reaches
+ * Delhivery now agree on what it is called.
+ *
+ * The courier's code, because a reference has to say whose it is. ORD-YP97XR
+ * went to India Post under `BISH40490`; Delhivery had a different customer's
+ * shipment filed under `BISH40490`; the tracking sync matched them and gave an
+ * unposted parcel somebody else's waybill and their "Delivered" scan. Nothing
+ * about the number itself said it was not Delhivery's to answer for.
  *
  * `taken` is both the references already stored against other orders and the
- * ones handed out earlier in this same batch; the caller adds each result back
- * into it.
+ * ones handed out earlier in this same batch. A collision is now impossible by
+ * construction — one order has one number — so this is a backstop against a
+ * duplicated order number rather than the routine case it used to be.
  */
-export function courierReference(parcel: CourierParcel, taken: Set<string>): string {
-  const candidates = referenceCandidates(parcel);
-
+export function courierReference(
+  parcel: CourierParcel,
+  taken: Set<string>,
+  /** The courier's prefix — `referenceCode()` in lib/couriers. */
+  code: string
+): string {
   // A parcel that has been on a sheet before keeps the number the courier
-  // already has — that is the only candidate it has, taken or not.
+  // already has. Re-coding it would rename a parcel in somebody else's system.
   if (parcel.courier_reference) return parcel.courier_reference;
 
-  for (const ref of candidates) if (!taken.has(ref)) return ref;
+  const preferred = `${code}-${orderTail(parcel)}`;
+  if (!taken.has(preferred)) return preferred;
 
-  // Every shape of the phone number is spoken for. The order number is unique,
-  // so this always terminates — and it stays readable enough to trace back.
-  return `BISH${phoneDigits(parcel.buyer_phone)}-${orderTail(parcel)}`;
+  // Only reachable if two orders share a number tail. Kept short and still
+  // traceable rather than clever: whatever this returns has to be readable
+  // down a column of a hundred.
+  for (let n = 2; n < 100; n++) {
+    const candidate = `${preferred}-${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return `${preferred}-${Date.now().toString(36).toUpperCase()}`;
 }
 
-/** The tail of the order number, for the references built out of it. */
+/** The tail of the order number — the part that makes it unique. */
 const orderTail = (parcel: CourierParcel) =>
-  parcel.order_number.replace(/\W/g, "").slice(-6);
+  parcel.order_number.replace(/\W/g, "").slice(-6).toUpperCase();
 
 /**
  * Every reference this parcel might be given, best first.
  *
  * The same list courierReference() walks — the route looks these up to find
- * out which are already spoken for, so the two must not drift apart.
+ * out which are already spoken for, so the two must not drift apart. One
+ * candidate now, where the phone-derived scheme needed four.
  */
-export function referenceCandidates(parcel: CourierParcel): string[] {
+export function referenceCandidates(parcel: CourierParcel, code: string): string[] {
   if (parcel.courier_reference) return [parcel.courier_reference];
-
-  const digits = phoneDigits(parcel.buyer_phone);
-
-  // No mobile on the order — the order number is the only thing left that
-  // identifies the parcel, and it is unique by itself.
-  if (!digits) return [`BISH${orderTail(parcel)}`];
-
-  return [`BISH${digits.slice(-5)}`, `BISH${digits.slice(-6)}`, `BISH${digits}`];
+  return [`${code}-${orderTail(parcel)}`];
 }
 
 /**
@@ -252,14 +270,20 @@ export function courierSheetRow(p: CourierParcel, reference: string): unknown[] 
 export function buildCourierSheet(
   parcels: CourierParcel[],
   /** References already in use, from the database. */
-  existing: Iterable<string> = []
+  existing: Iterable<string> = [],
+  /**
+   * This parcel's courier code. A callback rather than one code for the sheet:
+   * an owner can tick parcels routed to two different partners, and the code
+   * has to follow the parcel rather than the file it happens to be in.
+   */
+  codeFor: (parcel: CourierParcel) => string = () => "BISH"
 ): { rows: unknown[][]; references: string[] } {
   const taken = new Set(existing);
   const rows: unknown[][] = [];
   const references: string[] = [];
 
   for (const p of parcels) {
-    const ref = courierReference(p, taken);
+    const ref = courierReference(p, taken, codeFor(p));
     taken.add(ref);
     references.push(ref);
     rows.push(courierSheetRow(p, ref));

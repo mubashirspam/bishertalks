@@ -11,7 +11,9 @@
  * both in. Idempotent — a parcel that already has a reference keeps it, since
  * a number the courier has seen must never change.
  *
- * Mirrors lib/db/courier-reference.ts and lib/db/serviceability.ts.
+ * Mirrors lib/db/courier-reference.ts and lib/db/serviceability.ts. References
+ * are the courier's code plus the order number — see courierReference() for
+ * why they are no longer built out of the customer's mobile.
  */
 import { readFileSync } from "node:fs";
 
@@ -25,14 +27,20 @@ const h = { apikey: K, Authorization: "Bearer " + K, "Content-Type": "applicatio
 const G = t => `\x1b[32m${t}\x1b[0m`, Y = t => `\x1b[33m${t}\x1b[0m`, R = t => `\x1b[31m${t}\x1b[0m`, D = t => `\x1b[2m${t}\x1b[0m`, B = t => `\x1b[1m${t}\x1b[0m`;
 const WRITE = process.argv.includes("--write");
 
-const digits = p => { const d = (p || "").replace(/\D/g, ""); return d.length === 12 && d.startsWith("91") ? d.slice(2) : d; };
+// Mirrors REFERENCE_CODES in lib/couriers/types.ts. A partner missing here
+// falls back to the house code, which is wrong-but-harmless: the order number
+// is what makes a reference unique.
+const REFERENCE_CODES = { delhivery: "BISH", "delhivery-sheet": "BISH", "speed-post": "SP", "mubashir-logistic": "ML" };
 const page = async q => { let o = [], f = 0; for (;;) { const r = await fetch(`${U}/rest/v1/${q}&limit=1000&offset=${f}`, { headers: h }); const b = await r.json(); if (!Array.isArray(b)) throw new Error(JSON.stringify(b).slice(0, 200)); o.push(...b); if (b.length < 1000) break; f += 1000; } return o; };
 
 console.log(`\n${B("Route backfill")} ${D(WRITE ? "WRITING" : "dry run — nothing will be saved")}`);
 
 // ── References ──────────────────────────────────────────────────────────────
+const couriers = await page("couriers?select=id,slug&order=sort_order.asc");
+const codeFor = id => REFERENCE_CODES[couriers.find(c => c.id === id)?.slug] ?? "BISH";
+
 const needRef = await page(
-  "orders?select=order_number,buyer_phone&courier_id=not.is.null" +
+  "orders?select=order_number,buyer_phone,courier_id&courier_id=not.is.null" +
   "&or=(courier_reference.is.null,courier_reference.eq.)&order=created_at.asc"
 );
 // Every reference already in use, so a new one cannot collide with it. The
@@ -43,12 +51,12 @@ const taken = new Set(existing.map(o => o.courier_reference).filter(Boolean));
 
 const mint = [];
 for (const o of needRef) {
-  const d = digits(o.buyer_phone);
-  const tail = o.order_number.replace(/\W/g, "").slice(-6);
-  // Same ladder as courierReference(): five digits, then six, then all of it,
-  // then something that cannot collide at all.
-  const ladder = d ? [`BISH${d.slice(-5)}`, `BISH${d.slice(-6)}`, `BISH${d}`, `BISH${d}-${tail}`] : [`BISH${tail}`];
-  const pick = ladder.find(r => !taken.has(r)) ?? `BISH${d}-${tail}`;
+  const tail = o.order_number.replace(/\W/g, "").slice(-6).toUpperCase();
+  // Same shape as courierReference(): the courier's code, then the order
+  // number. Unique by construction, so the loop below is a formality.
+  const base = `${codeFor(o.courier_id)}-${tail}`;
+  let pick = base;
+  for (let n = 2; taken.has(pick); n++) pick = `${base}-${n}`;
   taken.add(pick);
   mint.push({ order_number: o.order_number, reference: pick });
 }

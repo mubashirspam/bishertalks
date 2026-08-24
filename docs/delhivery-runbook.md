@@ -165,6 +165,45 @@ the admin uses, so nobody is underpaid.
 Afterwards the poller and the Sync now button keep everything current, and those
 *do* message customers, because by then a scan is a real event.
 
+### A parcel is showing somebody else's waybill
+
+This happened once, and the shape of it is worth keeping.
+
+References used to be `BISH` plus the last five digits of the customer's
+mobile, whichever partner carried the parcel. ORD-YP97XR went to India Post
+under `BISH40490`. Delhivery had a *different* customer's shipment — Nisam's,
+pincode 676504, delivered 15 Aug — filed under `BISH40490` too, because a
+reference is not a key on their side. The poller asked Delhivery about every
+parcel we had a reference for, India Post's included, matched the two strings,
+and wrote Nisam's waybill and his "Delivered" scan onto Faisal's unposted
+order.
+
+Two things now prevent it, and both are needed:
+
+* **A courier is only ever asked about its own parcels.** The poller, Sync, and
+  the Delhivery export all scope to partners whose `config.tracking` is
+  `delhivery`, plus parcels with no courier at all — the pre-0030 back
+  catalogue, which went to Delhivery because there was nobody else.
+* **A reference names its courier and its order**: `SP-YP97XR`, `BISH-4K2M9Q`.
+  The order number cannot collide, and the code makes a cross-courier match
+  visibly wrong. See `courierReference()` in lib/courier-sheet.ts.
+
+To repair stored damage and re-code parcels that have not left yet:
+
+```
+node scripts/reference-recode.mjs            # dry run — shows what it would do
+node scripts/reference-recode.mjs --write    # save
+```
+
+It only clears a waybill when Delhivery's own record *conflicts* with the order
+on destination pincode — a shipment addressed to a different town is a
+different parcel. It deliberately ignores the invoice amount, which disagrees
+harmlessly on ten Mubashir Logistic parcels whose sheets were written under an
+older price. And it only re-codes a reference no courier has been given: not
+one on a downloaded sheet, not one pushed over the API, not one with a waybill.
+A `manual` partner never sees our reference at all — India Post issues its own
+barcode — so those stay correctable even after they are marked entered.
+
 ### Statuses have stopped updating
 
 - Is the webhook live? Delhivery enables it at their end; ask them.

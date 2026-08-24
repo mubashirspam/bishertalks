@@ -11,7 +11,7 @@ import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import { istToday } from "@/lib/format-date";
 
 /**
- * The ticked parcels as a printable A4 sheet, fifteen addresses to a page.
+ * The ticked parcels as a printable A4 sheet, ten addresses to a page.
  *
  * The paper half of the Excel download. Same rows, same scope, same
  * permission — and one deliberate difference: **this route writes nothing.**
@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
     (o) => senderForCourier(configOf(o)),
     // The masthead comes from the same place — an India Post page carries India
     // Post's contract numbers, a hand-over partner's carries none. The builder
-    // reports the page count rather than the caller dividing by fifteen,
+    // reports the page count rather than the caller dividing by ten,
     // because it starts a fresh page per courier and the two no longer agree.
     (o) => sheetHeaderForCourier(configOf(o))
   );

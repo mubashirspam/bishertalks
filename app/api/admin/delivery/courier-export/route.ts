@@ -4,7 +4,7 @@ export const maxDuration = 120;
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { getCourierBySlug } from "@/lib/db/couriers";
+import { getCourierBySlug, delhiveryCourierIds } from "@/lib/db/couriers";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
 import { delhiveryRequest } from "@/lib/delhivery/client";
 import { toXLSX } from "@/lib/export";
@@ -114,11 +114,22 @@ export async function GET(request: NextRequest) {
     status: string;
     courier_id: string | null;
   }[] = [];
+  //
+  // Delhivery's parcels and the unrouted back catalogue, and nobody else's:
+  // asking them about an India Post reference gets an answer about whatever
+  // shipment happens to carry that string, and the file would then print
+  // another customer's waybill against our order number.
+  const delhivery = await delhiveryCourierIds();
+  const courierScope = delhivery.length
+    ? `courier_id.is.null,courier_id.in.(${delhivery.join(",")})`
+    : "courier_id.is.null";
+
   for (let from = 0; from < MAX; from += 1000) {
     const { data, error } = await supabaseAdmin
       .from("orders")
       .select("order_number,courier_reference,tracking_number,status,courier_id")
       .or("tracking_number.not.is.null,courier_reference.not.is.null")
+      .or(courierScope)
       .order("ordered_at", { ascending: true })
       .range(from, from + 999);
 

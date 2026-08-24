@@ -125,19 +125,31 @@ export async function POST(request: NextRequest) {
   };
   const rows: Row[] = [];
 
+  // Only parcels this courier could possibly answer for.
+  //
+  // This used to be a permission scope — a partner saw their own courier, an
+  // owner saw everything — and that read the question wrongly. It is not about
+  // who is asking; it is that a courier cannot tell us where somebody else's
+  // parcel is. An owner sweeping "all" asked Delhivery about India Post's
+  // parcels too, Delhivery had another customer's shipment filed under one of
+  // their reference strings, and an unposted parcel was given that shipment's
+  // waybill and its "Delivered" scan.
+  //
+  // Unrouted parcels are still asked about: they are the pre-0030 back
+  // catalogue, which went to Delhivery because there was nobody else.
+  const courierScope = `courier_id.is.null,courier_id.eq.${courierId}`;
+
   if (all) {
     // Everything nameable that has not finished. A delivered parcel has
     // nothing left to tell us, and asking about it spends the rate limit on a
     // question already answered.
     for (let from = 0; from < MAX_ALL; from += 1000) {
-      let sweep = supabaseAdmin
+      const sweep = supabaseAdmin
         .from("orders")
         .select("order_number,tracking_number,courier_reference")
         .or("tracking_number.not.is.null,courier_reference.not.is.null")
+        .or(courierScope)
         .not("status", "in", "(delivered,returned,cancelled)");
-
-      // A sweep for a partner is a sweep of their own courier's parcels.
-      if (!scope.seesEveryone) sweep = sweep.eq("courier_id", courierId);
 
       const { data, error } = await sweep
         .order("ordered_at", { ascending: false })
@@ -152,15 +164,15 @@ export async function POST(request: NextRequest) {
       if (batch.length < 1000) break;
     }
   } else {
-    let picked = supabaseAdmin
+    // Same scope as the sweep, and it is also the security guard a partner
+    // needs: the order numbers came from the browser and prove nothing, so a
+    // parcel belonging to another courier is simply not returned — never asked
+    // about, never reported back.
+    const picked = supabaseAdmin
       .from("orders")
       .select("order_number,tracking_number,courier_reference")
-      .in("order_number", orderNumbers);
-
-    // Same guard as the sweep. The order numbers came from the browser and
-    // prove nothing; a parcel with another courier is simply not returned, so
-    // it is never asked about and never reported back.
-    if (!scope.seesEveryone) picked = picked.eq("courier_id", courierId);
+      .in("order_number", orderNumbers)
+      .or(courierScope);
 
     const { data, error } = await picked;
 

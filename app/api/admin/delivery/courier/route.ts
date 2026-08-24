@@ -196,9 +196,11 @@ export async function POST(request: NextRequest) {
 
     // Give every routed parcel the number its courier will file it under, so
     // it is identifiable from this moment rather than from whenever a sheet
-    // happens to be built. Harmless to re-run: an existing number is kept.
+    // happens to be built. Coded for this courier, so nobody else's tracking
+    // can ever answer for it. Harmless to re-run: a number that has left the
+    // building is kept.
     try {
-      minted = await ensureReferences(updated);
+      minted = await ensureReferences(updated, courier);
     } catch (e) {
       console.warn("[Courier] reference minting skipped:", e);
     }

@@ -9,7 +9,7 @@ import {
 } from "@/lib/shipping-label";
 
 /**
- * Addresses, fifteen to an A4 sheet — each one a miniature contractual docket.
+ * Addresses, ten to an A4 sheet — each one a miniature contractual docket.
  *
  * A denser sibling of `buildLabelSheet`, for a different job. That one prints
  * six parcel labels to be cut out and taped on; this one is what a courier
@@ -19,15 +19,21 @@ import {
  * Every cell carries the whole docket, in the order India Post's contractual
  * sheet has it: the heading, the customer and contract numbers the parcel is
  * booked against, TO, the address, PIN and MOB, the booking reference, then
- * FROM. Repeated fifteen times rather than printed once at the top of the page,
+ * FROM. Repeated ten times rather than printed once at the top of the page,
  * because a cell is a complete document — it gets cut out, handed over and
  * queried on its own, and a customer number that lives at the top of the sheet
  * is not on the piece of paper that travels with the parcel.
  *
- * Fifteen to a page is why this is a separate file rather than a constant on
- * the label builder. At 3x5 a cell is ~189pt wide against ~282pt, and every
- * measurement there assumes room for a full-size name and a contents line.
- * Parameterising it would have meant every one of those growing a branch.
+ * Two columns, not three. At 3x5 a cell was ~189pt wide and everything in it
+ * had to shrink to fit — 7pt headings, 7.5pt addresses — which is legible on a
+ * screen and not on a page somebody reads at arm's length in a post office
+ * queue. At 2x5 a cell is ~284pt, half as wide again, and every size in it
+ * grew by about a third. The height did not change, so the room came from the
+ * width: an address that needed four cramped lines now takes three roomy ones,
+ * and a return address that needed three takes two.
+ *
+ * That trade is the whole layout. Fifty parcels is five pages rather than four,
+ * which is a sheet of paper against a phone number somebody can actually read.
  *
  * The heading, the numbers and the return address are all resolved PER PARCEL,
  * by courier: a Speed Post parcel prints India Post's contract and comes back
@@ -37,7 +43,7 @@ import {
  * lib/shipping-label.ts.
  */
 
-const COLS = 3;
+const COLS = 2;
 const ROWS = 5;
 export const ADDRESSES_PER_PAGE = COLS * ROWS;
 
@@ -48,37 +54,43 @@ const MARGIN_BOTTOM = 22; // leaves the strip the sheet footer sits in
 const CELL_W = (A4.width - MARGIN_X * 2) / COLS;
 const CELL_H = (A4.height - MARGIN_TOP - MARGIN_BOTTOM) / ROWS;
 
-const PAD_X = 7;
+const PAD_X = 10;
 const INNER_W = CELL_W - PAD_X * 2;
 
 /**
  * The masthead rows, measured DOWN from the top of the cell.
  *
  * The account band is the one part that moves: "Customer ID: … | Contract ID: …"
- * is ~150pt of the 175pt a cell has, so a long pair of numbers drops to a
- * second line. Everything below it starts at a fixed height anyway — see
- * TO_LABEL — so a cell with two ID lines and one beside it with one still put
- * the address in the same place.
+ * is ~180pt of the ~264pt a cell now has, so it fits on one line for any real
+ * pair of numbers — but a long one still drops to a second. Everything below it
+ * starts at a fixed height anyway — see TO_LABEL — so a cell with two ID lines
+ * and one beside it with one still put the address in the same place.
  */
-const TITLE_ROW = 11;
-const TITLE_RULE = 15;
-const ACCOUNT_ROW_1 = 23;
-const ACCOUNT_ROW_2 = 30.5;
-const ACCOUNT_RULE_1 = 27;
+const TITLE_ROW = 12;
+const TITLE_RULE = 16;
+const ACCOUNT_ROW_1 = 24.5;
+const ACCOUNT_ROW_2 = 32;
+const ACCOUNT_RULE_1 = 28;
 const ACCOUNT_RULE_2 = 34;
 
-const TITLE_SIZE = 7;
-const ACCOUNT_SIZE = 6;
+const TITLE_SIZE = 9;
+const ACCOUNT_SIZE = 7.5;
 
 /** The delivery address, also fixed from the top. */
-const TO_LABEL = 42;
-const NAME_ROW = 52;
-const ADDRESS_TOP = 61;
-const ADDRESS_STEP = 8.2;
-const ADDRESS_SIZE = 7.5;
+const TO_LABEL = 40;
+const TO_SIZE = 8;
+const NAME_ROW = 53;
+const NAME_SIZE = 12;
+const ADDRESS_TOP = 65;
+const ADDRESS_STEP = 11.5;
+const ADDRESS_SIZE = 10.5;
 
 /**
  * How many address lines a cell has room for.
+ *
+ * Three, down from four, and it holds about what four used to: the cell is
+ * half as wide again, so a line carries ~50 characters at 10.5pt where it
+ * carried ~46 at 7.5pt.
  *
  * A hard cap, not a guess: a long address that wrapped freely would run over
  * the pincode and out of the box, and every cell below it on the page still has
@@ -88,7 +100,7 @@ const ADDRESS_SIZE = 7.5;
  * phone below are what the parcel is actually sorted and delivered by, and
  * losing either to a spilled address line is the worse trade.
  */
-const MAX_ADDRESS_LINES = 4;
+const MAX_ADDRESS_LINES = 3;
 
 /**
  * The bottom block, measured UP from the foot of the cell.
@@ -98,24 +110,50 @@ const MAX_ADDRESS_LINES = 4;
  * and the pincode is the field somebody scans a whole page for — it has to sit
  * on a line your eye can follow straight down.
  */
-const PIN_ROW = 66;
-const MOB_ROW = 55;
+/**
+ * PIN and MOB, side by side on one row, in two columns of equal width.
+ *
+ * They had a line each, at different sizes, on the theory that a long mobile
+ * would collide with the pincode. At 2x5 there is width for both: the cell is
+ * ~264pt inside, so each gets ~132pt, and the pair line up down the page in
+ * two straight columns your eye can follow — which is what the separate rows
+ * were protecting and now costs one row instead of two.
+ *
+ * The row the merge frees goes straight back into the address above it, which
+ * is the part somebody actually has to read off the paper.
+ *
+ * One size for both, picked from the ladder below: the largest at which each
+ * fits its own column. Two mobiles typed into one field — "99471 40490 /
+ * 82810 55512" — is the case that needs the smaller steps, and it is why the
+ * size is computed rather than fixed.
+ */
+const CONTACT_ROW = 58;
+const CONTACT_SIZES = [11.5, 10.5, 9.5, 8.5] as const;
+/** Keeps the two columns apart when the left one runs long. */
+const CONTACT_GUTTER = 10;
+
 const REF_DASH = 45;
-const REF_ROW = 38;
+const REF_ROW = 35;
+const REF_SIZE = 9.5;
 const FROM_RULE = 30;
 const FROM_LINE_1 = 23;
-const FROM_LINE_2 = 15.5;
-const FROM_LINE_3 = 8;
+const FROM_LINE_2 = 14;
+const FROM_LINE_3 = 5;
 
 /**
- * FROM, at 7pt over three lines.
+ * FROM, at 8pt over up to three lines.
  *
  * This is the half of the cell somebody reads back down a phone when a parcel
  * fails. A real return address — name, business, floor, town, pincode, phone —
- * runs to about 120 characters, which does not fit in two lines across 175pt at
- * any size worth reading. So it got a third line rather than a smaller font.
+ * runs to about 120 characters and now fits in two lines across ~264pt, with
+ * the third held in reserve for a longer one.
+ *
+ * The reserve is not decoration. Cutting this to two lines during the 2x5
+ * rework silently dropped the trailing "Ph: 6282680794" off every cell on the
+ * sheet — the wrap just ended, with no ellipsis to show it had — which is the
+ * one field on a returned parcel that has to be there.
  */
-const FROM_SIZE = 7;
+const FROM_SIZE = 8;
 const MAX_FROM_LINES = 3;
 
 /** Resolves the return address for one parcel — usually by its courier. */
@@ -232,10 +270,10 @@ function drawAddress(
   // -- TO ------------------------------------------------------------------
   // Both ends of the parcel are in this cell and both are addresses; naming
   // them is what stops a hurried reader posting it back to us.
-  doc.text(left, y + TO_LABEL, "TO:", { size: 6.5, bold: true, gray: 0.45 });
+  doc.text(left, y + TO_LABEL, "TO:", { size: TO_SIZE, bold: true, gray: 0.45 });
 
-  doc.text(left, y + NAME_ROW, truncate(o.buyer_name || "—", INNER_W, 8.5, true), {
-    size: 8.5,
+  doc.text(left, y + NAME_ROW, truncate(o.buyer_name || "—", INNER_W, NAME_SIZE, true), {
+    size: NAME_SIZE,
     bold: true,
   });
 
@@ -275,19 +313,36 @@ function drawAddress(
   });
 
   // -- PIN and MOB: what the parcel is actually sorted and delivered by -----
-  // On their own lines, spelled the way the docket spells them. Two mobile
-  // numbers on one order is common, and a phone sharing a line with the pincode
-  // would collide on exactly those.
-  if (o.pincode) {
-    doc.text(left, y + CELL_H - PIN_ROW, `PIN: ${o.pincode}`, { size: 8.5, bold: true });
+  // One row, two columns of equal width, spelled the way the docket spells
+  // them. See CONTACT_ROW.
+  const pinText = o.pincode ? `PIN: ${o.pincode}` : "";
+  const mobText = o.buyer_phone ? `MOB: ${o.buyer_phone}` : "";
+  const colW = INNER_W / 2;
+  const mobX = left + colW;
+
+  // The largest size at which both still sit inside their own column. Shared,
+  // so the two read as one row rather than two things that happen to be level.
+  const contactSize =
+    CONTACT_SIZES.find(
+      (size) =>
+        measureText(pinText, size, true) <= colW - CONTACT_GUTTER &&
+        measureText(mobText, size, true) <= colW
+    ) ?? CONTACT_SIZES[CONTACT_SIZES.length - 1];
+
+  const contactY = y + CELL_H - CONTACT_ROW;
+
+  if (pinText) {
+    doc.text(left, contactY, pinText, { size: contactSize, bold: true });
   }
-  if (o.buyer_phone) {
-    doc.text(
-      left,
-      y + CELL_H - MOB_ROW,
-      truncate(`MOB: ${o.buyer_phone}`, INNER_W, 7, true),
-      { size: 7, bold: true }
-    );
+  if (mobText) {
+    // Truncated only when even the smallest step will not hold it, which takes
+    // two full mobile numbers in one field. The first number survives at the
+    // front and the ellipsis says there is more on the screen — better than
+    // quietly printing a number that is missing its last digits.
+    doc.text(mobX, contactY, truncate(mobText, colW, contactSize, true), {
+      size: contactSize,
+      bold: true,
+    });
   }
 
   // -- Booking reference ---------------------------------------------------
@@ -298,31 +353,31 @@ function drawAddress(
   const dashY = y + CELL_H - REF_DASH;
   doc.line(left, dashY, right, dashY, { gray: 0.4, width: 0.5, dash: true });
 
-  doc.text(left, refY, o.order_number, { size: 7.5, bold: true });
+  doc.text(left, refY, o.order_number, { size: REF_SIZE, bold: true });
 
   // A parcel is one book unless the order says otherwise. Rows created before
   // the quantity column existed are all single copies. The count prints on
   // every parcel, not only the multi-book ones: a blank where the count should
   // be reads as "no information", "x1" reads as "one book, checked".
   const copies = Math.max(1, o.quantity ?? 1);
-  let markerX = left + measureText(o.order_number, 7.5, true) + 8;
+  let markerX = left + measureText(o.order_number, REF_SIZE, true) + 9;
 
-  doc.text(markerX, refY, `x${copies}`, { size: 7.5, bold: true });
-  markerX += measureText(`x${copies}`, 7.5, true) + 6;
+  doc.text(markerX, refY, `x${copies}`, { size: REF_SIZE, bold: true });
+  markerX += measureText(`x${copies}`, REF_SIZE, true) + 7;
 
   // A drawn box rather than the word GIFT. There is no icon font here — the
   // document ships two Helvetica faces and nothing else — so the glyph is four
   // lines and a ribbon. It survives a bad photocopy better than 6pt text and is
-  // findable at a glance down a column of fifteen.
-  if (o.is_gift && markerX + 9 < right) {
+  // findable at a glance down a column of ten.
+  if (o.is_gift && markerX + 11 < right) {
     markerX += drawGift(doc, markerX, refY) + 5;
   }
 
   // Still a word: SIGNED changes what goes IN the box rather than how it is
   // wrapped, and a second drawn glyph beside the first would just be two shapes
   // to learn. Dropped rather than allowed to run out of the cell.
-  if (o.is_signed && markerX + measureText("SIGNED", 6, true) < right) {
-    doc.text(markerX, refY, "SIGNED", { size: 6, bold: true });
+  if (o.is_signed && markerX + measureText("SIGNED", 7.5, true) < right) {
+    doc.text(markerX, refY, "SIGNED", { size: 7.5, bold: true });
   }
 
   // -- FROM ----------------------------------------------------------------
@@ -338,9 +393,9 @@ function drawAddress(
 
   // The label shares the first line rather than taking one of its own: three
   // lines of return address is already what a real one needs.
-  const labelW = measureText("FROM: ", 6.5, true);
+  const labelW = measureText("FROM: ", TO_SIZE, true);
   doc.text(left, y + CELL_H - FROM_LINE_1, "FROM:", {
-    size: 6.5,
+    size: TO_SIZE,
     bold: true,
     gray: 0.45,
   });
@@ -383,8 +438,8 @@ function splitFrom(from: string, labelW: number): string[] {
  * was built.
  */
 function drawGift(doc: PdfDocument, x: number, y: number): number {
-  const w = 7;
-  const h = 6;
+  const w = 9;
+  const h = 7.5;
   const top = y - h;
   const o = { gray: 0, width: 0.6 };
 
@@ -398,8 +453,8 @@ function drawGift(doc: PdfDocument, x: number, y: number): number {
   doc.line(x, top + h * 0.38, x + w, top + h * 0.38, o);
 
   // Bow, above the lid.
-  doc.line(x + w / 2, top, x + w / 2 - 2, top - 2.2, o);
-  doc.line(x + w / 2, top, x + w / 2 + 2, top - 2.2, o);
+  doc.line(x + w / 2, top, x + w / 2 - 2.5, top - 2.8, o);
+  doc.line(x + w / 2, top, x + w / 2 + 2.5, top - 2.8, o);
 
   return w;
 }

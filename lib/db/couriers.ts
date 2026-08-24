@@ -114,3 +114,23 @@ export async function getCourier(id: string): Promise<Courier | null> {
 export async function getCourierBySlug(slug: string): Promise<Courier | null> {
   return (await listCouriers()).find((c) => c.slug === slug) ?? null;
 }
+
+/**
+ * The ids of every partner whose parcels Delhivery can answer for.
+ *
+ * Used to keep a Delhivery lookup away from parcels that are not Delhivery's.
+ * Their reference index is not unique on their side and it is not scoped to
+ * how a parcel reached them, so asking "what do you know about SP-YP97XR" is a
+ * question they will answer about *some* shipment if that string exists in
+ * their system — and until now we asked it about every parcel we had a
+ * reference for, India Post's included. One of them came back with another
+ * customer's waybill.
+ *
+ * Reads the memoised list, so this costs nothing on a request that has already
+ * drawn a courier column.
+ */
+export async function delhiveryCourierIds(): Promise<string[]> {
+  return (await listCouriers())
+    .filter((c) => c.config.tracking === "delhivery")
+    .map((c) => c.id);
+}
