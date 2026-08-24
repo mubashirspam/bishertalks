@@ -25,9 +25,15 @@ import type { OrderStatus } from "@/lib/types/order";
  */
 
 export interface IndiaPostEvent {
-  /** Their code, e.g. ITEM_BOOK. Upper case in every sample we have. */
+  /**
+   * Their code, e.g. ITEM_BOOK.
+   *
+   * Present on the webhook push and **absent from bulk tracking**, which
+   * returns only the wording. So this is allowed to be empty and the reader
+   * falls back to the description — see `statusFromEvent`.
+   */
   eventCode: string;
-  /** Their wording, which is the only thing that separates the two deliveries. */
+  /** Their wording. On bulk tracking it is all we get. */
   eventDescription: string;
   /** ISO timestamp, assembled from their separate date and time fields. */
   at: string | null;
@@ -35,6 +41,16 @@ export interface IndiaPostEvent {
   office: string | null;
   /** Set on a failed delivery attempt. */
   nonDeliveryReason: string | null;
+  /**
+   * Their own summary of where the article ended up — `del_status` on the bulk
+   * tracking response, e.g. "delivered".
+   *
+   * The only thing that can tell a delivery from a completed return when the
+   * event text is the bare "Item Delivered", which is exactly what bulk
+   * tracking sends. Absent on the webhook, where the description carries the
+   * qualifier instead.
+   */
+  deliverySummary?: string | null;
 }
 
 /**
@@ -42,69 +58,160 @@ export interface IndiaPostEvent {
  * the status alone.
  */
 export function statusFromEvent(event: IndiaPostEvent): OrderStatus | null {
-  const code = (event.eventCode ?? "").trim().toUpperCase();
-  const text = (event.eventDescription ?? "").trim().toLowerCase();
+  const kind = kindOf(event);
 
-  switch (code) {
+  switch (kind) {
     // Accepted at the counter. From our side the parcel has left the building,
     // which is what `shipped` means everywhere else in this system.
-    case "ITEM_BOOK":
+    case "booked":
       return "shipped";
 
     // Invoiced to the postman, or out on the beat. Either way it is on its way
     // to the door today.
-    case "ITEM_INVOICE":
-    case "ITEM_TOBO":
-    case "BEAT_DISPATCH":
+    case "out_for_delivery":
       return "out_for_delivery";
 
-    case "ITEM_DELIVERY": {
-      // The one case where the description decides. "(Sender)" means the
-      // parcel came back to us — a completed RTS, not a delivery.
-      if (text.includes("sender")) return "returned";
-      if (text.includes("addressee")) return "delivered";
+    case "delivered_to_addressee":
+      return "delivered";
 
-      // Neither word present. Their samples always carry one, so this is a
-      // shape we have not seen — and guessing "delivered" would be the
-      // expensive half of the guess. Record the scan, move nothing, and let a
-      // human look.
-      console.warn(
-        `[India Post] ITEM_DELIVERY with neither Addressee nor Sender: "${event.eventDescription}"`
-      );
-      return null;
-    }
+    // A completed RTS: the parcel came back to us. Same event code as a
+    // delivery, and on bulk tracking the same wording too — see kindOf().
+    case "delivered_to_sender":
+      return "returned";
 
     // The return journey has begun. The customer has not had the parcel and we
     // do not have it back yet, so nothing moves until the delivery-to-sender
     // above arrives.
-    case "ITEM_RETURN":
+    case "returning":
       return null;
 
     // Transit, holds and redirections. All real information, none of it a
     // change of state: recorded as the latest scan and nothing more.
-    case "BAG_CLOSE":
-    case "BAG_DISPATCH":
-    case "BAG_OPEN":
-    case "ITEM_DISPATCH":
-    case "ITEM_RECEIVE":
-    case "ITEM_ONHOLD":
-    case "ITEM_REDIRECT":
+    case "in_transit":
       return null;
 
-    // Pickup-request events, for parcels a postman collects. We hand ours in
-    // at the counter, so these should never arrive; they are listed rather
-    // than falling through so that an unknown code stays genuinely unknown.
-    case "UNASSIGNED":
-    case "ASSIGNED":
-    case "CANCELLED":
-    case "PICKEDUP":
-    case "INDUCTED":
+    // A delivery whose direction we cannot establish. Guessing "delivered"
+    // here is the expensive half of the guess — it would approve a referral
+    // commission on a book that came back — so it is deliberately not guessed.
+    case "delivered_unknown_direction":
+      console.warn(
+        `[India Post] a delivery with no direction: code "${event.eventCode}", ` +
+          `text "${event.eventDescription}", summary "${event.deliverySummary ?? ""}"`
+      );
       return null;
 
     default:
-      console.warn(`[India Post] unmapped event ${code}: "${event.eventDescription}"`);
+      console.warn(
+        `[India Post] unmapped event: code "${event.eventCode}", text "${event.eventDescription}"`
+      );
       return null;
   }
+}
+
+type EventKind =
+  | "booked"
+  | "in_transit"
+  | "out_for_delivery"
+  | "delivered_to_addressee"
+  | "delivered_to_sender"
+  | "delivered_unknown_direction"
+  | "returning"
+  | "unknown";
+
+/**
+ * What happened, from whichever fields this particular endpoint filled in.
+ *
+ * Two endpoints report the same journey in different shapes, and neither is a
+ * superset of the other:
+ *
+ *   webhook         event_code AND a qualified description
+ *                   ("ITEM_DELIVERY", "Item Delivered(Addressee)")
+ *   bulk tracking   description only, unqualified, plus a del_status summary
+ *                   ("Item Delivered", del_status "delivered")
+ *
+ * So the code is used when it is there, the wording when it is not, and the
+ * summary breaks the tie that the wording alone cannot. Reading only the code
+ * would make bulk tracking a silent no-op — every parcel polled, nothing ever
+ * moved.
+ */
+function kindOf(event: IndiaPostEvent): EventKind {
+  const code = (event.eventCode ?? "").trim().toUpperCase();
+  const text = (event.eventDescription ?? "").trim().toLowerCase();
+  const summary = (event.deliverySummary ?? "").trim().toLowerCase();
+
+  /** Which end of the journey a delivery event belongs to. */
+  const direction = (): EventKind => {
+    if (text.includes("sender")) return "delivered_to_sender";
+    if (text.includes("addressee")) return "delivered_to_addressee";
+
+    // Bulk tracking's bare "Item Delivered". Their own summary is the only
+    // thing left that knows which way the parcel went.
+    if (/return|rts|sender/.test(summary)) return "delivered_to_sender";
+    if (summary === "delivered") return "delivered_to_addressee";
+
+    return "delivered_unknown_direction";
+  };
+
+  if (code) {
+    switch (code) {
+      case "ITEM_BOOK":
+        return "booked";
+      case "ITEM_INVOICE":
+      case "ITEM_TOBO":
+      case "BEAT_DISPATCH":
+        return "out_for_delivery";
+      case "ITEM_DELIVERY":
+        return direction();
+      case "ITEM_RETURN":
+        return "returning";
+      case "BAG_CLOSE":
+      case "BAG_DISPATCH":
+      case "BAG_OPEN":
+      case "ITEM_DISPATCH":
+      case "ITEM_RECEIVE":
+      case "ITEM_ONHOLD":
+      case "ITEM_REDIRECT":
+        return "in_transit";
+      // Pickup-request events, for parcels a postman collects. We hand ours in
+      // at the counter, so these should never arrive; listed rather than left
+      // to fall through so an unknown code stays genuinely unknown.
+      case "UNASSIGNED":
+      case "ASSIGNED":
+      case "CANCELLED":
+      case "PICKEDUP":
+      case "INDUCTED":
+        return "in_transit";
+      default:
+        return "unknown";
+    }
+  }
+
+  // No code: bulk tracking. Match on their wording, which is a small closed
+  // vocabulary — see the event lists attached to the approach document.
+  if (!text) return "unknown";
+
+  // Checked before the generic "returned to sender", because that phrase
+  // contains "return" too and the two mean opposite things about where the
+  // parcel is now.
+  if (text.includes("delivered")) return direction();
+
+  if (text.includes("returned to sender")) return "returning";
+  if (text.includes("booked")) return "booked";
+  if (text.includes("out for delivery") || text.includes("invoiced")) {
+    return "out_for_delivery";
+  }
+  if (
+    text.includes("bagged") ||
+    text.includes("dispatch") ||
+    text.includes("received") ||
+    text.includes("receive") ||
+    text.includes("hold") ||
+    text.includes("redirect")
+  ) {
+    return "in_transit";
+  }
+
+  return "unknown";
 }
 
 /** The line shown on the portal row, in their words plus where it happened. */
