@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { getProductPricing } from "@/lib/db/courses";
 import { fetchAllRows } from "@/lib/db/paginate";
 
 /**
@@ -638,10 +639,44 @@ export interface EconomicsReport {
   milestones: Milestone[];
   scenarios: PriceScenario[];
   recommendation: PriceRecommendation;
+  /**
+   * The price on the Checkout tab right now — what a customer pays today.
+   *
+   * Everything forward-looking is built on THIS, not on the realised average.
+   * Change the price and the whole page moves with it, including the scenario
+   * ladder, which is the point: the ladder asks "what if I charged X", and the
+   * row marked *current* has to be the price you are actually charging.
+   *
+   * It used to centre on `history.realisedPricePaise` — revenue divided by
+   * every book ever sold. That number is an average over months of trading, so
+   * it lags a price change by weeks and never equals the list price at all.
+   * After a rise to ₹749 the ladder would still be built around ₹690, no row
+   * would match, and nothing on the page would be marked current.
+   */
+  listPricePaise: number;
+  /**
+   * How far the realised average sits below today's list price, in percent.
+   *
+   * TWO things live in this number, and reading it as one is the mistake it
+   * exists to prevent: genuine discounts (promos, referrals), and the fact that
+   * every book in the back catalogue sold at whatever the price was at the
+   * time. The morning after a rise it is mostly the second, and it closes on
+   * its own as new orders arrive.
+   *
+   * So it is surfaced rather than folded into the model — it is context for the
+   * reader, not a correction anything applies.
+   */
+  discountGapPercent: number;
 }
 
 export async function getEconomicsReport(): Promise<EconomicsReport> {
-  const [stored, history] = await Promise.all([getBusinessCosts(), getTradingHistory()]);
+  const [stored, history, pricing] = await Promise.all([
+    getBusinessCosts(),
+    getTradingHistory(),
+    // Live and uncached — this is a decision screen, and an admin who has just
+    // changed the price is the most likely person to be looking at it.
+    getProductPricing(),
+  ]);
   const { configured, tableMissing, ...costs } = stored;
 
   // The most recent window with something in it. A business that sold nothing
@@ -655,7 +690,20 @@ export async function getEconomicsReport(): Promise<EconomicsReport> {
         ? history.perDay30
         : history.perDayAll;
 
-  const pricePaise = history.realisedPricePaise;
+  // What is charged today, from the Checkout tab (0048). Falls back to the
+  // realised average only if there is no price set at all, which would mean the
+  // pricing row is missing — a broken state, not a normal one.
+  const listPricePaise = pricing.payablePaise || history.realisedPricePaise;
+
+  // The realised average lags the list price by however long the back
+  // catalogue is, so it is NOT what the ladder is centred on any more. It is
+  // still the truth about what has been collected, so it stays visible.
+  const discountGapPercent =
+    listPricePaise && history.realisedPricePaise
+      ? ((listPricePaise - history.realisedPricePaise) / listPricePaise) * 100
+      : 0;
+
+  const pricePaise = listPricePaise;
   const monthlyVolume = Math.max(1, booksPerDay * DAYS_PER_MONTH);
 
   return {
@@ -665,6 +713,8 @@ export async function getEconomicsReport(): Promise<EconomicsReport> {
     history,
     booksPerDay,
     rateBasis,
+    listPricePaise,
+    discountGapPercent,
     economics: unitEconomics(costs, pricePaise, monthlyVolume),
     milestones: projectMilestones(history, costs, booksPerDay, pricePaise),
     scenarios: priceScenarios(costs, pricePaise, booksPerDay, priceLadder(pricePaise)),

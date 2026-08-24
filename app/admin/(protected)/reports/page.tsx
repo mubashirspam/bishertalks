@@ -131,7 +131,8 @@ function Kpi({
 }
 
 function Kpis({ report }: { report: EconomicsReport }) {
-  const { history, economics, booksPerDay, rateBasis } = report;
+  const { history, economics, booksPerDay, rateBasis, listPricePaise, discountGapPercent } =
+    report;
   const monthlyProfit = economics.netProfitPaise * booksPerDay * 30.44;
 
   return (
@@ -146,7 +147,19 @@ function Kpis({ report }: { report: EconomicsReport }) {
         icon={Wallet}
         label="Realised price"
         value={rupees(history.realisedPricePaise)}
-        sub={`after discounts · ${compact(history.revenuePaise)} collected`}
+        // Everything else on this page is computed at the LIST price, so how
+        // far this sits below it has to be visible.
+        //
+        // Two things live in that gap and they are worth not confusing: real
+        // discounts (promos, referrals), and the fact that the back catalogue
+        // was sold at whatever the price was THEN. Right after a rise most of
+        // the gap is the second, and it shrinks on its own as new orders land.
+        // So the label says where the number sits, and does not claim why.
+        sub={
+          discountGapPercent >= 0.5
+            ? `${discountGapPercent.toFixed(0)}% below today's ${rupees(listPricePaise)} · every book ever sold`
+            : `after discounts · ${compact(history.revenuePaise)} collected`
+        }
       />
       <Kpi
         icon={economics.netProfitPaise >= 0 ? TrendingUp : TrendingDown}
@@ -484,9 +497,12 @@ function Scenarios({ report }: { report: EconomicsReport }) {
           <Target className="w-4 h-4 text-primary-500" /> If the price changed
         </h2>
         <p className="text-xs text-neutral-500 mt-0.5">
-          Assumes {costs.priceElasticity}% of buyers are lost for every 10% added
-          to the price, and that the ad budget stays put — so fewer conversions
-          means a higher cost per buyer, not a smaller bill.
+          Built around <strong className="text-neutral-700">{rupees(report.listPricePaise)}</strong>,
+          the price on the Checkout tab right now — change it there and this
+          whole table moves with it. Assumes {costs.priceElasticity}% of buyers
+          are lost for every 10% added to the price, and that the ad budget stays
+          put — so fewer conversions means a higher cost per buyer, not a smaller
+          bill.
         </p>
         <p className="text-xs text-neutral-500 mt-1.5">
           <span className="font-semibold text-neutral-700">Can lose</span> is the
