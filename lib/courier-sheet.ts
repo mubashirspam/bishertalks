@@ -74,11 +74,15 @@ export const COURIER_SHEET_HEADERS = [
  * of these wrong sends a week of returns to a building we left.
  */
 export const COURIER_DEFAULTS = {
-  /** Grams for one book. A parcel of three weighs three of these. */
-  weightPerBookGrams: 250,
-  lengthCm: 10,
-  breadthCm: 10,
-  heightCm: 10,
+  /** A weighed book, not an estimate. See parcelSize(). */
+  weightPerBookGrams: 380,
+  /** What the wrap adds to a gift parcel, however many books are in it. */
+  giftWrapGrams: 20,
+  /** The flat of the parcel. Constant however many books are stacked in it. */
+  lengthCm: 25,
+  breadthCm: 15,
+  /** One book thick. Books stack, so this is the part that grows. */
+  heightPerBookCm: 2.5,
   packagingType: "flyer",
   /** Every order in the portal is paid before it gets here, so never COD. */
   paymentMode: "prepaid",
@@ -96,6 +100,47 @@ export const COURIER_DEFAULTS = {
 /** Delhivery truncates a long address field; do it here so we choose where. */
 const ADDRESS_MAX = 400;
 
+/** What a parcel physically is, once we know what is in it. */
+export interface ParcelSize {
+  weightGrams: number;
+  lengthCm: number;
+  breadthCm: number;
+  heightCm: number;
+}
+
+/**
+ * The weight and dimensions we declare for a parcel.
+ *
+ * Real measurements: one book is 380 g and 25 × 15 × 2.5 cm. Books stack, so
+ * two books are the same flat and twice the height; the wrap on a gift parcel
+ * adds 20 g and nothing to the shape.
+ *
+ * This used to be a flat 250 g in a 10 × 10 × 10 cm cube, which was neither
+ * measured nor a shape any parcel of ours has ever been. It went to Delhivery
+ * on every sheet and every API push, and under-declaring weight does not save
+ * anything — the hub weighs the parcel and bills the difference back as a
+ * discrepancy nobody can then explain against an invoice.
+ *
+ * Volumetric weight never bites at these numbers, which is worth knowing
+ * before anyone tries to optimise the packaging: a book is dense. One book is
+ * 937 cm³, about 190 g volumetric against 380 g actual, and stacking books
+ * grows both in step. Every carrier here charges the higher of the two, so it
+ * is always the real weight.
+ */
+export function parcelSize(quantity: number, isGift = false): ParcelSize {
+  const d = COURIER_DEFAULTS;
+  const books = Math.max(1, quantity || 1);
+
+  return {
+    weightGrams: d.weightPerBookGrams * books + (isGift ? d.giftWrapGrams : 0),
+    lengthCm: d.lengthCm,
+    breadthCm: d.breadthCm,
+    // Rounded to a millimetre: 2.5 per book is exact, but a carrier's form
+    // taking three decimals of a centimetre is a form we filled in wrong.
+    heightCm: Math.round(d.heightPerBookCm * books * 10) / 10,
+  };
+}
+
 export interface CourierParcel {
   order_number: string;
   buyer_name: string | null;
@@ -112,6 +157,8 @@ export interface CourierParcel {
   courier_reference: string | null;
   /** Whose parcel it is: the reference is coded per courier. */
   courier_id?: string | null;
+  /** Gift wrap adds weight, so the declared parcel needs to know. */
+  is_gift?: boolean | null;
 }
 
 /** Just the digits, and without the country code a phone box may have kept. */
@@ -224,6 +271,7 @@ export function courierSheetRow(p: CourierParcel, reference: string): unknown[] 
   const mobile = phoneDigits(p.buyer_phone);
   const pincode = (p.pincode ?? "").replace(/\D/g, "");
   const books = Math.max(1, p.quantity || 1);
+  const size = parcelSize(books, !!p.is_gift);
 
   return [
     "",                                   // Waybill — the courier fills this in
@@ -236,10 +284,10 @@ export function courierSheetRow(p: CourierParcel, reference: string): unknown[] 
     pincode ? Number(pincode) : "",
     "",                                   // Phone
     mobile ? Number(mobile) : "",
-    d.weightPerBookGrams * books,
-    d.lengthCm,
-    d.breadthCm,
-    d.heightCm,
+    size.weightGrams,
+    size.lengthCm,
+    size.breadthCm,
+    size.heightCm,
     d.packagingType,
     d.paymentMode,
     Math.round((p.amount_paise ?? 0) / 100),

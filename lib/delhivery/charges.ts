@@ -1,6 +1,6 @@
 import { delhiveryRequest } from "./client";
 import type { DelhiverySettings } from "./config";
-import { COURIER_DEFAULTS } from "@/lib/courier-sheet";
+import { COURIER_DEFAULTS, parcelSize } from "@/lib/courier-sheet";
 
 /**
  * What Delhivery bills us for carrying a parcel.
@@ -88,5 +88,5 @@ export async function freightFor(
 }
 
 /** What a parcel of this many books weighs, by the same rule the sheet uses. */
-export const parcelGrams = (quantity: number) =>
-  COURIER_DEFAULTS.weightPerBookGrams * Math.max(1, quantity || 1);
+export const parcelGrams = (quantity: number, isGift = false) =>
+  parcelSize(quantity, isGift).weightGrams;

@@ -24,10 +24,6 @@ import {
   type RouteOutcome,
 } from "@/lib/delivery/route-outcome";
 
-/** Mirrors lib/shipping-label.ts — duplicated rather than imported so the PDF
- *  writer doesn't get bundled into the browser for one number. */
-const LABELS_PER_PAGE = 6;
-
 /** Mirrors MAX_LABELS in the labels route. */
 const MAX_LABELS = 300;
 
@@ -543,11 +539,14 @@ export default function DeliveryTable({
 
   // A run is capped server-side; say so rather than promising more than the
   // PDF will contain.
+  //
+  // No sheet count any more: labels print one to a 4x6 page off a roll, so the
+  // number of labels is the number of pages and a second figure saying the
+  // same thing only invited the reader to work out what the difference was.
   const printAllCount = Math.min(matching, MAX_LABELS);
-  const sheets = Math.ceil(printAllCount / LABELS_PER_PAGE);
   const printAllLabel =
     `Print ${printAllCount < matching ? `first ${printAllCount}` : `all ${matching}`} ` +
-    `label${printAllCount === 1 ? "" : "s"} (${sheets} sheet${sheets === 1 ? "" : "s"})`;
+    `label${printAllCount === 1 ? "" : "s"}`;
 
 
   return (

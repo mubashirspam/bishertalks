@@ -1,32 +1,60 @@
-import { PdfDocument, A4, wrapText, measureText } from "@/lib/pdf";
+import { PdfDocument, wrapText, measureText } from "@/lib/pdf";
+import { drawBarcode } from "@/lib/barcode";
 import { formatIST } from "@/lib/format-date";
 import type { CourierConfig } from "@/lib/couriers/types";
 
 /**
- * Address labels, six to an A4 sheet.
+ * Address labels, one per 4x6 page, for a thermal label printer.
  *
- * 2 columns x 3 rows is the standard for a book-sized parcel: big enough that
- * a courier can read the pincode without squinting, small enough that a day's
- * orders is a couple of sheets. Cut along the boxes, tape one to each parcel.
+ * These used to be six to an A4 sheet, printed on an office laser and cut up
+ * with scissors. A 4x6 roll printer removes the cutting, and with it the
+ * reason to cram six addresses onto one page: each label is now its own page,
+ * so the address gets the whole face of the parcel sticker and can be set
+ * large enough to read at arm's length on a loading dock.
+ *
+ * The page is a true 4in x 6in at 72pt to the inch. Thermal printers size the
+ * image to the stock they are loaded with, so a page even slightly off gets
+ * scaled or centred with a white strip down one side — which shifts the
+ * barcode and is the usual reason a label that looks right on screen will not
+ * scan.
  */
+export const LABEL_4X6 = { width: 288, height: 432 };
 
-const COLS = 2;
-const ROWS = 3;
-export const LABELS_PER_PAGE = COLS * ROWS;
+/** One label, one page. Kept exported: callers still count pages with it. */
+export const LABELS_PER_PAGE = 1;
 
-const MARGIN_X = 16;
-const MARGIN_TOP = 14;
-const MARGIN_BOTTOM = 24; // leaves a strip for the sheet footer
+const MARGIN = 13;
+const LEFT = MARGIN;
+const RIGHT = LABEL_4X6.width - MARGIN;
+const INNER_W = RIGHT - LEFT;
 
-const CELL_W = (A4.width - MARGIN_X * 2) / COLS;
-const CELL_H = (A4.height - MARGIN_TOP - MARGIN_BOTTOM) / ROWS;
+/**
+ * The barcode's own margin, on top of the page margin.
+ *
+ * Code 128 needs a clear quiet zone either side or a scanner reads the label
+ * edge as part of the symbol. Ten modules is the specified minimum; this is
+ * wider than that at every length we print, and costs nothing but width we
+ * were not using.
+ */
+const BARCODE_INSET = 14;
 
-const PAD_X = 14;
-const PAD_Y = 13;
-const INNER_W = CELL_W - PAD_X * 2;
+// ── Vertical anchors, measured from the top of the page ─────────────────────
+// The address grows downwards from the header and the despatch block is pinned
+// to the bottom, so a long address runs out of room against a fixed line
+// rather than colliding with the barcode.
 
-/** Height reserved at the bottom of a label for the sender / contents block. */
-const FOOTER_H = 46;
+/** Baseline of the provenance strip — the last thing on the page. */
+const PROVENANCE_Y = LABEL_4X6.height - MARGIN;
+/** Baseline of the human-readable number printed under the barcode. */
+const BARCODE_TEXT_Y = PROVENANCE_Y - 12;
+const BARCODE_H = 54;
+const BARCODE_TOP = BARCODE_TEXT_Y - 11 - BARCODE_H;
+/** The heavy rule that separates the barcode from everything above it. */
+const BARCODE_RULE_Y = BARCODE_TOP - 11;
+/** Top of the contents / return-address block. */
+const DESPATCH_TOP = BARCODE_RULE_Y - 72;
+/** The address may not grow past this. */
+const ADDRESS_END = DESPATCH_TOP - 6;
 
 export interface LabelOrder {
   order_number: string;
@@ -174,166 +202,114 @@ export function buildLabelSheet(
   orders: LabelOrder[],
   sender: SenderDetails = senderFromEnv()
 ): Buffer {
-  const doc = new PdfDocument();
+  const doc = new PdfDocument(LABEL_4X6.width, LABEL_4X6.height);
   const printedAt = formatIST(new Date().toISOString());
-  const pageCount = Math.max(1, Math.ceil(orders.length / LABELS_PER_PAGE));
-
-  // The footer is drawn as each page opens: the writer is forward-only, so
-  // there's no going back to stamp pages once the run length is known — but
-  // the run length is known up front.
-  const openPage = (pageIndex: number) => {
-    if (pageIndex > 0) doc.addPage();
-    drawSheetFooter(doc, pageIndex + 1, pageCount, orders.length, printedAt);
-  };
-
-  openPage(0);
 
   orders.forEach((order, i) => {
-    const slot = i % LABELS_PER_PAGE;
-    if (i > 0 && slot === 0) openPage(i / LABELS_PER_PAGE);
-
-    const x = MARGIN_X + (slot % COLS) * CELL_W;
-    const y = MARGIN_TOP + Math.floor(slot / COLS) * CELL_H;
-    drawLabel(doc, order, sender, x, y);
+    if (i > 0) doc.addPage();
+    drawLabel(doc, order, sender, printedAt, i + 1, orders.length);
   });
 
   return doc.build();
-}
-
-/** Provenance strip, so a sheet found on a desk can be placed. */
-function drawSheetFooter(
-  doc: PdfDocument,
-  page: number,
-  pages: number,
-  total: number,
-  printedAt: string
-): void {
-  const y = A4.height - 10;
-  doc.text(MARGIN_X, y, `${total} label${total === 1 ? "" : "s"} · printed ${printedAt}`, {
-    size: 7,
-    gray: 0.5,
-  });
-  const right = `Page ${page} of ${pages}`;
-  doc.text(A4.width - MARGIN_X - measureText(right, 7), y, right, {
-    size: 7,
-    gray: 0.5,
-  });
 }
 
 function drawLabel(
   doc: PdfDocument,
   o: LabelOrder,
   sender: SenderDetails,
-  x: number,
-  y: number
+  printedAt: string,
+  index: number,
+  total: number
 ): void {
-  // Cut guide.
-  box(doc, x, y, CELL_W, CELL_H);
-
-  const left = x + PAD_X;
-  const right = x + CELL_W - PAD_X;
-  let cy = y + PAD_Y + 8;
+  let cy = MARGIN + 10;
 
   // A parcel is one book unless the order says otherwise. Rows created before
   // the quantity column existed are all single copies.
   const copies = Math.max(1, o.quantity ?? 1);
 
   // ── Header: prepaid marker + order number ────────────────────────────────
-  doc.text(left, cy, "PREPAID", { size: 8, bold: true, gray: 0.3 });
+  doc.text(LEFT, cy, "PREPAID", { size: 9, bold: true, gray: 0.3 });
   const num = o.order_number;
-  doc.text(right - measureText(num, 9.5, true), cy, num, { size: 9.5, bold: true });
+  doc.text(RIGHT - measureText(num, 13, true), cy, num, { size: 13, bold: true });
 
   // Anything that changes how the parcel is packed says so in the header, at
-  // the size of the order number. The contents line at the foot carries it too,
-  // but someone working down a sheet of six labels reads the top of each one
-  // and no further.
+  // the size of the order number. The contents line further down carries it
+  // too, but someone working through a stack of labels reads the top of each
+  // one and no further.
   //
-  // Laid out left to right with a running cursor, and dropped entirely rather
-  // than allowed to collide with the right-aligned order number — an overlap
-  // makes both unreadable, which is worse than either alone.
-  let markerX = left + measureText("PREPAID   ", 8, true);
-  const numberEdge = right - measureText(num, 9.5, true) - 6;
-  const marker = (text: string) => {
-    const w = measureText(text, 9.5, true);
-    if (markerX + w > numberEdge) return;
-    doc.text(markerX, cy, text, { size: 9.5, bold: true });
-    markerX += w + measureText("  ", 9.5, true);
-  };
+  // On their own row now rather than squeezed beside the order number: a 4x6
+  // page has the width to print all three without any of them having to be
+  // dropped to avoid a collision, which is what the A4 layout had to do.
+  const markers = [
+    copies > 1 ? `${copies} BOOKS` : "",
+    o.is_gift ? "GIFT" : "",
+    o.is_signed ? "SIGNED" : "",
+  ].filter(Boolean);
 
-  if (copies > 1) marker(`${copies} BOOKS`);
-  if (o.is_gift) marker("GIFT");
-  // Last, so it is the first dropped if the header runs out of room — markers
-  // are laid left to right and `marker` skips any that would collide. Nothing
-  // is lost when that happens: the contents line at the foot always carries it,
-  // and GIFT is the one whose absence a packer cannot recover from once the
-  // parcel is taped shut.
-  if (o.is_signed) marker("SIGNED");
+  if (markers.length) {
+    cy += 15;
+    doc.text(LEFT, cy, markers.join("   "), { size: 11, bold: true, maxWidth: INNER_W });
+  }
 
-  cy += 7;
-  doc.line(left, cy, right, cy, { gray: 0.7, width: 0.7 });
+  cy += 8;
+  doc.line(LEFT, cy, RIGHT, cy, { gray: 0.6, width: 0.8 });
 
   // ── Deliver to ───────────────────────────────────────────────────────────
-  cy += 13;
-  doc.text(left, cy, "DELIVER TO", { size: 6.5, bold: true, gray: 0.5 });
-
   cy += 15;
-  doc.text(left, cy, o.buyer_name?.trim() || "—", {
-    size: 12,
-    bold: true,
-    maxWidth: INNER_W,
-  });
+  doc.text(LEFT, cy, "DELIVER TO", { size: 7.5, bold: true, gray: 0.5 });
+
+  // Wrapped over two lines rather than truncated. A Malayalam name written out
+  // in full is regularly wider than the label, and the A4 layout cut it off —
+  // which puts a parcel on a doorstep addressed to somebody who does not quite
+  // exist. Two lines is where it stops: past that it is no longer a name, and
+  // the address underneath matters more.
+  const nameLines = wrapText(o.buyer_name?.trim() || "—", INNER_W, 16, true).slice(0, 2);
+  for (const line of nameLines) {
+    cy += 20;
+    doc.text(LEFT, cy, line, { size: 16, bold: true, maxWidth: INNER_W });
+  }
 
   // ── Address ──────────────────────────────────────────────────────────────
   // Everything below the name shares a fixed budget; a long address loses its
-  // least important lines rather than running over the sender block.
-  const budgetEnd = y + CELL_H - FOOTER_H;
-
+  // least important lines rather than running over the despatch block.
   const street = [o.address_line1, o.address_line2]
-    .map((s) => s?.trim())
+    .map((t) => t?.trim())
     .filter(Boolean)
     .join(", ");
   const area = [o.city, o.district]
-    .map((s) => s?.trim())
+    .map((t) => t?.trim())
     .filter(Boolean)
     .join(", ");
 
-  cy += 14;
-  for (const line of wrapText(street, INNER_W, 9.5)) {
-    if (cy > budgetEnd) break;
-    doc.text(left, cy, line, { size: 9.5 });
-    cy += 11.5;
-  }
-  for (const line of wrapText(area, INNER_W, 9.5)) {
-    if (cy > budgetEnd) break;
-    doc.text(left, cy, line, { size: 9.5 });
-    cy += 11.5;
+  cy += 19;
+  for (const line of [...wrapText(street, INNER_W, 12), ...wrapText(area, INNER_W, 12)]) {
+    if (cy > ADDRESS_END) break;
+    doc.text(LEFT, cy, line, { size: 12 });
+    cy += 14.5;
   }
 
   // State + pincode, the two fields the sorting hub actually reads.
-  if (cy <= budgetEnd) {
-    const state = o.state?.trim() || "";
-    const pin = o.pincode?.trim() || "";
-    doc.text(left, cy + 2, [state, pin && `PIN ${pin}`].filter(Boolean).join("  -  "), {
-      size: 11,
-      bold: true,
-      maxWidth: INNER_W,
-    });
-    cy += 15;
+  const state = o.state?.trim() || "";
+  const pin = o.pincode?.trim() || "";
+  const region = [state, pin && `PIN ${pin}`].filter(Boolean).join("  -  ");
+  if (region && cy <= ADDRESS_END) {
+    doc.text(LEFT, cy + 4, region, { size: 15, bold: true, maxWidth: INNER_W });
+    cy += 22;
   }
 
-  if (o.buyer_phone && cy <= budgetEnd + 12) {
-    doc.text(left, cy + 2, `Phone: +91 ${o.buyer_phone}`, { size: 9.5, bold: true });
+  if (o.buyer_phone && cy <= ADDRESS_END + 14) {
+    doc.text(LEFT, cy + 3, `Phone: +91 ${o.buyer_phone}`, { size: 12, bold: true });
   }
 
-  // ── Sender + contents, pinned to the bottom of the label ─────────────────
-  const footTop = y + CELL_H - FOOTER_H;
-  doc.line(left, footTop, right, footTop, { gray: 0.8, width: 0.5 });
+  // ── Contents + return address, pinned above the barcode ──────────────────
+  doc.line(LEFT, DESPATCH_TOP, RIGHT, DESPATCH_TOP, { gray: 0.8, width: 0.5 });
 
-  doc.text(left, footTop + 12, `Contents: ${contentsLine(copies, !!o.is_gift, !!o.is_signed)}`, {
-    size: 7.5,
-    gray: 0.35,
-    maxWidth: INNER_W,
-  });
+  doc.text(
+    LEFT,
+    DESPATCH_TOP + 13,
+    `Contents: ${contentsLine(copies, !!o.is_gift, !!o.is_signed)}`,
+    { size: 8.5, gray: 0.3, maxWidth: INNER_W }
+  );
 
   const ordered = new Date(o.ordered_at).toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata",
@@ -341,23 +317,43 @@ function drawLabel(
     month: "short",
     year: "numeric",
   });
-  doc.text(left, footTop + 22, `Ordered ${ordered}`, { size: 7, gray: 0.45 });
+  doc.text(LEFT, DESPATCH_TOP + 25, `Ordered ${ordered}`, { size: 8, gray: 0.45 });
 
   const from = [sender.name, sender.address, sender.phone && `Ph ${sender.phone}`]
     .filter(Boolean)
     .join(", ");
-  let fy = footTop + 32;
-  for (const line of wrapText(`FROM: ${from}`, INNER_W, 7)) {
-    if (fy > y + CELL_H - 5) break;
-    doc.text(left, fy, line, { size: 7, gray: 0.45 });
-    fy += 8;
+  let fy = DESPATCH_TOP + 37;
+  for (const line of wrapText(`FROM: ${from}`, INNER_W, 8)) {
+    if (fy > BARCODE_RULE_Y - 5) break;
+    doc.text(LEFT, fy, line, { size: 8, gray: 0.45 });
+    fy += 9.5;
   }
-}
 
-function box(doc: PdfDocument, x: number, y: number, w: number, h: number): void {
-  const o = { gray: 0.78, width: 0.6 };
-  doc.line(x, y, x + w, y, o);
-  doc.line(x, y + h, x + w, y + h, o);
-  doc.line(x, y, x, y + h, o);
-  doc.line(x + w, y, x + w, y + h, o);
+  // ── Barcode ──────────────────────────────────────────────────────────────
+  // The order number, not the courier's waybill. This is our label: the number
+  // on it is the one our own screens, exports and audit trail are keyed by, so
+  // scanning it finds the order. A partner that wants its own barcode issues
+  // its own label at the counter, and Delhivery's packing slip already carries
+  // theirs — a second barcode on the same parcel is how the wrong one gets
+  // scanned.
+  doc.line(LEFT, BARCODE_RULE_Y, RIGHT, BARCODE_RULE_Y, { gray: 0, width: 1.5 });
+
+  const drawn = drawBarcode(doc, num, {
+    x: LEFT + BARCODE_INSET,
+    y: BARCODE_TOP,
+    width: INNER_W - BARCODE_INSET * 2,
+    height: BARCODE_H,
+  });
+
+  // The number under the barcode is not decoration: it is what a packer reads
+  // out when a scanner will not read the label at all.
+  if (drawn) {
+    const centred = LEFT + (INNER_W - measureText(num, 13, true)) / 2;
+    doc.text(centred, BARCODE_TEXT_Y, num, { size: 13, bold: true });
+  }
+
+  // ── Provenance, so a label found loose on a bench can be placed ──────────
+  doc.text(LEFT, PROVENANCE_Y, `Printed ${printedAt}`, { size: 6.5, gray: 0.5 });
+  const count = `${index} of ${total}`;
+  doc.text(RIGHT - measureText(count, 6.5), PROVENANCE_Y, count, { size: 6.5, gray: 0.5 });
 }

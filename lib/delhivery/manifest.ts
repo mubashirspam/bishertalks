@@ -3,6 +3,7 @@ import { trackReferencesResilient } from "./track";
 import { EWAYBILL_THRESHOLD_PAISE, type DelhiverySettings } from "./config";
 import {
   COURIER_DEFAULTS,
+  parcelSize,
   courierAddress,
   phoneDigits,
   type CourierParcel,
@@ -91,6 +92,7 @@ interface CreateResponse {
 function shipment(parcel: CourierParcel, settings: DelhiverySettings) {
   const d = COURIER_DEFAULTS;
   const books = Math.max(1, parcel.quantity || 1);
+  const size = parcelSize(books, !!parcel.is_gift);
   const mobile = phoneDigits(parcel.buyer_phone);
 
   return {
@@ -122,10 +124,10 @@ function shipment(parcel: CourierParcel, settings: DelhiverySettings) {
     // The parcel itself
     products_desc: d.product,
     quantity: books,
-    weight: d.weightPerBookGrams * books,
-    shipment_length: d.lengthCm,
-    shipment_width: d.breadthCm,
-    shipment_height: d.heightCm,
+    weight: size.weightGrams,
+    shipment_length: size.lengthCm,
+    shipment_width: size.breadthCm,
+    shipment_height: size.heightCm,
     fragile_shipment: d.fragile,
     shipping_mode: settings.shippingMode,
 

@@ -16,13 +16,13 @@ import { istToday } from "@/lib/format-date";
 import { auditMany } from "@/lib/audit";
 
 /**
- * One sheet, 300 labels, 50 pages. Past that it's a stuck filter rather than a
+ * 300 labels, one 4x6 page each. Past that it's a stuck filter rather than a
  * real day's post, and the function would time out building it.
  */
 const MAX_LABELS = 300;
 
 /**
- * Download address labels as a printable PDF, six to an A4 sheet.
+ * Download address labels as a printable PDF, one 4x6 label per page.
  *
  * Two ways to call it, both from the delivery list:
  *   { order_numbers: [...] }  the rows the admin ticked

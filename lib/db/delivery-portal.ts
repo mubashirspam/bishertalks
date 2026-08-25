@@ -534,7 +534,7 @@ export async function fetchPickedForCourierSheet(
       "order_number,buyer_name,buyer_phone,address_line1,address_line2,city," +
         // courier_id, because the reference is coded per partner — see
         // referenceCode() in lib/couriers.
-        "district,state,pincode,amount_paise,quantity,courier_reference,courier_id"
+        "district,state,pincode,amount_paise,quantity,courier_reference,courier_id,is_gift"
     )
     .in("order_number", orderNumbers.slice(0, limit))
     .eq("payment_status", "paid")
