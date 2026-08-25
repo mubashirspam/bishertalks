@@ -142,9 +142,10 @@ export default function PrivacyPolicyPage() {
           <section>
             <h2 className="text-xl font-bold text-neutral-900 dark:text-white mb-3">5. Cookies</h2>
             <p className="text-sm">
-              Our website uses minimal cookies for essential functionality (such as theme preference).
-              We do not use tracking or advertising cookies. You can disable cookies in your browser
-              settings, though some features may not function correctly.
+              Our website uses cookies for essential functionality (such as theme preference), and
+              analytics and advertising cookies set by Google Analytics and the Meta Pixel, which
+              help us understand how the site is used and measure our advertising. You can disable
+              cookies in your browser settings, though some features may not function correctly.
             </p>
           </section>
 

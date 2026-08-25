@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import type { ProductPricing } from "@/lib/db/courses";
 import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
+import { gaViewItem, gaBeginCheckout } from "@/lib/analytics";
 import { buildFaqs } from "./faqs";
 import { Band, Card, Heading, OrderNow, Rule } from "./ui";
 import { CountdownBoxes, CountdownClock, useCountdown } from "./Countdown";
@@ -110,11 +111,18 @@ export default function NeuroCodeLanding({
   const explainerUrl = settings.explainer_video_url;
   const videoLength = settings.explainer_length;
 
+  // Both ad platforms get the same two signals. Meta optimises delivery on
+  // them; Google needs them to report the funnel and to run them as Ads
+  // conversions. Either call is a no-op if that platform's tag isn't loaded.
   useEffect(() => {
     trackViewContent(pricing.payable);
+    gaViewItem(pricing.payable);
   }, [pricing.payable]);
 
-  const order = () => trackInitiateCheckout(pricing.payable);
+  const order = () => {
+    trackInitiateCheckout(pricing.payable);
+    gaBeginCheckout(pricing.payable);
+  };
   const saving = OFFER.mrpRupees - pricing.payable;
 
   const support = (process.env.NEXT_PUBLIC_SUPPORT_WHATSAPP || "916282680794").replace(/\D/g, "");

@@ -3,6 +3,7 @@ import { Inter, Noto_Sans_Malayalam, Anek_Malayalam } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
 import MetaPixelRouteTracker from "@/components/MetaPixel";
+import GoogleAnalyticsRouteTracker from "@/components/GoogleAnalytics";
 
 /**
  * Meta Pixel IDs.
@@ -18,6 +19,24 @@ const META_PIXEL_IDS = (
     ? process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID || "1059545799769579"
     : process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID || ""
 )
+  .split(",")
+  .map((id) => id.trim())
+  .filter(Boolean);
+
+/**
+ * Google tag IDs.
+ *
+ * Comma-separated like the pixel above, because one gtag.js load serves every
+ * Google product: a GA4 measurement ID (G-XXXXXXXXXX) and a Google Ads
+ * conversion ID (AW-XXXXXXXXX) can sit side by side here and each `gtag('event',
+ * ...)` reports into all of them.
+ *
+ * No hardcoded fallback — unlike the pixel there is nothing sensible to guess,
+ * so this is entirely driven by NEXT_PUBLIC_GA_MEASUREMENT_ID. Set it in Vercel
+ * and leave it blank in .env.local: that is what keeps `npm run dev` out of the
+ * real property instead of filling the reports with localhost sessions.
+ */
+const GOOGLE_TAG_IDS = (process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID || "")
   .split(",")
   .map((id) => id.trim())
   .filter(Boolean);
@@ -336,6 +355,26 @@ fbq('track', 'PageView');`,
             }}
           />
         )}
+        {/* Google Analytics 4. Inlined here for the same reason as the pixel:
+            the initial page_view has to be in the served HTML, not waiting on
+            hydration. gtag.js is loaded async from Google, so it doesn't block
+            rendering, and one load serves every ID configured below. */}
+        {GOOGLE_TAG_IDS.length > 0 && (
+          <>
+            <script
+              async
+              src={`https://www.googletagmanager.com/gtag/js?id=${GOOGLE_TAG_IDS[0]}`}
+            />
+            <script
+              dangerouslySetInnerHTML={{
+                __html: `window.dataLayer = window.dataLayer || [];
+function gtag(){dataLayer.push(arguments);}
+gtag('js', new Date());
+${GOOGLE_TAG_IDS.map((id) => `gtag('config', '${id}');`).join("\n")}`,
+              }}
+            />
+          </>
+        )}
       </head>
       <body className={inter.className}>
           <ThemeProvider>{children}</ThemeProvider>
@@ -344,6 +383,11 @@ fbq('track', 'PageView');`,
               which quietly poisons the audience and conversion data the ads are
               optimised against. Override with NEXT_PUBLIC_FACEBOOK_PIXEL_ID if
               you ever need to test it locally. */}
+          {/* Counts the navigations gtag.js can't see on its own — this is a
+              single-page app, so only the first page load is a real document
+              load. Safe to mount whenever a tag is configured; it does nothing
+              until gtag exists. */}
+          {GOOGLE_TAG_IDS.length > 0 && <GoogleAnalyticsRouteTracker />}
           {META_PIXEL_IDS.length > 0 && (
             <>
               <MetaPixelRouteTracker />
