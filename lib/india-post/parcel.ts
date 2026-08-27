@@ -11,20 +11,24 @@ import { parcelSize, type ParcelSize } from "@/lib/courier-sheet";
  *   SP_INLAND_DOC        1–500 g       1–42 cm     1–29 cm    1–2 cm
  *   SP_INLAND_PARCEL     1 g–35 kg     14–150 cm   9–150 cm   1–150 cm
  *
- * One book is 380 g and 25 × 15 × 2.5 cm. By weight it is a document; by
- * height it cannot be one. Two books or more is 760 g and comfortably a
- * parcel, so the conflict only ever affects a single-book order — which is
- * most of them.
+ * **Settled by packaging, 2026-08-27.** One book is 380 g and 25 × 15 × 2.0 cm
+ * — a thinner mailer replaced the flyer that was adding the half centimetre.
+ * By weight it is a document, and at 2.0 cm it now fits the document band, so
+ * a single-book order is finally consistent with their own rule. Two books or
+ * more is 760 g and comfortably a parcel, where the height limit does not
+ * apply at all.
+ *
+ * That was the last open question blocking booking, and it was closed by
+ * changing the parcel rather than by arguing with their validator — the only
+ * option of the three that needed nobody's agreement. `COURIER_DEFAULTS
+ * .heightPerBookCm` in lib/courier-sheet.ts is where it lives.
  *
  * `articleTypeFor` returns what their rule says, because that is what their
- * tariff API will decide on its own regardless of what we send. `fitsBand`
+ * tariff API will decide on its own regardless of what we send. `bandFailures`
  * reports whether the physical parcel actually satisfies that type, so a
  * booking can refuse locally with a sentence a person can act on rather than
- * being rejected by their validator with a field name.
- *
- * When the question is settled — see §2.1 of docs/india-post-integration-plan.md
- * — the fix is one of: pack to 2 cm and single books become honest documents;
- * or override to SP_INLAND_PARCEL here with their written agreement.
+ * being rejected by their validator with a field name. It stays, because
+ * packaging can drift back.
  */
 
 export type ArticleType = "SP_INLAND_DOC" | "SP_INLAND_PARCEL";

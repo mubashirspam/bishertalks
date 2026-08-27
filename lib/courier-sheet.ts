@@ -81,8 +81,22 @@ export const COURIER_DEFAULTS = {
   /** The flat of the parcel. Constant however many books are stacked in it. */
   lengthCm: 25,
   breadthCm: 15,
-  /** One book thick. Books stack, so this is the part that grows. */
-  heightPerBookCm: 2.5,
+  /**
+   * One book thick. Books stack, so this is the part that grows.
+   *
+   * 2.0, not the 2.5 measured before: the old figure was the book plus a thick
+   * flyer, and the packaging moved to a thinner mailer specifically to clear
+   * India Post's document band. Their rule classifies anything under 500 g as
+   * SP_INLAND_DOC by weight alone, and a document may not exceed 2 cm — so a
+   * single 380 g book at 2.5 cm was a parcel their own validator would refuse
+   * to call a parcel. At 2.0 it is an honest document.
+   *
+   * Shared with Delhivery, which is correct: it is the same physical parcel.
+   * Nothing there depends on the old number — a book is dense enough that
+   * actual weight always beats volumetric, so the declared freight does not
+   * move.
+   */
+  heightPerBookCm: 2.0,
   packagingType: "flyer",
   /** Every order in the portal is paid before it gets here, so never COD. */
   paymentMode: "prepaid",
