@@ -1,0 +1,106 @@
+<title>India Post Production Access Request</title>
+<style>
+  :root{--ink:#1a1a1a;--mut:#555;--line:#d4d4d4;--bg:#fff;--accent:#7b1113;--code:#f4f4f5}
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font:14px/1.6 "Helvetica Neue",Arial,sans-serif;margin:0;padding:32px}
+  .sheet{max-width:800px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px;color:var(--accent)}
+  h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;margin:26px 0 10px;padding-bottom:5px;border-bottom:2px solid var(--accent)}
+  .sub{color:var(--mut);margin:0 0 18px;font-size:13px}
+  table{width:100%;border-collapse:collapse;margin:10px 0 14px;font-size:12.5px}
+  th,td{text-align:left;padding:6px 9px;border:1px solid var(--line);vertical-align:top}
+  th{background:#f7f7f8;font-weight:600;width:34%}
+  .grid th{width:30%}
+  code{font-family:"SF Mono",Menlo,Consolas,monospace;font-size:12px;background:var(--code);padding:1px 4px;border-radius:3px}
+  pre{background:var(--code);border:1px solid var(--line);border-radius:4px;padding:10px;font-family:"SF Mono",Menlo,Consolas,monospace;font-size:11.5px;overflow-x:auto;white-space:pre-wrap}
+  .ok{color:#1a7f37;font-weight:600}
+  .bad{color:#b42318;font-weight:600}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:4px 0}
+  .ask{border:1px solid var(--accent);border-left:4px solid var(--accent);padding:12px 14px;margin:12px 0;background:#fdf7f7}
+  .ask p{margin:6px 0}
+  .foot{margin-top:26px;padding-top:10px;border-top:1px solid var(--line);color:var(--mut);font-size:12px}
+  @media print{body{padding:0}.sheet{max-width:100%}h2{page-break-after:avoid}table,pre{page-break-inside:avoid}}
+</style>
+<div class="sheet">
+
+<h1>Request for Production Access — API Integration</h1>
+<p class="sub"><strong>Bisher Talks</strong> · Bulk Customer ID <strong>1171865272</strong> · Contract ID <strong>41767647</strong> · Speed Post (Contractual)<br>
+Prepared 27 August 2026 · Contact pincode 673001 (Kozhikode)</p>
+
+<h2>1. Purpose of this document</h2>
+<p>This is submitted in place of a sandbox test report, because <strong>we have been unable to complete UAT testing: the sandbox environment has not accepted a connection from our whitelisted IP address.</strong></p>
+<p>Sections 2 and 3 record what has been built and is ready to test. Section 4 documents the sandbox unavailability in reproducible detail. Section 5 states what we are requesting.</p>
+
+<h2>2. Integration status</h2>
+<p>Our integration against the <code>beextcustomer</code> APIs is written and builds cleanly. The following are implemented and awaiting a reachable environment to verify:</p>
+<table class="grid">
+<tr><th>Authentication</th><td>AUTH01 <code>/v1/access/login</code> with cached token and AUTH02 refresh handling</td></tr>
+<tr><th>Speed Post tariff</th><td>TCD02 <code>/v1/speed-post/tariffs</code></td></tr>
+<tr><th>Bulk tracking</th><td>TNT02 <code>/v1/tracking/bulk</code>, batched at 50 articles per call</td></tr>
+<tr><th>Event handling</th><td>Webhook endpoint live, mapping all eight booking event codes, including the distinction between <code>Item Delivered(Addressee)</code> and <code>Item Delivered(Sender)</code></td></tr>
+<tr><th>Article numbers</th><td>Barcode generator implementing weighted modulus 11 (factors 86423597) per the Department of Posts barcode generation specification</td></tr>
+</table>
+<p>The article-number generator has been verified offline against the specification's own worked example and against every genuine barcode published in the integration documentation:</p>
+<pre>Specification worked example 47312482 → check digit 9    MATCHES
+EY000027272IN   EB126023474IN   EB126023770IN
+AW784699994IN   RM019388105IN                            ALL MATCH</pre>
+
+<h2>3. Portal configuration completed</h2>
+<table class="grid">
+<tr><th>UAT IP whitelisting</th><td><code>103.180.89.153</code> registered under UAT Environment and shown as configured <span class="ok">✔</span></td></tr>
+<tr><th>Credentials</th><td>Customer Selfservice Portal username and password configured <span class="ok">✔</span></td></tr>
+<tr><th>Event configuration</th><td>Webhook endpoint prepared and reachable <span class="ok">✔</span></td></tr>
+</table>
+
+<h2>4. Sandbox environment is not responding</h2>
+<p>Requests to <code>https://test.cept.gov.in/beextcustomer</code> fail <strong>before any HTTP exchange takes place</strong>. The TCP connection on port 443 is accepted, and the TLS handshake is then reset by the peer with <strong>zero bytes received</strong> — no server certificate is presented.</p>
+<pre>$ curl -X POST "https://test.cept.gov.in/beextcustomer/v1/access/login"
+curl: (35) Recv failure: Connection reset by peer
+
+$ openssl s_client -connect test.cept.gov.in:443 -servername test.cept.gov.in
+write:errno=54
+no peer certificate available
+SSL handshake has read 0 bytes and written 1547 bytes</pre>
+
+<p>This is not a client-side or credential problem. Observed behaviour:</p>
+<table>
+<tr><th>DNS <code>test.cept.gov.in</code></th><td>resolves to 103.244.127.150 <span class="ok">✔</span></td></tr>
+<tr><th>TCP port 443</th><td>connection accepted <span class="ok">✔</span></td></tr>
+<tr><th>TCP port 80</th><td>times out</td></tr>
+<tr><th>TLS — correct SNI</th><td><span class="bad">reset, 0 bytes read, no certificate</span></td></tr>
+<tr><th>TLS — no SNI</th><td><span class="bad">reset, 0 bytes read</span></td></tr>
+<tr><th>TLS — different SNI</th><td><span class="bad">reset, 0 bytes read</span></td></tr>
+<tr><th><code>api.cept.gov.in</code></th><td>full TLS 1.2 handshake, valid certificate, responds normally <span class="ok">✔</span></td></tr>
+<tr><th><code>www.indiapost.gov.in</code></th><td>HTTP 200 <span class="ok">✔</span></td></tr>
+</table>
+
+<p>Because the failure is identical with the correct SNI, with no SNI, and with a different SNI, it does not appear to be an access rule specific to our address. We also note a possibly related observation:</p>
+<table>
+<tr><th><code>uat.cept.gov.in</code> certificate</th><td><span class="bad">*.cept.gov.in — expired 9 August 2026</span></td></tr>
+<tr><th><code>api.cept.gov.in</code> certificate</th><td>*.cept.gov.in — renewed 10 July 2026, valid to 8 October 2026 <span class="ok">✔</span></td></tr>
+</table>
+<p>First observed 26 August 2026 and unchanged on repeated attempts through 27 August 2026, including after our UAT IP whitelisting was confirmed.</p>
+
+<h2>5. What we are requesting</h2>
+<div class="ask">
+<p><strong>a.</strong> Confirmation of whether the UAT environment (<code>test.cept.gov.in</code>) is currently available, and whether it remains the correct sandbox host for the <code>beextcustomer</code> APIs.</p>
+<p><strong>b.</strong> If a different UAT base URL should be used, please advise it and we will complete sandbox testing immediately and resubmit a full test report.</p>
+<p><strong>c.</strong> If the UAT environment is unavailable for an extended period, we request that production access be granted on the basis of this document, so that verification can be carried out on production with a single controlled test consignment before any volume is booked.</p>
+<p><strong>d.</strong> Please also confirm the <strong>production base URL</strong> for the <code>beextcustomer</code> APIs. We note that <code>api.cept.gov.in</code> returns HTTP 404 for the <code>/beextcustomer</code> path, so we are unable to infer it.</p>
+</div>
+
+<h2>6. Reference details</h2>
+<table class="grid">
+<tr><th>Bulk Customer ID</th><td>1171865272</td></tr>
+<tr><th>Contract ID</th><td>41767647 (Speed Post, contractual)</td></tr>
+<tr><th>Whitelisted UAT IP</th><td>103.180.89.153</td></tr>
+<tr><th>Endpoint attempted</th><td><code>POST https://test.cept.gov.in/beextcustomer/v1/access/login</code></td></tr>
+<tr><th>Observed result</th><td>TLS handshake reset, 0 bytes read, errno 54</td></tr>
+<tr><th>Dates observed</th><td>26–27 August 2026</td></tr>
+<tr><th>Booking office</th><td>Kozhikode, pincode 673001</td></tr>
+</table>
+
+<p class="foot">Submitted with the Request for Production Access form, Customer Selfservice Portal. We are ready to begin UAT the day the sandbox becomes reachable.</p>
+
+</div>

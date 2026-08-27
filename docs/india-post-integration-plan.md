@@ -9,12 +9,22 @@ Source: `Customer_Integrations_approach_document_31052026.docx` (India Post –
 External Integrations, updated 25.05.2026). Support desk:
 `integrations.cept@indiapost.gov.in`.
 
-Status: **phases 2, 3 (part) and 8 built.** The article-number minter, the
-auth/HTTP layer, the event reader and the webhook endpoint are written and
-unit-tested. Booking, labels, tariff and the adapter seam are not.
+Status, 2026-08-27: **phases 2, 3 (part), 4, 7 and 8 written.** The
+article-number minter, the auth/HTTP layer, the tariff and tracking modules,
+the event reader and the webhook endpoint exist. Tariff and tracking are wired
+to no route yet. **Booking, labels, the office lookup and the adapter seam do
+not exist** — and without the seam, India Post shows no Send or Sync button at
+all, because `canSendAutomatically` / `canTrack` are still hard-coded to
+Delhivery.
 
-Blocked on the portal steps in §0.1 — no API call can succeed until this
-machine's IP is whitelisted and the APIs are subscribed.
+There is no test runner in this repo, so "unit-tested" above described intent
+rather than anything re-runnable. See §8 of the requirements.
+
+**Blocked on India Post, not on us.** The IP is whitelisted and the credentials
+are set; their UAT host resets every TLS handshake having sent zero bytes, while
+production is healthy — evidence and the email to send in
+[india-post-uat-outage.md](./india-post-uat-outage.md). The checklist lives in
+[india-post-requirements.md](./india-post-requirements.md).
 
 India Post is courier `speed-post`, handoff `manual`, 100 parcels routed to it.
 
@@ -26,17 +36,21 @@ one would have failed late:
 
 | | Approach document | The portal |
 |---|---|---|
-| Login path | `/v1/access/login` | **`/v1/access/Login`**, plus `/v1/access/TokenWithRtoken` (AUTH02) for a refresh token |
+| Login path | `/v1/access/login` | agrees, **lowercase** — the API reference shows `POST /v1/access/login`. An earlier reading of the subscription list recorded a capital `L`; the two portal pages disagree and neither is testable while UAT is down. Plus `/v1/access/TokenWithRtoken` (AUTH02) for a refresh token |
 | Booking | `/process-articles/:id`, JSON body | **`/process-articles-file/:customerID` only** — a multipart upload of a JSON file. The JSON-body endpoint is not among the twelve APIs offered |
 | Bulk tracking | up to 500 articles | **up to 50** |
 | IP whitelisting | a production go-live item | **required for sandbox too** — "At least one UAT IP is required" |
 
-Two APIs the plan assumed are **not in the subscription list at all**: the
-pincode/post-office lookup (`bemasterdata/v1/offices/limited-details`) and the
-event download (`/v1/event/download`). The office lookup is how we get the
-eight-digit `pickup_dropoff_office_id` that booking requires, so this needs
-answering — it may live on a different base path that needs no subscription, or
-it may have to come from the division office by hand. Events appear to be
+One API the plan assumed is **not in the subscription list**: the event
+download (`/v1/event/download`).
+
+~~The pincode/post-office lookup is also missing.~~ **Corrected 2026-08-27:**
+the portal's Customer Integrations API reference lists **PIN Code Search** as
+one of its eleven categories, with one endpoint. The office lookup is how we
+get the eight-digit `pickup_dropoff_office_id` that booking requires, and it
+was the open question most likely to block Phase 5 — it is available after all,
+and `lib/india-post/offices.ts` is buildable. Its exact path still needs
+reading off that page. Events appear to be
 handled by the **Event Configuration** tab beside API Subscription rather than
 by a polled endpoint.
 

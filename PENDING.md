@@ -1,12 +1,82 @@
 # Pending
 
 Everything outstanding, in the order it should be done.
-Code is complete and building; almost all of this is dashboard/config work.
+The site builds and `tsc` passes. Most of this is dashboard/config work — the
+exception is India Post, which still has real code missing (booking, labels,
+the carrier adapter seam).
 
 Detail lives in [MAGIC_CHECKOUT.md](./MAGIC_CHECKOUT.md) and
 [MAKE_WHATSAPP.md](./MAKE_WHATSAPP.md).
 
 ---
+
+## 🔴 India Post — blocked on their sandbox being down
+
+Full checklist in [docs/india-post-requirements.md](./docs/india-post-requirements.md);
+the reasoning behind each decision is in
+[docs/india-post-integration-plan.md](./docs/india-post-integration-plan.md).
+
+Credentials are set and `103.180.89.153` **is** whitelisted under UAT. The
+sandbox is still unreachable, and on 2026-08-27 the evidence came back pointing
+at **their outage, not our access**: `test.cept.gov.in` accepts the TCP
+connection and then resets the TLS handshake having sent zero bytes — with the
+correct SNI, the wrong SNI and no SNI alike — while production
+(`api.cept.gov.in`) completes a full handshake and answers. Their sibling UAT
+host `uat.cept.gov.in` is serving a `*.cept.gov.in` certificate that **expired
+on 2026-08-09**; production's was renewed on 2026-07-10. Adding the whitelist
+entry changed nothing.
+
+Workings and the email to send: [docs/india-post-uat-outage.md](./docs/india-post-uat-outage.md).
+
+- [x] **Whitelist `103.180.89.153`** under UAT — done 2026-08-27, confirmed
+      present, and it made no difference. Re-check the address on every run;
+      a home connection's changes.
+- [ ] **Email `integrations.cept@indiapost.gov.in`** — is UAT up, and is
+      `test.cept.gov.in` still the correct sandbox host? Draft is written.
+- [x] **Carrier adapter seam + India Post tracking** — done. `lib/couriers/adapters`
+      now decides who can be sent to and who can be asked; the poller runs once
+      per carrier over that carrier's own parcels; Speed Post has a Sync button,
+      a waybill column and a place in the poller. Apply
+      `0051_speed_post_tracking.sql`. It stays quiet ("not configured") until
+      credentials work, then starts tracking on the next poll with no deploy.
+- [ ] **Still to build**: `booking.ts`, `label.ts`, `offices.ts`, the
+      barcode-stock admin, and routing tariff through the seam. None need a
+      reachable sandbox until final verification.
+- [ ] **One question left before booking** — the single-book article type.
+      A 380 g book is auto-classified `SP_INLAND_DOC` by weight, and a document
+      may not exceed **2 cm**; ours is 2.5. Their own document states both rules
+      explicitly and resolves neither. Needs their written answer — fold it into
+      the outage email.
+
+      The other doubts are **closed**, all in favour of the existing code — see
+      [docs/india-post-api-reference-findings.md](./docs/india-post-api-reference-findings.md).
+      `codr_cod` is optional and blank for prepaid; bulk tracking really does
+      omit event codes and `status.ts` already falls back to the wording;
+      article numbers really are minted by us from an allotted range; and the
+      check-digit algorithm was verified against the specification's own worked
+      example and every genuine barcode in the document.
+- [ ] **Subscribe the six APIs** — AUTH01, AUTH02, BBD01, TCD02, LBL01,
+      TNT01/TNT02. Confirm *Subscribed APIs* stops reading zero.
+- [ ] **Run `node scripts/india-post-smoke.mjs`** until all four steps pass. It
+      books nothing and spends no article number. Step 2 also answers the
+      single-book article-type question — read `product_code`.
+- [ ] **Apply `supabase/migrations/0049_postal_barcodes.sql` by hand.**
+      Migrations here are not run automatically.
+- [ ] **Build what is missing**: the adapter seam (India Post has no Send or
+      Sync button until `canSendAutomatically` / `canTrack` stop being
+      hard-coded to Delhivery), booking, labels, the office lookup, and the
+      barcode-stock admin. `tariff.ts` and `track.ts` are written but wired to
+      nothing.
+- [ ] **Deploy before configuring their event webhook** — the route 404s on the
+      live site until it ships, and their Test button will fail against it.
+- [ ] **Set `SHIP_FROM_NAME` / `SHIP_FROM_ADDRESS` / `SHIP_FROM_PHONE`** — still
+      unset, and it is the return address on every label, both carriers.
+- [ ] **Do not submit the production-access form yet.** It wants proof of
+      completed sandbox testing. That proof is the checklist in §7 of the
+      requirements doc.
+- [ ] **Leave `INDIA_POST_ENV=sandbox`** until that proof exists. The account is
+      chosen from it, and getting it wrong puts real books in the post while
+      someone believes they are testing.
 
 ## 🔴 Run migration 0005 before deploying
 
@@ -155,7 +225,7 @@ Full list: <https://razorpay.com/docs/payments/payments/test-card-details/>
 |---|---|
 | Preflight check | `npm run check-env` |
 | WhatsApp test | `npm run test-make -- --phone=<phone> --event=all` |
-| Migrations | `supabase/migrations/` — source of truth, applied through `0003`; **`0004` pending** |
+| Migrations | `supabase/migrations/` — source of truth, applied by hand; the tree is at **`0049`**, and 0049 is pending |
 | Magic Checkout flag | `NEXT_PUBLIC_MAGIC_CHECKOUT` (default `false`) |
 
 ## Done
