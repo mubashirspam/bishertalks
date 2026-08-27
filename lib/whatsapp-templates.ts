@@ -200,16 +200,26 @@ ${SIGNATURE}`,
    * The bonus course is open.
    *
    * Sent on its own key, not the order's: access is also granted by an admin
-   * and by CSV import, where there is no order at all.
+   * and by CSV import, where there is no order at all. That is also why the
+   * order number is absent from the body — notifyCourseAccess sends
+   * `order: null`, so templateContext resolves orderNumber to "" and the
+   * parameter would render as the "—" fallback.
+   *
+   * Meta rejected the first wording as INCORRECT_CATEGORY, reading "your
+   * course is activated" plus a course link as product promotion rather than
+   * an update on something already bought. The body now leads with the
+   * purchase it belongs to and calls the link what it is (access, not
+   * "start here"), which is what keeps it Utility rather than Marketing.
+   * Do not reintroduce a standalone course pitch here.
    */
   course_access: {
     name: "course_access",
     category: "UTILITY",
-    body: `ഹായ് {{1}} 🎓
-നിങ്ങളുടെ കോഴ്‌സ് ആക്ടിവേറ്റ് ആയി.
+    body: `ഹായ് {{1}} 🙏
+നിങ്ങൾ വാങ്ങിയ ബുക്കിനൊപ്പം ലഭിക്കുന്ന കോഴ്‌സിന്റെ ആക്‌സസ് തയ്യാറായി ✅
 
 കോഴ്‌സ്: {{2}}
-തുടങ്ങാൻ: {{3}}
+ആക്‌സസ് ലിങ്ക്: {{3}}
 
 ലോഗിൻ ചെയ്യാൻ നിങ്ങളുടെ മൊബൈൽ നമ്പർ {{4}} മാത്രം മതി — പാസ്‌വേഡ് വേണ്ട.
 
