@@ -5,13 +5,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { getCourier } from "@/lib/db/couriers";
 import { canTrack } from "@/lib/couriers";
-import { delhiveryReadiness } from "@/lib/delhivery/config";
 import {
-  trackWaybills,
-  trackReferencesResilient,
+  trackReadiness,
   trackingBatches,
-} from "@/lib/delhivery/track";
-import { applyScan } from "@/lib/db/courier-scan";
+  type CarrierScan,
+} from "@/lib/couriers/adapters";
+import { applyCarrierScan } from "@/lib/db/courier-scan";
 import { portalScope } from "@/lib/delivery/scope";
 import { attachWaybill } from "@/lib/db/courier-send";
 import { supabaseAdmin } from "@/lib/supabase/admin";
@@ -111,9 +110,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { ready, settings, missing } = delhiveryReadiness(courier.config);
-  if (!ready || !settings) {
-    return NextResponse.json({ error: "Delhivery is not set up yet.", missing }, { status: 400 });
+  // Whose API answers for this courier, and is it configured. The adapter is
+  // chosen by `config.tracking`, not by slug, so both KKR rows resolve to
+  // Delhivery and a Speed Post parcel resolves to India Post.
+  const { ready, missing, adapter } = trackReadiness(courier);
+  if (!ready || !adapter) {
+    return NextResponse.json(
+      { error: `${courier.name} is not set up for tracking yet.`, missing },
+      { status: 400 }
+    );
   }
 
   // What we can ask about. A parcel with neither a waybill nor a reference has
@@ -217,7 +222,7 @@ export async function POST(request: NextRequest) {
 
   /** Apply one courier answer to one order. */
   const record = async (
-    parcel: { waybill: string; reference: string | null; scan: Parameters<typeof applyScan>[0] },
+    parcel: CarrierScan,
     orderNumber: string,
     firstTime: boolean
   ) => {
@@ -225,20 +230,20 @@ export async function POST(request: NextRequest) {
     // customer is not told — see lib/db/courier-scan.ts. A parcel we were
     // already tracking has genuinely just moved, so they are.
     if (firstTime) {
-      await attachWaybill(orderNumber, parcel.waybill);
+      await attachWaybill(orderNumber, parcel.carrierId);
       learned++;
     }
     found.set(orderNumber, {
       order_number: orderNumber,
-      waybill: parcel.waybill,
-      scan: parcel.scan.status || "",
+      waybill: parcel.carrierId,
+      scan: parcel.scan.description || "",
       // True when this sync is what taught us the waybill — which, after a send
       // whose outcome was unknown, is the moment the parcel stops being held.
       learned: firstTime,
     });
-    const outcome = await applyScan(
+    const outcome = await applyCarrierScan(
       parcel.scan,
-      { waybill: parcel.waybill, reference: orderNumber },
+      { waybill: parcel.carrierId, reference: orderNumber },
       // News only when it is news: not on a first sighting, and never during a
       // sweep, which is catching up rather than watching.
       { notify: !firstTime && !all }
@@ -249,39 +254,48 @@ export async function POST(request: NextRequest) {
   };
 
   try {
-    for (const batch of trackingBatches([...byWaybill.keys()])) {
-      const tracked = await trackWaybills(batch, settings);
-      checked += tracked.length;
-      for (const parcel of tracked) {
-        const orderNumber = byWaybill.get(parcel.waybill);
-        if (orderNumber) await record(parcel, orderNumber, false);
+    if (adapter.trackByCarrierId) {
+      for (const batch of trackingBatches([...byWaybill.keys()], adapter.trackBatch)) {
+        const tracked = await adapter.trackByCarrierId(batch, courier.config);
+        checked += tracked.length;
+        for (const parcel of tracked) {
+          const orderNumber = byWaybill.get(parcel.carrierId);
+          if (orderNumber) await record(parcel, orderNumber, false);
+        }
       }
     }
 
-    // Resilient, because this list now deliberately contains names Delhivery
-    // may never have seen — an order number for a parcel that only ever went
-    // out on a sheet, or a sheet reference for one pushed by API. One unknown
-    // id refuses their whole query, so the batch degrades to single lookups
-    // rather than reporting fifty parcels as missing.
+    // Looking a parcel up by *our* name for it, which not every carrier can do.
+    //
+    // Delhivery indexes on the reference, which is the only way to find a
+    // parcel whose waybill we never saw — and this list deliberately contains
+    // names they may never have seen, so their adapter degrades a refused
+    // batch to single lookups rather than reporting fifty parcels missing.
+    //
+    // India Post has no such lookup and needs none: its article number is one
+    // we minted ourselves before booking, so it is already on the order and
+    // the waybill pass above has it covered.
     const seen = new Set<string>();
-    for (const batch of trackingBatches([...byReference.keys()])) {
-      const tracked = await trackReferencesResilient(batch, settings);
-      for (const parcel of tracked) {
-        const orderNumber = parcel.reference
-          ? byReference.get(parcel.reference)
-          : undefined;
-        if (!orderNumber) continue;
-        // Both names can answer for one parcel. Record it once.
-        if (seen.has(orderNumber)) continue;
-        seen.add(orderNumber);
-        checked++;
-        await record(parcel, orderNumber, true);
+    if (adapter.trackByReference) {
+      for (const batch of trackingBatches([...byReference.keys()], adapter.trackBatch)) {
+        const tracked = await adapter.trackByReference(batch, courier.config);
+        for (const parcel of tracked) {
+          const orderNumber = parcel.reference
+            ? byReference.get(parcel.reference)
+            : undefined;
+          if (!orderNumber) continue;
+          // Both names can answer for one parcel. Record it once.
+          if (seen.has(orderNumber)) continue;
+          seen.add(orderNumber);
+          checked++;
+          await record(parcel, orderNumber, true);
+        }
       }
     }
   } catch (e) {
     console.error("[Sync] failed:", e);
     return NextResponse.json(
-      { error: "Could not reach Delhivery. Nothing was changed." },
+      { error: `Could not reach ${courier.name}. Nothing was changed.` },
       { status: 502 }
     );
   }

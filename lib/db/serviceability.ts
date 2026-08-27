@@ -1,7 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { checkPincodes } from "@/lib/delhivery/serviceability";
-import { delhiveryReadiness } from "@/lib/delhivery/config";
-import { canTrack, type Courier } from "@/lib/couriers";
+import { trackAdapterFor } from "@/lib/couriers/adapters";
+import type { Courier } from "@/lib/couriers";
 
 /**
  * Can this courier reach this pincode?
@@ -45,9 +44,16 @@ export async function serviceabilityFor(
   );
   if (!wanted.length) return out;
 
-  // Only a courier with an integration can be asked at all. For everyone else
-  // the honest answer is "we have no way to know", not "no".
-  if (!canTrack(courier)) {
+  // Only a carrier that can actually answer this question is asked it.
+  //
+  // Deliberately not canTrack(): being able to ask where a parcel *is* says
+  // nothing about being able to ask whether a pincode *can be reached*. India
+  // Post is exactly that case — its tracking works, and its pincode lookup
+  // (/v1/pincode-search) is confirmed available but not yet written. Asking
+  // through the tracking gate would have sent a Speed Post pincode to
+  // Delhivery's module, which is the wrong question to the wrong carrier.
+  const adapter = trackAdapterFor(courier);
+  if (!adapter?.capabilities.serviceability || !adapter.serviceability) {
     for (const p of wanted) out.set(p, { pincode: p, serviceable: undefined });
     return out;
   }
@@ -67,15 +73,15 @@ export async function serviceabilityFor(
   const missing = wanted.filter((p) => !out.has(p));
   if (!missing.length) return out;
 
-  const { ready, settings } = delhiveryReadiness(courier.config);
-  if (!ready || !settings) {
+  const { ready } = adapter.readiness(courier.config);
+  if (!ready) {
     for (const p of missing) out.set(p, { pincode: p, serviceable: undefined });
     return out;
   }
 
-  let answers: Map<string, { serviceable: boolean | undefined }>;
+  let answers: Map<string, boolean | undefined>;
   try {
-    answers = await checkPincodes(missing, settings);
+    answers = await adapter.serviceability(missing, courier.config);
   } catch (e) {
     console.warn("[Serviceability] lookup failed, leaving unknown:", e);
     for (const p of missing) out.set(p, { pincode: p, serviceable: undefined });
@@ -84,7 +90,7 @@ export async function serviceabilityFor(
 
   const rows: { courier_id: string; pincode: string; serviceable: boolean }[] = [];
   for (const p of missing) {
-    const serviceable = answers.get(p)?.serviceable;
+    const serviceable = answers.get(p);
     out.set(p, { pincode: p, serviceable });
     // Only a definite answer is cached. Caching "we could not reach them"
     // would turn one outage into thirty days of wrong refusals.

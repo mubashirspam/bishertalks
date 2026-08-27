@@ -179,16 +179,36 @@ export async function recordSent(
  * back catalogue — every one of them went to Delhivery, because there was
  * nobody else — and they are the parcels this pass exists for.
  */
-export async function unmatchedSheetParcels(limit = 200): Promise<
-  { order_number: string; courier_reference: string }[]
-> {
-  // No Delhivery-tracked courier configured at all: the only parcels this pass
-  // may look at are the unrouted back catalogue. Passing an empty `in.()` here
-  // would be a syntax error and take the whole query down with it.
-  const delhivery = await delhiveryCourierIds();
-  const scope = delhivery.length
-    ? `courier_id.is.null,courier_id.in.(${delhivery.join(",")})`
-    : "courier_id.is.null";
+export async function unmatchedSheetParcels(
+  limit = 200,
+  options?: {
+    /** Restrict to these couriers. Omitted means the Delhivery-tracked ones. */
+    courierIds?: string[];
+    /**
+     * Include parcels with no courier at all.
+     *
+     * True only for Delhivery. The pre-0030 back catalogue has no courier_id
+     * because there was nobody else to be — every one of those parcels went to
+     * Delhivery. Letting another carrier claim them would hand a stranger's
+     * scans to our orders, which is the exact failure this scoping exists to
+     * prevent.
+     */
+    includeUnrouted?: boolean;
+  }
+): Promise<{ order_number: string; courier_reference: string }[]> {
+  const ids = options?.courierIds ?? (await delhiveryCourierIds());
+  const includeUnrouted = options?.includeUnrouted ?? true;
+
+  // An empty `in.()` is a syntax error and would take the whole query down, so
+  // the two halves are assembled rather than interpolated blindly.
+  const parts: string[] = [];
+  if (includeUnrouted) parts.push("courier_id.is.null");
+  if (ids.length) parts.push(`courier_id.in.(${ids.join(",")})`);
+
+  // Nothing this carrier may look at. Returning early beats building a filter
+  // that matches everything.
+  if (!parts.length) return [];
+  const scope = parts.join(",");
 
   const { data, error } = await supabaseAdmin
     .from("orders")
@@ -241,19 +261,51 @@ export async function attachWaybill(
   if (error) console.error("[Courier] waybill attach failed:", orderNumber, error.message);
 }
 
-/** Waybills we are still waiting on a terminal scan for. */
-export async function trackableParcels(limit = 200): Promise<
-  { order_number: string; tracking_number: string }[]
-> {
+/**
+ * Waybills we are still waiting on a terminal scan for.
+ *
+ * Scoped to one carrier's couriers since the seam landed. It was unscoped
+ * before, which was survivable only by accident: every parcel here needs
+ * `courier_sent_at`, and only an API send sets that, so India Post's manual
+ * parcels were never in range to be asked about. The moment India Post can
+ * book, that accident expires — and asking Delhivery about a Speed Post
+ * article number is how an order inherits a stranger's scans.
+ */
+export async function trackableParcels(
+  limit = 200,
+  options?: { courierIds?: string[]; includeUnrouted?: boolean }
+): Promise<{ order_number: string; tracking_number: string }[]> {
+  const ids = options?.courierIds ?? (await delhiveryCourierIds());
+  const includeUnrouted = options?.includeUnrouted ?? true;
+
+  const parts: string[] = [];
+  if (includeUnrouted) parts.push("courier_id.is.null");
+  if (ids.length) parts.push(`courier_id.in.(${ids.join(",")})`);
+  if (!parts.length) return [];
+
   const { data, error } = await supabaseAdmin
     .from("orders")
     .select("order_number,tracking_number")
     .not("tracking_number", "is", null)
     .neq("tracking_number", "")
-    .not("courier_sent_at", "is", null)
+    // Sent, OR handed over. Not `courier_sent_at` alone, which is the bug this
+    // replaces: that column means "an API call succeeded", so it is null for
+    // every parcel of a `manual` or `sheet` courier — all 455 Speed Post
+    // parcels among them. Gating on it meant the poller would skip exactly the
+    // parcels this whole tracking effort exists to follow, even once somebody
+    // had typed their article numbers in.
+    //
+    // `courier_entered_at` is the handoff-neutral counterpart: it is stamped
+    // whichever way a parcel left, and having a carrier number as well as a
+    // handover is the real precondition for asking where something is.
+    .or("courier_sent_at.not.is.null,courier_entered_at.not.is.null")
+    .or(parts.join(","))
     // Terminal states have nothing left to learn.
     .not("status", "in", "(delivered,returned,cancelled)")
-    .order("courier_sent_at", { ascending: true })
+    // Oldest handover first, and COALESCE-free because PostgREST cannot order
+    // on an expression — `courier_entered_at` is set on every parcel that
+    // reaches here, including the API ones, so it orders both kinds correctly.
+    .order("courier_entered_at", { ascending: true, nullsFirst: false })
     .limit(limit);
 
   if (error) {

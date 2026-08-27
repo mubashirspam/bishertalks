@@ -1,3 +1,5 @@
+import { capabilitiesFor, trackAdapterFor } from "./adapters";
+
 /**
  * Logistics partners.
  *
@@ -108,6 +110,27 @@ export interface CourierConfig {
    */
   customer_id?: string;
   contract_id?: string;
+
+  /**
+   * Refuse to route a parcel this courier demonstrably cannot deliver.
+   *
+   * Off everywhere by default, and deliberately so. The normal behaviour is to
+   * route anyway and mark the parcel `unserviceable` — a courier's coverage
+   * answer is advice, someone may know better, and blocking an assignment on a
+   * secondary lookup is a bigger failure than the one it prevents.
+   *
+   * The manual Delhivery channel is the exception, because the failure lands
+   * somewhere nothing else catches it. There is no API call to be refused by:
+   * the parcel goes onto a spreadsheet, gets packed, is carried to KKR, and is
+   * rejected at the counter — by which point it has cost a trip and a day.
+   * With `handoff: 'api'` the same mistake surfaces in seconds as a refused
+   * manifest, which is why Delhivery proper does not need this.
+   *
+   * **Only a definite no refuses.** `serviceabilityFor` returns undefined when
+   * it could not find out, and undefined still routes — an unreachable lookup
+   * must never stop a day's dispatch. See lib/db/serviceability.ts.
+   */
+  require_serviceable?: boolean;
 }
 
 /** What each handoff means, in the words the admin screens use. */
@@ -139,7 +162,7 @@ export function isCourierHandoff(v: unknown): v is CourierHandoff {
  * anything, which is why this list exists while its sending counterpart does
  * not — see below.
  */
-export const TRACKED_INTEGRATIONS: readonly string[] = ["delhivery"];
+export const TRACKED_INTEGRATIONS: readonly string[] = ["delhivery", "india-post"];
 
 /**
  * Couriers we can hand a parcel to over their API, by slug.
@@ -157,9 +180,22 @@ export const TRACKED_INTEGRATIONS: readonly string[] = ["delhivery"];
  */
 export const INTEGRATED_SLUGS: readonly string[] = ["delhivery"];
 
-/** Can we hand a parcel to this courier ourselves? */
+/**
+ * Can we hand a parcel to this courier ourselves?
+ *
+ * Both halves are required and they check different things. `handoff === api`
+ * is the row's own decision — the Excel channel is Delhivery underneath and
+ * must still never be sent to. `capabilities.book` is the carrier's: India
+ * Post has an adapter and is tracked by it, but `booking.ts` does not exist,
+ * so it declares `book: false` and no Send button is drawn.
+ *
+ * Derived from the adapter rather than read off INTEGRATED_SLUGS, so a carrier
+ * gaining the ability to book turns its button on in one place instead of
+ * two. The list stays as the record of which slugs ever had an integration.
+ */
 export function canSendAutomatically(courier: Courier): boolean {
-  return courier.handoff === "api" && INTEGRATED_SLUGS.includes(courier.slug);
+  if (courier.handoff !== "api") return false;
+  return capabilitiesFor(courier)?.book === true;
 }
 
 /**
@@ -170,7 +206,7 @@ export function canSendAutomatically(courier: Courier): boolean {
  * a live tracking screen instead of a spreadsheet.
  */
 export function canTrack(courier: Courier): boolean {
-  return !!courier.config.tracking && TRACKED_INTEGRATIONS.includes(courier.config.tracking);
+  return trackAdapterFor(courier)?.capabilities.track === true;
 }
 
 /**

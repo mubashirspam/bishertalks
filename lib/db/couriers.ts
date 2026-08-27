@@ -130,7 +130,24 @@ export async function getCourierBySlug(slug: string): Promise<Courier | null> {
  * drawn a courier column.
  */
 export async function delhiveryCourierIds(): Promise<string[]> {
+  return courierIdsForTracking("delhivery");
+}
+
+/**
+ * Every courier whose parcels a given tracking integration can answer for.
+ *
+ * The generalisation of the above, and the reason the poller can run once per
+ * carrier instead of once. Several rows share one integration — both KKR rows
+ * are Delhivery underneath — and a carrier must only ever be asked about
+ * parcels that are actually theirs.
+ *
+ * That is not a tidiness rule. Asking Delhivery about an India Post parcel is
+ * how ORD-YP97XR inherited a stranger's waybill and their "Delivered" scan:
+ * Delhivery had another customer's shipment filed under the same reference
+ * string, answered confidently, and the answer was written to our order.
+ */
+export async function courierIdsForTracking(trackingKey: string): Promise<string[]> {
   return (await listCouriers())
-    .filter((c) => c.config.tracking === "delhivery")
+    .filter((c) => c.config.tracking === trackingKey)
     .map((c) => c.id);
 }
