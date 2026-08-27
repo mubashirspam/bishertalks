@@ -79,19 +79,74 @@ export async function POST(request: NextRequest) {
   // Check the target against the list rather than trusting an id off the wire,
   // the same way the agent assignment does.
   let courierName: string | null = null;
+  let routedCourier: Awaited<ReturnType<typeof getCourier>> = null;
   if (courierId) {
-    const courier = await getCourier(courierId);
-    if (!courier) {
+    routedCourier = await getCourier(courierId);
+    if (!routedCourier) {
       return NextResponse.json({ error: "Unknown courier" }, { status: 400 });
     }
-    if (!courier.is_active) {
+    if (!routedCourier.is_active) {
       return NextResponse.json(
-        { error: `${courier.name} is switched off — turn it back on first.` },
+        { error: `${routedCourier.name} is switched off — turn it back on first.` },
         { status: 400 }
       );
     }
-    courierName = courier.name;
+    courierName = routedCourier.name;
   }
+
+  // ── Refuse before assigning, for a courier that asks to be protected ──────
+  //
+  // The ordinary path routes first and reports serviceability afterwards. A
+  // courier carrying `require_serviceable` wants the opposite: a parcel it
+  // cannot deliver must not become its parcel at all, so the question is asked
+  // here, before a single row is written.
+  //
+  // Why this way round matters: routing is what puts a parcel on the courier's
+  // sheet, and for a manual channel the sheet IS the handover. Marking a
+  // routed parcel `unserviceable` after the fact relies on somebody reading
+  // the report; leaving it unassigned puts it back in front of whoever is
+  // routing, which is the only place the decision can actually be changed.
+  //
+  // Only a definite `false` refuses. Unknown routes, exactly as everywhere
+  // else — see the note on `require_serviceable`.
+  const refusedForPincode = new Map<string, string>();
+  let preChecked: Awaited<ReturnType<typeof serviceabilityFor>> | null = null;
+
+  if (courierId && routedCourier?.config.require_serviceable) {
+    const { data: candidates } = await supabaseAdmin
+      .from("orders")
+      .select("order_number,pincode")
+      .in("order_number", orderNumbers)
+      .is("courier_sent_at", null);
+
+    const rows = (candidates ?? []) as { order_number: string; pincode: string | null }[];
+
+    try {
+      preChecked = await serviceabilityFor(
+        routedCourier,
+        rows.map((r) => r.pincode ?? "")
+      );
+
+      for (const row of rows) {
+        const pin = (row.pincode ?? "").replace(/\D/g, "");
+        if (preChecked.get(pin)?.serviceable === false) {
+          refusedForPincode.set(
+            row.order_number,
+            `${routedCourier.name} does not deliver to ${pin || "this pincode"} — not assigned.`
+          );
+        }
+      }
+    } catch (e) {
+      // Fails open, loudly. A lookup we could not complete is not a refusal,
+      // and a day's parcels must not stop because a secondary API was down.
+      console.warn("[Courier] pre-routing serviceability check skipped:", e);
+    }
+  }
+
+  // What the UPDATE below is allowed to touch.
+  const requested = refusedForPincode.size
+    ? orderNumbers.filter((n) => !refusedForPincode.has(n))
+    : orderNumbers;
 
   // A parcel already at the courier keeps the courier that has it. Changing the
   // label on a shipment somebody else is already carrying would leave the two
@@ -109,7 +164,7 @@ export async function POST(request: NextRequest) {
       courier_send_error: null,
       updated_at: new Date().toISOString(),
     })
-    .in("order_number", orderNumbers)
+    .in("order_number", requested)
     .is("courier_sent_at", null)
     .select("order_number,pincode");
 
@@ -155,6 +210,12 @@ export async function POST(request: NextRequest) {
 
   for (const n of updated) mark(n, courierId ? "routed" : "cleared");
 
+  // Refused before they were ever assigned. Reported in the same vocabulary as
+  // a post-hoc refusal so the screen needs no second case — the difference is
+  // that these parcels still have whatever courier they had before, which is
+  // the point.
+  for (const [n, reason] of refusedForPincode) mark(n, "unserviceable", { error: reason });
+
   // Everything below is routing consequence, not routing itself. The courier
   // is already written; these fill in what the parcel needs to be worked on,
   // and none of them may fail the assignment.
@@ -162,7 +223,7 @@ export async function POST(request: NextRequest) {
   let unserviceable: string[] = [];
 
   if (courierId && updated.length) {
-    const courier = await getCourier(courierId);
+    const courier = routedCourier;
 
     // Can this courier actually reach these addresses? Asked now, in one
     // batch, rather than discovered in a rejected upload after someone packed
@@ -171,10 +232,16 @@ export async function POST(request: NextRequest) {
     if (courier) {
       const rows = (data ?? []) as { order_number: string; pincode: string | null }[];
       try {
-        const answers = await serviceabilityFor(
-          courier,
-          rows.map((r) => r.pincode ?? "")
-        );
+        // Already answered above when the courier demanded it. Reused rather
+        // than re-asked: the cache would make a second call cheap, but two
+        // lookups in one request could disagree, and then the parcel that was
+        // routed and the parcel that was recorded would be different parcels.
+        const answers =
+          preChecked ??
+          (await serviceabilityFor(
+            courier,
+            rows.map((r) => r.pincode ?? "")
+          ));
 
         const yes: string[] = [];
         for (const row of rows) {
@@ -222,7 +289,7 @@ export async function POST(request: NextRequest) {
   // reported as a refusal, which told someone to send a parcel that was already
   // on its way. See lib/delivery/route-outcome.ts.
   const wantsSend = body.send !== false && courierId && updated.length;
-  const courier = wantsSend ? await getCourier(courierId) : null;
+  const courier = wantsSend ? routedCourier : null;
   const readiness = courier ? delhiveryReadiness(courier.config) : null;
 
   if (courier && canSendAutomatically(courier) && readiness?.ready && readiness.settings) {
@@ -321,7 +388,8 @@ export async function POST(request: NextRequest) {
   await auditMany(auth.staff, "order.courier_assigned", "order", updated, {
     courier_id: courierId,
     courier_name: courierName,
-    unserviceable: unserviceable.length,
+    unserviceable: unserviceable.length + refusedForPincode.size,
+    refused_before_routing: refusedForPincode.size,
     sent: count("sent"),
   });
 
@@ -347,7 +415,10 @@ export async function POST(request: NextRequest) {
     courier_name: courierName,
     references: minted,
     // The ones this courier cannot deliver. Named, not just counted, so the
-    // screen can offer to move them somewhere else.
-    unserviceable,
+    // screen can offer to move them somewhere else. Includes both kinds: those
+    // routed and then found unserviceable, and those a `require_serviceable`
+    // courier refused before routing — the per-parcel `results` entry says
+    // which, and only the first kind actually carries this courier now.
+    unserviceable: [...unserviceable, ...refusedForPincode.keys()],
   });
 }
