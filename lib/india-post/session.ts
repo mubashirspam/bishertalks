@@ -14,10 +14,15 @@ import { ENDPOINTS, type IndiaPostSettings } from "./config";
  * is one cheap call. What matters is that a *single* process handling fifty
  * parcels logs in once rather than fifty times.
  *
- * The refresh token is stored but not yet used. AUTH02 hands one back, and
- * renewing with it would save a round trip — but their refresh endpoint has
- * not been exercised yet, and a token path that has never run is not a path to
- * put in front of a booking. Logging in again is correct, just less clever.
+ * The refresh token is stored but not yet used. AUTH01 hands one back, and
+ * renewing with it through AUTH02 would save a round trip — but their refresh
+ * endpoint has not been exercised yet, and a token path that has never run is
+ * not a path to put in front of a booking. Logging in again is correct, just
+ * less clever.
+ *
+ * Their tokens are short: `expires_in` 900 seconds, `refresh_expires_in` 1800.
+ * Fifteen minutes is comfortably longer than any batch we send, so the renewal
+ * margin below is the only thing that needs to respect it.
  */
 
 interface CachedToken {
@@ -93,18 +98,26 @@ export function forgetToken(settings: IndiaPostSettings): void {
 }
 
 /**
- * AUTH02, the login that also returns a refresh token.
+ * AUTH01 — username and password in, a full set of tokens out.
  *
- * Not AUTH01, even though we do not use the refresh token yet: both are
- * subscribed, both take the same credentials, and this one returns strictly
- * more. Choosing the endpoint whose extra field we will eventually need costs
- * nothing today and saves changing the login path later, under pressure.
+ * **This used to call AUTH02, and that was wrong.** The reasoning was that
+ * both endpoints took the same credentials and AUTH02 returned strictly more,
+ * so it was the better default. Their API reference says otherwise, plainly:
+ * AUTH02 (`TokenWithRtoken`) takes **no body at all** and requires
+ * `Authorization: Bearer <refresh_token>` — it exchanges a refresh token for a
+ * new access token and has no idea what a password is. Posting credentials to
+ * it would have come back 401 on the very first call, and the whitelist outage
+ * meant nothing ever got far enough to find out.
+ *
+ * AUTH01 returns the refresh token too, so nothing is lost by using it: its
+ * documented 200 carries `access_token`, `refresh_token` and `id_token`
+ * together.
  *
  * This is the one call that must not go through ./client — that module asks
  * this one for a token, and the two calling each other would not terminate.
  */
 async function login(settings: IndiaPostSettings): Promise<CachedToken> {
-  const url = settings.baseUrl + ENDPOINTS.loginWithRefresh;
+  const url = settings.baseUrl + ENDPOINTS.login;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 30_000);

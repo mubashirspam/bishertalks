@@ -66,6 +66,31 @@ interface RequestOptions {
 }
 
 /**
+ * Does this network failure look like the whitelist turning us away?
+ *
+ * Their two environments refuse a non-whitelisted caller in different ways,
+ * and only one of them is an HTTP response:
+ *
+ *   production  (api.cept.gov.in)   completes TLS and answers 403
+ *   sandbox     (test.cept.gov.in)  accepts the TCP connection, then resets
+ *                                   the TLS handshake without sending a byte
+ *
+ * The sandbox case never reaches the status-code branch below — `fetch` simply
+ * throws, and the bare message is "fetch failed", which tells an operator
+ * nothing at all. So the cause chain is walked for the socket-level codes that
+ * shape produces, purely to put the right sentence in front of a person.
+ */
+function looksLikeWhitelistBlock(e: unknown): boolean {
+  const codes = new Set(["ECONNRESET", "EPIPE", "ECONNREFUSED", "EHOSTUNREACH"]);
+  for (let cur: unknown = e, depth = 0; cur && depth < 5; depth++) {
+    const code = (cur as { code?: unknown }).code;
+    if (typeof code === "string" && codes.has(code)) return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
  * One authenticated call.
  *
  * The token is fetched and cached by ./session; a 401 here means the cached one
@@ -112,8 +137,23 @@ export async function indiaPostRequest<T>(options: RequestOptions): Promise<T> {
     }
     // We never found out. This is the case the caller must not treat as a
     // refusal — see the note at the top.
+    //
+    // Deliberately still "unknown", even when this is obviously the whitelist.
+    // A reset during the TLS handshake and a reset after the request went out
+    // are the same ECONNRESET at this layer; Node cannot tell us which side of
+    // the request it happened on. Calling a whitelist block "blocked" would be
+    // right most of the time and wrong in the one case that costs a parcel:
+    // "blocked" reads as *nothing was created, release the claim*, and a
+    // booking cut off mid-flight may well have landed. So the hint goes in the
+    // message, where it helps a person, and never in the kind, which is what a
+    // retry decision reads.
     throw new IndiaPostError(
-      `India Post did not answer (${message})`,
+      looksLikeWhitelistBlock(e)
+        ? `India Post did not answer (${message}). The connection was reset before they sent ` +
+          `a single byte — that is how their sandbox refuses an address that is not on the ` +
+          `UAT whitelist, and it is not a credentials problem. Check this machine's public IP ` +
+          `under "Whitelist my IP Address" in the Customer Selfservice Portal.`
+        : `India Post did not answer (${message})`,
       "unknown"
     );
   } finally {

@@ -48,17 +48,75 @@ const BASES: Record<IndiaPostEnv, string> = {
  *     document claims.
  */
 export const ENDPOINTS = {
-  /** AUTH01 — username and password in, access token out. */
-  login: "/v1/access/Login",
-  /** AUTH02 — the same, plus a refresh token for renewing without re-login. */
+  /**
+   * AUTH01 — username and password in, access token out.
+   *
+   * Lowercase `login`. The portal's own API reference page spells it that way
+   * twice — in the `POST /v1/access/login` heading and again in the prose
+   * endpoint — and its copyable cURL sample uses it. An earlier reading of the
+   * subscription list recorded a capital `Login`; that is the less
+   * authoritative of the two pages, and the two genuinely disagree.
+   *
+   * Untested either way: UAT has been unreachable since before this was
+   * noticed (see docs/india-post-uat-outage.md), so nothing has been able to
+   * confirm whether their router is case sensitive. If a 404 ever appears here
+   * with everything else working, try the capital.
+   *
+   * Nothing calls this today — session.ts logs in through AUTH02 below,
+   * because a refresh token costs nothing and saves changing the login path
+   * later, under pressure.
+   */
+  login: "/v1/access/login",
+  /**
+   * AUTH02 — exchange a refresh token for a new access token.
+   *
+   * **Not a login.** It takes no body and requires the refresh token as
+   * `Authorization: Bearer <refresh_token>`. session.ts called this with
+   * credentials until 2026-08-27; see the note there.
+   */
   loginWithRefresh: "/v1/access/TokenWithRtoken",
-  /** BBD01 — multipart file upload. `:customerID` is appended by the caller. */
+  /**
+   * PIN Code Search — validate a pincode and list its post offices.
+   *
+   * `?pincode=&limit=&office-type=`. The `office_id` in each record is the
+   * eight-digit id booking wants as `pickup_dropoff_office_id` — note it comes
+   * back as a **string** there and is declared an **integer** in the booking
+   * schema, so it needs coercing at the boundary.
+   *
+   * The plan recorded this API as unavailable; it is listed in the portal's
+   * Customer Integrations reference and is what unblocks the booking office id.
+   */
+  pincodeSearch: "/v1/pincode-search",
+  /**
+   * BBD01 — up to 5,000 articles. `:customerID` is appended by the caller.
+   *
+   * Their reference calls it a file upload, but its own cURL sample posts a
+   * plain `application/json` body of `{ "articles": [...] }` and the success
+   * response reports `"input_method": "json_body"`. So the JSON body works and
+   * is much the simpler path; multipart is presumably the alternative for
+   * genuinely large batches rather than the only shape.
+   */
   bookFile: "/process-articles-file",
   /** TCD02 — Speed Post tariff. */
   speedPostTariff: "/v1/speed-post/tariffs",
   /** TCD03 — parcel tariff, for anything Speed Post does not cover. */
   parcelTariff: "/v1/parcel-tariff/calculate",
-  /** LBL01 — the official domestic label, returned as a PDF. */
+  /**
+   * LBL01 — the official domestic address label.
+   *
+   * Returns a **real PDF**, not base64: the approach document states the
+   * output as "PDF file with addresses and barcode and all other details" and
+   * embeds the rendered sample — an A6/A7 label carrying a Code 128 symbol,
+   * a QR block, routing pin pair and the contract line. So `binary: true`.
+   *
+   * (The portal's reference declares the 200 as `application/json` with "No
+   * schema defined", which is what its sibling `/v1/label/create` does — that
+   * one really does return a base64 image. Trust the document here; it is the
+   * one with the sample output.)
+   *
+   * Its body is an **array** of label objects, `[{ ... }]`, not a single
+   * object as the portal reference shows.
+   */
   labelDomestic: "/v1/label/create/domestic",
   /** TNT01 — one article, full event timeline. */
   trackOne: "/v1/tracking/",

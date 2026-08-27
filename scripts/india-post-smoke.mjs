@@ -76,6 +76,22 @@ try {
   }
   console.log(G("ok") + D(`  expires in ${body.data.expires_in}s, refresh token ${body.data.refresh_token ? "present" : "absent"}`));
 } catch (e) {
+  // Their sandbox refuses a non-whitelisted address at the firewall, not with
+  // an HTTP status: the TCP connection is accepted and then the TLS handshake
+  // is reset without a single byte coming back. `fetch` reports that as the
+  // useless "fetch failed", so the socket codes are dug out of the cause chain
+  // and named — this is the single most likely failure of this whole script.
+  const chain = [];
+  for (let c = e, d = 0; c && d < 5; d++, c = c.cause) if (c.code) chain.push(c.code);
+  if (chain.some((c) => ["ECONNRESET", "EPIPE", "ECONNREFUSED", "EHOSTUNREACH"].includes(c))) {
+    console.log(R("blocked"));
+    console.log(R(`   Reset before they sent a byte (${chain.join(" → ")}).`));
+    console.log(R("   That is their firewall, not your password — this address is not whitelisted."));
+    console.log(Y(`   Add ${ip} under UAT Environment at`));
+    console.log(Y("   app.indiapost.gov.in/customer-selfservice → Whitelist my IP Address"));
+    console.log(D("   Nothing below can run until that is done.\n"));
+    process.exit(1);
+  }
   console.log(R("failed"));
   console.log(D(`   ${e.message}\n`));
   process.exit(1);
