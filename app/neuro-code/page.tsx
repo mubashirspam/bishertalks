@@ -11,6 +11,7 @@ import {
   launchOfferDateLabel,
   preorderArrivesBy,
 } from "@/lib/preorder";
+import { onamIsLive } from "@/lib/onam";
 import { buildFaqs } from "./faqs";
 
 // Kept dynamic on purpose. The reads below are cached now, so this no longer
@@ -152,6 +153,10 @@ export default async function NeuroCodePage() {
         pricing={pricing}
         testimonials={landing.testimonials}
         settings={landing.settings}
+        // In season or not, answered on the server for the same reason the
+        // campaign's `live` is: a band that appeared on hydration would flash
+        // in after the page had already been read.
+        onam={{ live: onamIsLive() }}
         campaign={{
           live: launchOfferIsLive(Date.now(), deadline),
           // The clock, decided here for the same reason `live` is. The browser

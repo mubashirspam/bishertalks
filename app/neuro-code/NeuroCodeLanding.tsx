@@ -12,6 +12,7 @@ import type { ProductPricing } from "@/lib/db/courses";
 import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
 import { gaViewItem, gaBeginCheckout } from "@/lib/analytics";
 import { buildFaqs } from "./faqs";
+import Pookalam from "./Pookalam";
 import { Band, Card, Heading, OrderNow, Rule } from "./ui";
 import { CountdownBoxes, CountdownClock, useCountdown } from "./Countdown";
 import {
@@ -22,7 +23,7 @@ import {
   PROBLEMS, PROBLEMS_HEADING, PROBLEMS_LEAD, PROBLEMS_TITLE,
   PROBLEMS_CLOSER, CHAIN_HEADING, CODE_CHAIN, CHAIN_NOTE, PATTERN_TRIAD, STEPS,
   VIDEO_HEADING, VIDEO_NOTE, INSIDE, INSIDE_HEADING,
-  OFFER, NLP_COURSE, AUTHOR, SECTION_TITLES, FINAL_CTA, TESTIMONIAL_HEADING, AUDIO_HEADING,
+  OFFER, ONAM, NLP_COURSE, AUTHOR, SECTION_TITLES, FINAL_CTA, TESTIMONIAL_HEADING, AUDIO_HEADING,
 } from "./content";
 import type { LandingSettings, Testimonial } from "@/lib/types/landing";
 
@@ -80,12 +81,15 @@ export default function NeuroCodeLanding({
   testimonials,
   settings,
   campaign,
+  onam,
 }: {
   pricing: ProductPricing;
   /** Live testimonials from /admin/landing, already filtered and ordered. */
   testimonials: Testimonial[];
   settings: LandingSettings;
   campaign: Campaign;
+  /** Whether the Onam band is in season. Decided on the server — see lib/onam.ts. */
+  onam: { live: boolean };
 }) {
   const [openFaq, setOpenFaq] = useState<number | null>(null);
 
@@ -285,6 +289,93 @@ export default function NeuroCodeLanding({
           </div>
         </div>
       </section>
+
+      {/* ── ONAM ─────────────────────────────────────────────────────────────
+          Directly after the hero, and only during the season — lib/onam.ts
+          decides, on the server, so the band cannot flicker in on hydration.
+
+          Greeting first, offer second. A festival banner that opens with a
+          discount is a shop using Onam; one that opens with ഓണാശംസകൾ is a shop
+          wishing you Onam that also has a price. On a page this careful about
+          tone, only the second is worth running.
+
+          It deliberately does not restate the price card further down. Two
+          different-looking prices on one page is how people stop trusting
+          both — this sends them to the same offer rather than competing
+          with it. */}
+      {onam.live && (
+        <section className="relative px-5 py-12 overflow-hidden border-y border-amber-300/50 dark:border-amber-500/20 bg-gradient-to-b from-amber-50 via-orange-50 to-white dark:from-amber-500/10 dark:via-orange-500/5 dark:to-neutral-950">
+          {/* Two warm pools behind the card, echoing the hero's single one so
+              the section reads as part of this page and not pasted onto it. */}
+          <div className="pointer-events-none absolute -top-16 -left-16 w-64 h-64 rounded-full bg-amber-400/25 dark:bg-amber-500/10 blur-[90px]" />
+          <div className="pointer-events-none absolute -bottom-20 -right-12 w-64 h-64 rounded-full bg-primary-500/20 dark:bg-primary-500/10 blur-[90px]" />
+
+          <div className="relative max-w-lg mx-auto text-center">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-amber-400/70 dark:border-amber-500/40 bg-white/70 dark:bg-white/5 text-amber-800 dark:text-amber-300 text-[10px] font-black font-anek tracking-[0.18em]">
+              {ONAM.eyebrow}
+            </span>
+
+            <div className="mt-5 flex items-center justify-center">
+              <Pookalam className="w-28 h-28 sm:w-32 sm:h-32 drop-shadow-[0_6px_18px_rgba(180,83,9,0.28)] motion-safe:animate-[spin_60s_linear_infinite]" />
+            </div>
+
+            {/* The greeting, and the largest type in the band. */}
+            <h2 className="mt-5 text-[34px] sm:text-[40px] leading-[1.15] font-black tracking-tight bg-gradient-to-b from-amber-600 to-primary-600 dark:from-amber-300 dark:to-primary-400 bg-clip-text text-transparent">
+              {ONAM.greeting}
+            </h2>
+
+            <p className="font-anek mt-3 text-[14.5px] font-bold leading-[1.95] text-neutral-700 dark:text-neutral-300">
+              {ONAM.wish}
+            </p>
+
+            <div className="mt-7 rounded-2xl p-[2px] bg-gradient-to-br from-amber-400 via-primary-300 dark:via-primary-500/40 to-primary-500">
+              <div className="rounded-[14px] bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm p-5">
+                <p className="font-anek text-[15px] font-black text-neutral-900 dark:text-white leading-snug">
+                  {ONAM.bridge}
+                </p>
+
+                <p className="font-anek mt-2 text-[13px] font-bold text-neutral-600 dark:text-neutral-400 leading-relaxed">
+                  {ONAM.offerLine}
+                </p>
+
+                <div className="mt-4 flex items-baseline justify-center gap-2.5">
+                  <span className="text-neutral-400 line-through text-lg">
+                    ₹{OFFER.mrpRupees}
+                  </span>
+                  <span className="text-primary-500 font-black text-[44px] leading-none">
+                    ₹{pricing.payable}
+                  </span>
+                </div>
+
+                {saving > 0 && (
+                  <span className="inline-block mt-2.5 px-3 py-1 rounded-full bg-green-600 text-white text-[11px] font-black">
+                    ₹{saving.toLocaleString("en-IN")} ലാഭം
+                  </span>
+                )}
+
+                <ul className="mt-4 space-y-1.5 text-left">
+                  {ONAM.perks.map((perk) => (
+                    <li
+                      key={perk}
+                      className="font-anek flex items-start gap-2 text-[12.5px] font-bold text-neutral-700 dark:text-neutral-300"
+                    >
+                      <Check className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600 dark:text-green-400" />
+                      {perk}
+                    </li>
+                  ))}
+                </ul>
+
+                <OrderNow
+                  price={pricing.payable}
+                  onClick={order}
+                  label={ONAM.cta}
+                  className="mt-5"
+                />
+              </div>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* ── PROBLEMS ─────────────────────────────────────────────────────── */}
       <Band tinted>

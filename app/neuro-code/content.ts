@@ -192,6 +192,42 @@ export const NLP_COURSE = {
   materials: 15,
 };
 
+/**
+ * The Onam band.
+ *
+ * A greeting first and an offer second, in that order and not the other way
+ * round. A festival banner that opens with a discount reads as a shop using
+ * Onam; one that opens with ഓണാശംസകൾ reads as a shop wishing you Onam and
+ * mentioning that the price is good. The second is the only one worth putting
+ * on a page that is otherwise this careful about tone.
+ *
+ * No date anywhere in the copy on purpose — Thiruvonam moves by a fortnight
+ * between years, and lib/onam.ts controls when this appears. Nothing written
+ * here can contradict the calendar.
+ */
+export const ONAM = {
+  eyebrow: "ONAM 2026",
+  /** The greeting itself. Large, and the first thing read. */
+  greeting: "ഓണാശംസകൾ",
+  wish:
+    "ഈ ഓണക്കാലം നിങ്ങൾക്കും കുടുംബത്തിനും " +
+    "സന്തോഷവും സമൃദ്ധിയും സമാധാനവും നിറഞ്ഞതാകട്ടെ.",
+  /**
+   * The turn from greeting to offer.
+   *
+   * "This Onam, a gift for your mind" — it earns the mention of a book by
+   * connecting it to what the festival is about rather than to a discount.
+   */
+  bridge: "ഈ ഓണത്തിന് നിങ്ങളുടെ മനസ്സിന് ഒരു സമ്മാനം 🎁",
+  offerLine: "Neuro Code ബുക്ക് + 30 ദിവസത്തെ NLP കോഴ്‌സ്",
+  /** Sits under the price. Free delivery is the line that actually converts. */
+  perks: [
+    "ഇന്ത്യയിലുടനീളം സൗജന്യ ഡെലിവറി",
+    "പണമടച്ച ഉടൻ NLP കോഴ്‌സ് ലഭ്യമാകും",
+  ],
+  cta: "ഓണം ഓഫറിൽ ഓർഡർ ചെയ്യൂ",
+};
+
 export const OFFER = {
   badge: "PRE-BOOKING OPEN",
   titleTop: "NEURO CODE",
