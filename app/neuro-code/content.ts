@@ -17,12 +17,6 @@ export const EDITION = "4th Edition";
 /**
  * The launch campaign.
  *
- * Pre-booking language is gone from every line below. It described a real
- * state — the fourth edition was on the press and orders were reservations
- * against a print run — and that state has ended: printing is finished and
- * delivery is a courier's 5–7 days again. A page still saying "pre-book" now
- * asks a reader to accept a wait that no longer exists.
- *
  * This replaced the Independence Day dressing, which came out with August 15.
  * The situation it has to explain is genuinely different from a seasonal offer:
  * the book being sold is the 4th edition and it is still being printed, so a
