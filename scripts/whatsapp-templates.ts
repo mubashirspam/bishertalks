@@ -24,6 +24,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   TEMPLATES,
+  DRAFT_TEMPLATES,
   TEMPLATE_LANGUAGE,
   validateAllTemplates,
   variableCount,
@@ -95,9 +96,9 @@ async function fetchExisting(): Promise<MetaTemplate[]> {
   return json.data ?? [];
 }
 
-/** The shape Meta wants. Body only — see the note in lib/whatsapp-templates.ts. */
+/** The shape Meta wants: a BODY, and BUTTONS when the template has any. */
 function componentsFor(def: TemplateDef) {
-  return [
+  const components: Record<string, unknown>[] = [
     {
       type: "BODY",
       text: def.body,
@@ -106,6 +107,27 @@ function componentsFor(def: TemplateDef) {
       ...(def.example.length ? { example: { body_text: [def.example] } } : {}),
     },
   ];
+
+  // All buttons go in one component — Meta reads them as an ordered set, not
+  // as one component each. `example` is the whole URL filled in, and only
+  // belongs on a button whose URL actually varies.
+  if (def.buttons?.length) {
+    components.push({
+      type: "BUTTONS",
+      buttons: def.buttons.map((b) =>
+        b.type === "URL"
+          ? {
+              type: "URL",
+              text: b.text,
+              url: b.url,
+              ...(b.param ? { example: [b.example] } : {}),
+            }
+          : { type: "QUICK_REPLY", text: b.text }
+      ),
+    });
+  }
+
+  return components;
 }
 
 async function push() {
@@ -212,12 +234,39 @@ function check() {
     console.log(filled.split("\n").map((l) => `  ${l}`).join("\n"));
   }
 
+  // Drafts print under their own heading so nobody reads one of these as
+  // something a customer is receiving. `push` never touches them.
+  for (const [key, def] of Object.entries(DRAFT_TEMPLATES)) {
+    let filled = def.body;
+    def.example.forEach((v, i) => {
+      filled = filled.replaceAll(`{{${i + 1}}}`, v);
+    });
+
+    console.log(
+      `\n${BOLD}${key}${OFF} ${YELLOW}(draft — not submitted)${OFF} ${DIM}→ ` +
+        `${def.name} · ${TEMPLATE_LANGUAGE} · ${def.category} · ` +
+        `${variableCount(def.body)} variables${OFF}\n`
+    );
+    console.log(filled.split("\n").map((l) => `  ${l}`).join("\n"));
+    for (const b of def.buttons ?? []) {
+      console.log(
+        `\n  ${DIM}[ ${b.text} ]${OFF}` +
+          (b.type === "URL" ? ` ${DIM}→ ${b.url}${OFF}` : ` ${DIM}(quick reply)${OFF}`)
+      );
+    }
+  }
+
   console.log("");
   if (problems.length) {
     for (const p of problems) console.log(`${RED}✗ ${p}${OFF}`);
     process.exit(1);
   }
-  console.log(`${GREEN}✓ all ${Object.keys(TEMPLATES).length} templates are valid${OFF}`);
+  console.log(
+    `${GREEN}✓ all ${Object.keys(TEMPLATES).length} templates are valid${OFF}` +
+      (Object.keys(DRAFT_TEMPLATES).length
+        ? ` ${DIM}(+ ${Object.keys(DRAFT_TEMPLATES).length} draft, not submitted)${OFF}`
+        : "")
+  );
 }
 
 const command = process.argv[2] ?? "check";

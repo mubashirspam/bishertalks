@@ -63,6 +63,45 @@ export interface TemplateContext {
   loginPhone: string;
 }
 
+/**
+ * The live site, spelled out rather than read from NEXT_PUBLIC_APP_URL.
+ *
+ * A template's button URL is fixed at the moment Meta approves it, so it
+ * cannot come from an environment variable that says localhost in development.
+ * Matches `metadataBase` in app/layout.tsx — no `www`.
+ */
+const PUBLIC_BASE = "https://bishertalks.com";
+
+/**
+ * A button under the message.
+ *
+ * Two kinds, and the difference matters:
+ *
+ *   * `URL` opens a link. Meta allows **one** variable per button URL and it
+ *     must sit at the very end, which is why `/neuro-code/track?id={{1}}`
+ *     works and the address form's `?id=…&t=<hmac>` cannot — its token comes
+ *     after the order number, so there is no single tail to vary.
+ *   * `QUICK_REPLY` sends text back to us. Nothing reads those yet: the
+ *     webhook logs inbound messages and ignores them, and the number a
+ *     customer would be replying to is the API number, which no one at the
+ *     shop can open. A quick reply today is a customer talking to a wall.
+ *
+ * Button text is capped at 25 characters by Meta, counted in code points —
+ * Malayalam runs long, so `validateTemplate` checks it.
+ */
+export type TemplateButton =
+  | {
+      type: "URL";
+      text: string;
+      /** Static prefix ending in `{{1}}` when the link is per-order. */
+      url: string;
+      /** What Meta shows the reviewer — the whole URL, filled in. */
+      example: string;
+      /** The value for `{{1}}`. Omitted when the URL has no variable. */
+      param?: (c: TemplateContext) => string;
+    }
+  | { type: "QUICK_REPLY"; text: string };
+
 export interface TemplateDef {
   /** The name as Meta holds it: lowercase, digits and underscores only. */
   name: string;
@@ -73,6 +112,8 @@ export interface TemplateDef {
   example: string[];
   /** The real values, from an order. */
   params: (c: TemplateContext) => string[];
+  /** Buttons under the message. Omitted on every template that has none. */
+  buttons?: TemplateButton[];
 }
 
 const SIGNATURE = "_Bisher Talks_";
@@ -239,6 +280,118 @@ ${SIGNATURE}`,
   },
 };
 
+/**
+ * Drafts — written, reviewed, and deliberately not submitted.
+ *
+ * Separate from TEMPLATES for one reason: `push` walks TEMPLATES, so anything
+ * here cannot reach Meta by accident. Nothing sends these either — they are
+ * not keyed by OrderEvent and lib/notify.ts has no branch for them.
+ *
+ * To finalise one: move it into TEMPLATES under a new OrderEvent (which means
+ * lib/notify-events.ts, WIRE_EVENT and a notify* function), or push it on its
+ * own if it is only ever going to be sent by hand from the admin.
+ */
+export const DRAFT_TEMPLATES: Record<string, TemplateDef> = {
+  /**
+   * A delivery held up by something wrong with the address.
+   *
+   * Sent by a person, not by a status change: only someone reading a courier's
+   * exception knows the address is the problem. That is why it is a draft
+   * rather than a sixth OrderEvent — there is no automatic trigger for it.
+   *
+   * The wording is the customer's own, variablised and nothing else. Two
+   * things in it are worth a second look before this goes to Meta, both
+   * flagged rather than silently fixed:
+   *
+   *   * "ഡെലിവറിയിൽ" appears twice in the first sentence.
+   *   * The third and fifth paragraphs both promise to get back in touch.
+   *
+   * One button, not the two originally sketched. "View order details" has no
+   * destination that "Track my order" does not already reach — /neuro-code/track
+   * is the only customer-facing order page there is — and two URL buttons on
+   * the same link is a rejection, not a nicety.
+   */
+  /**
+   * The order is on. A button-led rewrite of `order_confirmed`.
+   *
+   * Same message as the approved `confirmed` template, with one difference:
+   * the tracking link comes out of the body and becomes a button. That drops
+   * the body from six variables to five and takes a bare URL out of the middle
+   * of the Malayalam, which is the line customers most often mistake for spam.
+   *
+   * Two buttons, as asked. They land on the same page — /neuro-code/track is
+   * the only customer-facing order page there is, and it shows the status,
+   * the address, the courier and the amount together. The second carries
+   * `view=details` purely so the two URLs differ, which Meta requires; the
+   * page ignores the parameter today and renders identically.
+   */
+  confirm_order_1: {
+    name: "confirm_order_1",
+    category: "UTILITY",
+    body: `ഹായ് {{1}} 🙏
+നിങ്ങളുടെ ഓർഡർ സ്ഥിരീകരിച്ചു ✅
+
+ഓർഡർ നമ്പർ: {{2}}
+അടച്ച തുക: ₹{{3}}
+എത്തിക്കുന്ന സ്ഥലം: {{4}}
+പ്രതീക്ഷിക്കുന്ന ഡെലിവറി: {{5}}
+
+${SIGNATURE}`,
+    example: ["Asraf", "ORD-K3523P", "699", "കണ്ണൂർ, Kerala", "5–7 ദിവസം"],
+    params: (c) => [
+      c.customerName,
+      c.orderNumber,
+      c.amount,
+      c.addressShort,
+      c.expectedDelivery,
+    ],
+    buttons: [
+      {
+        type: "URL",
+        text: "ഓർഡർ ട്രാക്ക് ചെയ്യുക",
+        url: `${PUBLIC_BASE}/neuro-code/track?id={{1}}`,
+        example: `${PUBLIC_BASE}/neuro-code/track?id=ORD-K3523P`,
+        param: (c) => c.orderNumber,
+      },
+      {
+        type: "URL",
+        text: "ഓർഡർ വിവരങ്ങൾ",
+        url: `${PUBLIC_BASE}/neuro-code/track?view=details&id={{1}}`,
+        example: `${PUBLIC_BASE}/neuro-code/track?view=details&id=ORD-K3523P`,
+        param: (c) => c.orderNumber,
+      },
+    ],
+  },
+
+  order_delay_1: {
+    name: "order_delay_1",
+    category: "UTILITY",
+    body: `ഹായ് {{1}},
+നിങ്ങളുടെ ഓർഡർ {{2}}-ന്റെ ഡെലിവറിയിൽ വിലാസവുമായി ബന്ധപ്പെട്ട പ്രശ്നം ഉണ്ടായതിനാൽ ഡെലിവറിയിൽ കാലതാമസം നേരിടുകയാണ്.
+
+എത്രയും വേഗം പ്രശ്നം പരിഹരിക്കാൻ ഞങ്ങൾ ശ്രമിച്ചുകൊണ്ടിരിക്കുകയാണ്.
+
+പരിഹാരം ലഭിക്കുന്നതനുസരിച്ച് ഞങ്ങൾ നിങ്ങളെ വീണ്ടും അറിയിക്കുന്നതാണ്.
+
+ഇതിനാൽ ഉണ്ടായ അസൗകര്യത്തിൽ ഞങ്ങൾ ക്ഷമ ചോദിക്കുന്നു.
+
+പുതിയ ഡെലിവറി വിവരങ്ങൾ ലഭിക്കുന്ന മുറയ്ക്ക് നിങ്ങളെ അറിയിക്കുന്നതാണ്.
+
+${SIGNATURE}`,
+    example: ["Asraf", "ORD-K3523P"],
+    params: (c) => [c.customerName, c.orderNumber],
+    buttons: [
+      {
+        type: "URL",
+        text: "ഓർഡർ ട്രാക്ക് ചെയ്യുക",
+        url: `${PUBLIC_BASE}/neuro-code/track?id={{1}}`,
+        example: `${PUBLIC_BASE}/neuro-code/track?id=ORD-K3523P`,
+        param: (c) => c.orderNumber,
+      },
+    ],
+  },
+};
+
 /** How many {{n}} placeholders a body actually contains. */
 export function variableCount(body: string): number {
   return new Set(body.match(/\{\{\d+\}\}/g) ?? []).size;
@@ -286,10 +439,92 @@ export function validateTemplate(def: TemplateDef): string[] {
     }
   }
 
+  problems.push(...validateButtons(def));
+
   return problems;
 }
 
-/** Every problem across every template — what the script prints and refuses on. */
+/**
+ * The button rules, which are their own small pile of rejections.
+ *
+ * Counted in code points rather than UTF-16 units: `.length` on a Malayalam
+ * string is longer than what Meta measures, and a false failure here would
+ * send someone rewriting copy that was already fine.
+ */
+function validateButtons(def: TemplateDef): string[] {
+  const problems: string[] = [];
+  const buttons = def.buttons ?? [];
+  if (!buttons.length) return problems;
+
+  if (buttons.length > 3) {
+    problems.push(`${def.name}: ${buttons.length} buttons, Meta allows 3`);
+  }
+
+  const urls = new Set<string>();
+  const labels = new Set<string>();
+
+  for (const b of buttons) {
+    const label = [...b.text];
+    if (!label.length) {
+      problems.push(`${def.name}: a button has no text`);
+    } else if (label.length > 25) {
+      problems.push(
+        `${def.name}: button "${b.text}" is ${label.length} characters, Meta's limit is 25`
+      );
+    }
+    if (labels.has(b.text)) {
+      problems.push(`${def.name}: two buttons both read "${b.text}"`);
+    }
+    labels.add(b.text);
+
+    if (b.type !== "URL") continue;
+
+    if (urls.has(b.url)) {
+      problems.push(`${def.name}: two buttons point at ${b.url}`);
+    }
+    urls.add(b.url);
+
+    if (!b.url.startsWith("https://")) {
+      problems.push(`${def.name}: button "${b.text}" must use https`);
+    }
+
+    // One variable, at the very end. Meta appends the parameter to a static
+    // prefix; a placeholder anywhere else is not substituted.
+    const vars = b.url.match(/\{\{\d+\}\}/g) ?? [];
+    if (vars.length > 1) {
+      problems.push(
+        `${def.name}: button "${b.text}" has ${vars.length} variables, Meta allows 1`
+      );
+    }
+    if (vars.length === 1) {
+      if (!b.url.endsWith("{{1}}")) {
+        problems.push(
+          `${def.name}: button "${b.text}" must end with {{1}} — Meta only varies the tail`
+        );
+      }
+      if (!b.param) {
+        problems.push(`${def.name}: button "${b.text}" has {{1}} but no param()`);
+      }
+    } else if (b.param) {
+      problems.push(`${def.name}: button "${b.text}" has a param() but a static URL`);
+    }
+
+    if (!b.example) {
+      problems.push(`${def.name}: button "${b.text}" needs an example URL`);
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * Every problem across every template — what the script prints and refuses on.
+ *
+ * Drafts are checked too. They are not submitted, but a draft carrying a
+ * mistake is worth knowing about while it is still cheap to fix, rather than
+ * on the day someone promotes it into TEMPLATES and pushes.
+ */
 export function validateAllTemplates(): string[] {
-  return Object.values(TEMPLATES).flatMap(validateTemplate);
+  return [...Object.values(TEMPLATES), ...Object.values(DRAFT_TEMPLATES)]
+    .flatMap(validateTemplate);
 }
