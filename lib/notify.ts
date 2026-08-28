@@ -15,7 +15,7 @@ import {
   markNotificationResult,
   markNotificationResults,
 } from "@/lib/db/notifications";
-import { WIRE_EVENT, type OrderEvent } from "@/lib/notify-events";
+import { WIRE_EVENT, isHeld, type OrderEvent } from "@/lib/notify-events";
 import { upsertContact } from "@/lib/crm/contacts";
 import { sendTemplateMessage } from "@/lib/crm/send";
 import { toWhatsAppNumber, whatsappConfigured } from "@/lib/whatsapp";
@@ -68,6 +68,11 @@ export interface NotifyResult {
   error?: string;
   /** Already sent once — suppressed, and not a failure. */
   duplicate?: boolean;
+  /**
+   * Deliberately withheld — see HELD_EVENTS. Distinct from `duplicate` and
+   * from a failure: the caller succeeded, and nothing was sent on purpose.
+   */
+  held?: boolean;
 }
 
 const PRODUCT_NAME = "Neuro Code";
@@ -403,6 +408,17 @@ export async function sendOrderNotification(
       return { ok: true, status: 200, duplicate: true };
     }
 
+    // Held back on purpose — see HELD_EVENTS. Claimed and logged first, so the
+    // row says "we chose not to send this" rather than leaving no trace at all.
+    if (isHeld(event)) {
+      await markNotificationResult(payload.event_id, {
+        status: "skipped",
+        error: `${event} is held: its wording needs fixing before it goes out`,
+      });
+      console.warn("[Notify] held, not sent:", orderNumber, event);
+      return { ok: true, status: 200, held: true };
+    }
+
     const result = await deliver(payload, event);
 
     if (!result.ok) {
@@ -457,6 +473,17 @@ export async function sendOrderNotifications(
   // As above — don't burn idempotency keys on messages that can't be sent.
   if (!notifyConfigured()) {
     console.warn("[Notify] no WhatsApp provider configured — not sending:", event);
+    return 0;
+  }
+
+  // The second route to the wire, and it needs the same hold as the single
+  // send. Checked before anything is claimed: a batch of held events has
+  // nothing to record per order beyond the fact that the event is withheld,
+  // which HELD_EVENTS already says once for all of them.
+  if (isHeld(event)) {
+    console.warn(
+      `[Notify] ${event} is held — ${orderNumbers.length} not sent`
+    );
     return 0;
   }
 

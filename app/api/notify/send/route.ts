@@ -51,6 +51,19 @@ export async function POST(request: NextRequest) {
     resend: resend === true,
   });
 
+  // A held event succeeds without sending. Saying `success: true` and nothing
+  // else would tell the admin the customer was messaged when they were not, so
+  // the hold is reported as its own outcome.
+  if (result.ok && result.held) {
+    return NextResponse.json({
+      success: true,
+      held: true,
+      message:
+        `${event_type} is held and was not sent — its wording is being ` +
+        `corrected. Remove it from HELD_EVENTS to start sending again.`,
+    });
+  }
+
   return result.ok
     ? NextResponse.json({ success: true, duplicate: result.duplicate ?? false })
     : NextResponse.json({ error: result.error }, { status: result.status });

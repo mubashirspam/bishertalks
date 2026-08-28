@@ -21,6 +21,32 @@ export const ORDER_EVENTS: OrderEvent[] = [
   "course_access",
 ];
 
+/**
+ * Events that are written, approved, and deliberately NOT sent automatically.
+ *
+ * `payment_received` is held because its wording is wrong. The template is
+ * approved by Meta — it is not blocked, it is withheld — and it will start
+ * sending the moment its name is removed from this list, so nothing else has
+ * to be re-wired when the copy is fixed.
+ *
+ * This was previously true by accident rather than by decision. The event only
+ * fires for an order that has no address when payment is verified, and every
+ * one of the 3,620 paid orders in the database has an address by then, so it
+ * had never sent once. An accident is not a guarantee: a slow Magic Checkout
+ * backfill or a change to the standard checkout would have started sending the
+ * wrong message to real customers with nothing in the code to stop it.
+ *
+ * A held event still claims its idempotency key and still writes a log row, as
+ * 'skipped' with the reason. It has to stay visible — an event that silently
+ * vanished would be indistinguishable from one that was never triggered, which
+ * is precisely the confusion that hid this for so long.
+ */
+export const HELD_EVENTS: OrderEvent[] = ["payment_received"];
+
+export function isHeld(event: OrderEvent): boolean {
+  return HELD_EVENTS.includes(event);
+}
+
 export function isOrderEvent(v: unknown): v is OrderEvent {
   return typeof v === "string" && (ORDER_EVENTS as string[]).includes(v);
 }

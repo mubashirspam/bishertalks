@@ -27,6 +27,13 @@ import type { Segment } from "@/lib/crm/segments";
 function parseSegment(raw: unknown): Segment {
   const s = (raw ?? {}) as Record<string, unknown>;
   const seg: Segment = {};
+  // Person-level first — these are what the People screen builds and what a
+  // payment-chasing campaign should almost always use.
+  if (typeof s.personStage === "string") {
+    seg.personStage = s.personStage as Segment["personStage"];
+  }
+  if (typeof s.priority === "string") seg.priority = s.priority as Segment["priority"];
+  if (s.messaged === "yes" || s.messaged === "no") seg.messaged = s.messaged;
   if (typeof s.orderStage === "string") seg.orderStage = s.orderStage as Segment["orderStage"];
   if (typeof s.deliveryStage === "string") {
     seg.deliveryStage = s.deliveryStage as Segment["deliveryStage"];

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Play, Pause, Square, Eye, Plus } from "lucide-react";
 import { SEGMENT_SOURCES } from "@/lib/crm/segments";
 
@@ -63,21 +63,48 @@ export default function CampaignManager({
   defaultCap: number;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  // A filter carried over from the People screen. Arriving with one is what
+  // opens the composer: someone who has already picked their audience there
+  // should not have to pick it again here, and re-picking is where the two
+  // drift apart.
+  const params = useSearchParams();
+  const fromPeople = {
+    personStage: params.get("stage") ?? "",
+    priority: params.get("priority") ?? "",
+    messaged: params.get("messaged") ?? "",
+    district: params.get("district") ?? "",
+  };
+  const arrivedWithFilter = Object.values(fromPeople).some(Boolean);
+
+  const [open, setOpen] = useState(arrivedWithFilter);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
   const [templateName, setTemplateName] = useState(templates[0]?.name ?? "");
+  const [personStage, setPersonStage] = useState(fromPeople.personStage);
+  const [priority, setPriority] = useState(fromPeople.priority);
+  const [messaged, setMessaged] = useState(fromPeople.messaged);
   const [orderStage, setOrderStage] = useState("");
   const [deliveryStage, setDeliveryStage] = useState("");
   const [cap, setCap] = useState(defaultCap);
   const [dry, setDry] = useState<DryRunResult | null>(null);
 
   const segment = () => ({
+    ...(personStage ? { personStage } : {}),
+    ...(priority ? { priority } : {}),
+    ...(messaged ? { messaged } : {}),
+    ...(fromPeople.district ? { district: fromPeople.district } : {}),
     ...(orderStage ? { orderStage } : {}),
     ...(deliveryStage ? { deliveryStage } : {}),
   });
+
+  /**
+   * The person-level filters and the order-level one answer the same question
+   * two different ways, and mixing them narrows to the intersection — which is
+   * never what anybody means by picking both.
+   */
+  const mixedAxes = !!(personStage || priority || messaged) && !!orderStage;
 
   // Any change to what is being sent, or to whom, invalidates the preview.
   // Otherwise someone previews one segment and creates another.
@@ -193,11 +220,11 @@ export default function CampaignManager({
 
             <label className="block">
               <span className="mb-1 block text-xs font-semibold text-neutral-600">
-                Where they got to in checkout
+                Where they got to — one row per person
               </span>
               <select
-                value={orderStage}
-                onChange={(e) => invalidate(setOrderStage)(e.target.value)}
+                value={personStage}
+                onChange={(e) => invalidate(setPersonStage)(e.target.value)}
                 className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none"
               >
                 <option value="">Any</option>
@@ -205,6 +232,59 @@ export default function CampaignManager({
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
+              <span className="mt-1 block text-[11px] text-neutral-400">
+                Their furthest stage. Someone who failed then paid counts as paid.
+              </span>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-neutral-600">
+                Priority
+              </span>
+              <select
+                value={priority}
+                onChange={(e) => invalidate(setPriority)(e.target.value)}
+                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none"
+              >
+                <option value="">Any</option>
+                {SEGMENT_SOURCES[1].options.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-neutral-600">
+                Have we messaged them
+              </span>
+              <select
+                value={messaged}
+                onChange={(e) => invalidate(setMessaged)(e.target.value)}
+                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none"
+              >
+                <option value="">Either</option>
+                <option value="no">Never messaged</option>
+                <option value="yes">Already messaged</option>
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-neutral-600">
+                Where one ORDER got to
+              </span>
+              <select
+                value={orderStage}
+                onChange={(e) => invalidate(setOrderStage)(e.target.value)}
+                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none"
+              >
+                <option value="">Any</option>
+                {SEGMENT_SOURCES[2].options.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+              <span className="mt-1 block text-[11px] text-neutral-400">
+                Matches order rows. One person can match on several.
+              </span>
             </label>
 
             <label className="block">
@@ -217,7 +297,7 @@ export default function CampaignManager({
                 className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none"
               >
                 <option value="">Any</option>
-                {SEGMENT_SOURCES[1].options.map((o) => (
+                {SEGMENT_SOURCES[3].options.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
@@ -240,6 +320,15 @@ export default function CampaignManager({
               </span>
             </label>
           </div>
+
+          {mixedAxes && (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              You have picked a person filter and an order filter. They are two
+              different ways of asking the same thing, and together they narrow
+              to people who match both — usually far fewer than you meant.
+              Preview before you trust the number.
+            </p>
+          )}
 
           {selected && (
             <div className="rounded-lg bg-neutral-50 p-3">

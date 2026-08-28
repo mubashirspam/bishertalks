@@ -10,6 +10,9 @@ import Link from "@/components/admin/AdminLink";
  */
 const TABS = [
   { key: "inbox", href: "/admin/crm", label: "Inbox" },
+  // Between the inbox and campaigns because that is the order the work
+  // happens in: read what came back, decide who to reach, then reach them.
+  { key: "people", href: "/admin/crm/people", label: "People" },
   { key: "campaigns", href: "/admin/crm/campaigns", label: "Campaigns" },
   { key: "log", href: "/admin/crm/log", label: "Message log" },
   { key: "health", href: "/admin/crm/health", label: "Number health" },

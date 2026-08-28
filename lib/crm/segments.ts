@@ -1,5 +1,14 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { toWhatsAppNumber } from "@/lib/whatsapp";
+import {
+  listPeople,
+  PERSON_STAGES,
+  PERSON_STAGE_LABELS,
+  PRIORITIES,
+  PRIORITY_LABELS,
+  type PersonStage,
+  type Priority,
+} from "@/lib/crm/people";
 import type { OrderStage } from "@/lib/order-stage";
 import type { DeliveryStage } from "@/lib/delivery-stage";
 
@@ -18,7 +27,26 @@ import type { DeliveryStage } from "@/lib/delivery-stage";
  */
 
 export interface Segment {
-  /** Funnel stage, for people who may never have paid. */
+  /**
+   * Funnel stage counted per PERSON — the furthest they ever got.
+   *
+   * Prefer this over `orderStage` for anything that chases a payment. The two
+   * differ by 149 people in this database: that is how many have a failed
+   * order in their history AND have since paid, and `orderStage: "failed"`
+   * puts every one of them in the list. See lib/crm/people.ts.
+   */
+  personStage?: PersonStage;
+  /** How worth chasing they are, worked out per person. */
+  priority?: Priority;
+  /** "no" is the people nobody has messaged yet. */
+  messaged?: "yes" | "no";
+  /**
+   * Funnel stage counted per ORDER.
+   *
+   * Kept because a campaign about one order — "your payment for ORD-X failed"
+   * — is a real thing to want, and because campaigns created before the
+   * person-level segment existed are stored with it. It is the wrong default.
+   */
   orderStage?: OrderStage;
   /** Delivery stage, for parcels. */
   deliveryStage?: DeliveryStage;
@@ -48,11 +76,27 @@ export interface SegmentResult {
   unreachable: number;
 }
 
-/** Human labels for the two stage vocabularies, for the composer's dropdown. */
+/**
+ * The vocabularies the composer offers, in the order it should offer them.
+ *
+ * People first, deliberately. It is the one that cannot chase a customer for
+ * money they have already paid, and a dropdown's first option is what most
+ * campaigns will be built from.
+ */
 export const SEGMENT_SOURCES = [
   {
+    key: "personStage" as const,
+    label: "Where they got to — one row per person",
+    options: PERSON_STAGES.map((v) => ({ value: v, label: PERSON_STAGE_LABELS[v] })),
+  },
+  {
+    key: "priority" as const,
+    label: "How worth chasing they are",
+    options: PRIORITIES.map((v) => ({ value: v, label: PRIORITY_LABELS[v] })),
+  },
+  {
     key: "orderStage" as const,
-    label: "Where they got to in checkout",
+    label: "Where one ORDER got to (may repeat a person)",
     options: [
       { value: "lead", label: "Never started payment" },
       { value: "payment_started", label: "Payment started, not finished" },
@@ -85,23 +129,14 @@ export async function resolveSegment(
   segment: Segment,
   limit = 5000
 ): Promise<SegmentResult> {
-  const orders = await matchingOrders(segment, limit);
-
-  // Collapse to one entry per phone. A customer with three matching orders is
-  // one person and gets one message.
-  const byPhone = new Map<string, { name: string | null; orderNumber: string }>();
-  let unreachable = 0;
-
-  for (const o of orders) {
-    const phone = toWhatsAppNumber(o.buyer_phone);
-    if (!phone) {
-      unreachable++;
-      continue;
-    }
-    if (!byPhone.has(phone)) {
-      byPhone.set(phone, { name: o.buyer_name, orderNumber: o.order_number });
-    }
-  }
+  // One entry per phone either way — the difference is what "matches" means.
+  // The person path decides a stage from someone's whole history; the order
+  // path matches rows and collapses afterwards, which is what let a customer
+  // who paid on their sixth attempt keep matching "payment failed" on the
+  // first five.
+  const { byPhone, unreachable } = usesPeople(segment)
+    ? await peopleSeeds(segment, limit)
+    : await orderSeeds(segment, limit);
 
   if (!byPhone.size) {
     return { members: [], excluded: [], unreachable };
@@ -155,6 +190,70 @@ export async function resolveSegment(
     excluded: Object.entries(excluded).map(([reason, count]) => ({ reason, count })),
     unreachable,
   };
+}
+
+type Seeds = {
+  byPhone: Map<string, { name: string | null; orderNumber: string }>;
+  unreachable: number;
+};
+
+/** Whether any person-level filter is set, which decides how members are found. */
+function usesPeople(segment: Segment): boolean {
+  return !!(segment.personStage || segment.priority || segment.messaged);
+}
+
+/**
+ * Members from the person-level funnel.
+ *
+ * Everything the People screen shows, with the same definitions, so a campaign
+ * built from a filter reaches exactly the people that filter was showing. The
+ * count on screen and the count in the dry run are the same number because
+ * they come from the same function.
+ */
+async function peopleSeeds(segment: Segment, limit: number): Promise<Seeds> {
+  const { rows } = await listPeople(
+    {
+      stage: segment.personStage,
+      priority: segment.priority,
+      messaged: segment.messaged,
+      district: segment.district,
+      from: segment.from,
+      to: segment.to,
+      replied: segment.hasReplied || undefined,
+    },
+    0,
+    limit
+  );
+
+  return {
+    // Hottest first, which listPeople already sorted them into — so a capped
+    // campaign spends its cap on the people most worth spending it on.
+    byPhone: new Map(
+      rows.map((p) => [p.phone, { name: p.name, orderNumber: p.lastOrderNumber }])
+    ),
+    // A person with no usable number never became a person at all.
+    unreachable: 0,
+  };
+}
+
+/** Members from matching order rows, collapsed to one per phone afterwards. */
+async function orderSeeds(segment: Segment, limit: number): Promise<Seeds> {
+  const orders = await matchingOrders(segment, limit);
+  const byPhone: Seeds["byPhone"] = new Map();
+  let unreachable = 0;
+
+  for (const o of orders) {
+    const phone = toWhatsAppNumber(o.buyer_phone);
+    if (!phone) {
+      unreachable++;
+      continue;
+    }
+    if (!byPhone.has(phone)) {
+      byPhone.set(phone, { name: o.buyer_name, orderNumber: o.order_number });
+    }
+  }
+
+  return { byPhone, unreachable };
 }
 
 interface OrderRow {
@@ -240,6 +339,10 @@ async function contactsFor(phones: string[]): Promise<Map<string, ContactLite>> 
 
 export function describeSegment(segment: Segment): string {
   const parts: string[] = [];
+  if (segment.personStage) parts.push(PERSON_STAGE_LABELS[segment.personStage]);
+  if (segment.priority) parts.push(`${PRIORITY_LABELS[segment.priority]} priority`);
+  if (segment.messaged === "no") parts.push("never messaged");
+  if (segment.messaged === "yes") parts.push("already messaged");
   if (segment.orderStage) {
     parts.push(
       SEGMENT_SOURCES[0].options.find((o) => o.value === segment.orderStage)?.label ??
