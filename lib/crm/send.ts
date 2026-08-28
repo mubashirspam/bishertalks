@@ -10,7 +10,7 @@ import type { TemplateCategory } from "@/lib/whatsapp-templates";
  *
  * Two functions, one contract: check the gate, send, record the result, and
  * never throw. The raw wire calls in lib/whatsapp.ts are reachable from here
- * and from nowhere else — .eslintrc.json enforces that with
+ * and from nowhere else — eslint.config.mjs enforces that with
  * `no-restricted-imports`, so a caller that goes around the gate fails the
  * build rather than quietly messaging someone who asked us to stop.
  *

@@ -19,6 +19,7 @@ import { isHandoverState } from "@/lib/delivery/handover";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
 import { SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
+import ContactDownload from "@/components/admin/ContactDownload";
 import PortalFilters from "./PortalFilters";
 import PortalGrid from "./PortalGrid";
 
@@ -134,6 +135,11 @@ export default async function DeliveryPortalPage({
             : []
         }
         trackedCourierIds={couriers.filter(canTrack).map((c) => c.id)}
+        // Plain, and offered to everyone the portal is: a partner downloading
+        // their own filtered parcels is the same rows they are already looking
+        // at, and the route pins them to their own courier whatever the URL
+        // says.
+        downloadSlot={<ContactDownload />}
         countSlot={
           <Suspense fallback={<span className="text-neutral-400">Counting…</span>}>
             <PortalCount {...args} />
@@ -199,12 +205,20 @@ async function PortalRows(args: Args) {
   const chosen = args.courierId ? couriers.find((c) => c.id === args.courierId) : null;
   const live = !!chosen && canTrack(chosen) && delhiveryReadiness(chosen.config).ready;
 
-  // Whichever active courier can actually be asked. Independent of the filter,
-  // so "sync everything" is offered even on "All couriers" — which is where
-  // most people land, and where the button used to vanish.
-  const syncCourier = couriers.find(
-    (c) => c.is_active && canTrack(c) && delhiveryReadiness(c.config).ready
-  );
+  // Whichever courier the sweep should ask. The one being looked at wherever
+  // there is one, falling back to the first askable courier on "All couriers"
+  // — which is where most people land, and where the button used to vanish.
+  //
+  // The fallback used to be the whole rule, and it was wrong in the one case
+  // that mattered: two couriers share the Delhivery account, and `find` always
+  // returned the API one. Someone filtered to the sheet courier pressed "Sync
+  // everything", waited three minutes, and swept the OTHER courier's parcels —
+  // the sweep scopes to `courier_id.eq.<target>`, so theirs were never in
+  // range. Every one of the 674 parcels KKR had uploaded stayed "Not with
+  // them", however many times it was pressed.
+  const askable = (c: (typeof couriers)[number]) =>
+    c.is_active && canTrack(c) && delhiveryReadiness(c.config).ready;
+  const syncCourier = (chosen && askable(chosen) ? chosen : null) ?? couriers.find(askable);
 
   const totalPages = Math.ceil(count / PER_PAGE);
 

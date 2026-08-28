@@ -1,8 +1,10 @@
 import { cache } from "react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fetchAllRows, type PageResult } from "@/lib/db/paginate";
 import { istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
 import type { OrderStatus } from "@/lib/types/order";
 import { COURIER_SHEET_MAX, type CourierParcel } from "@/lib/courier-sheet";
+import { CONTACT_COLUMNS, type ContactRow } from "@/lib/delivery/contacts";
 
 /**
  * The delivery portal's data.
@@ -486,6 +488,75 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     count: result.count ?? 0,
   };
 });
+
+/**
+ * Every parcel the current filters match, as a contact row.
+ *
+ * The same `portalQuery` the grid is built from, with two differences that are
+ * the whole reason it exists: five columns instead of thirty, and no page —
+ * "download what I filtered" means the 674 the count says, not the 100 on
+ * screen. Paged through `fetchAllRows`, because PostgREST silently truncates
+ * at 1000 and an export that quietly stops two thirds of the way through is
+ * worse than one that refuses.
+ *
+ * Ordered oldest first: an export is worked top to bottom, and the customer
+ * who has waited longest should be the first line of the file.
+ *
+ * Read-only, and it stays that way. Nothing here ticks, reserves or hands over
+ * anything — see lib/delivery/contacts.ts.
+ */
+export async function fetchPortalContacts(
+  date: string | undefined,
+  status: string | undefined,
+  agentId: string | null = null,
+  courierId: string | null = null,
+  tracking: PortalTracking | null = null,
+  handover: string | null = null,
+  packing: PortalPacking | null = null
+): Promise<{ rows: ContactRow[]; truncated: boolean }> {
+  const query = (table: "portal_orders" | "orders", from: number, to: number) =>
+    portalQuery(
+      table,
+      date,
+      status,
+      agentId,
+      CONTACT_COLUMNS,
+      courierId,
+      tracking,
+      handover,
+      packing
+    )
+      // `ordered_at` rather than the view's work_at: it is on both tables, so
+      // the fallback below sorts the file the same way as the view does rather
+      // than handing someone a differently-ordered spreadsheet on a day the
+      // view happens to be stale.
+      .order("ordered_at", { ascending: true })
+      .range(from, to);
+
+  // Which table can answer, decided before paging rather than during it.
+  // `fetchAllRows` deliberately swallows a mid-page failure and returns what it
+  // has, so a stale view would otherwise produce an empty file and call it a
+  // success — the one outcome an export must never have. One cheap row settles
+  // it. The only filter that needs the view is `handover`, which portalQuery
+  // already skips on the table.
+  const probe = await query("portal_orders", 0, 0);
+  const table = probe.error ? "orders" : "portal_orders";
+
+  if (probe.error) {
+    console.error(
+      "[Portal] contact export fell back to the orders table — portal_orders may be stale:",
+      probe.error.message
+    );
+  }
+
+  return fetchAllRows<ContactRow>(
+    // The cast is the same one fetchPortalPage makes on its own rows: the
+    // column list is a runtime string, so PostgREST's generics cannot know it
+    // describes a ContactRow and infer an error shape instead.
+    (from, to) => query(table, from, to) as unknown as PromiseLike<PageResult<ContactRow>>,
+    { label: "portal contact export" }
+  );
+}
 
 // ── The courier's bulk-upload sheet ─────────────────────────────────────────
 

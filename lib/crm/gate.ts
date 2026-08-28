@@ -18,7 +18,7 @@ import type { TemplateCategory } from "@/lib/whatsapp-templates";
  *
  * `sendTemplate` and `sendText` in lib/whatsapp.ts are the raw wire calls and
  * must not be reached any other way. That is enforced by the
- * `no-restricted-imports` rule in .eslintrc.json, so a future caller that
+ * `no-restricted-imports` rule in eslint.config.mjs, so a future caller that
  * bypasses the gate is a build error rather than an incident.
  *
  * Checks run in a fixed order and the first refusal wins, because the order
@@ -235,9 +235,24 @@ async function frequencyBlocked(
 /**
  * Is Meta currently willing to send this template?
  *
- * Reads the synced copy written by the health cron. If nothing has synced yet
- * the answer is no — an unknown template is not an approved one, and finding
- * out by sending is the expensive way.
+ * Reads the synced copy written by the health cron, so no Graph round trip
+ * sits in the send path.
+ *
+ * The distinction that matters here is between "we synced, and this template
+ * is not approved" and "we have never synced anything". The first is a real
+ * refusal. The second means the cron has not run yet — on a fresh deploy, or
+ * because nobody scheduled it — and refusing on it would silently stop every
+ * order notification in the system until someone noticed.
+ *
+ * That is not hypothetical: it happened. Eight shipping notifications were
+ * refused with "no approved Malayalam version on record" while the table was
+ * simply empty, hours after this gate first ran. `ratingAllows` already takes
+ * the opposite and correct position on the same question — an unknown rating
+ * is treated as green rather than blocking — and this now matches it.
+ *
+ * When nothing has synced, Meta is the authority: it answers 132001, which is
+ * mapped, logged and actionable. A template that is genuinely missing fails
+ * loudly at the wire instead of silently at the gate.
  */
 async function templateIsApproved(
   name: string
@@ -250,6 +265,19 @@ async function templateIsApproved(
     .maybeSingle();
 
   if (!data) {
+    // Has the cron ever run? One cheap count answers it.
+    const { count } = await supabaseAdmin
+      .from("whatsapp_template_status")
+      .select("name", { count: "exact", head: true });
+
+    if (!count) {
+      console.warn(
+        `[Gate] template statuses have never synced — allowing ${name} and ` +
+          `letting Meta decide. Schedule /api/cron/whatsapp-health.`
+      );
+      return { approved: true, reason: "" };
+    }
+
     return {
       approved: false,
       reason: `${name} has no approved Malayalam version on record`,

@@ -67,11 +67,20 @@ const PACKING_TONE: Record<string, string> = {
 
 export default function PortalFilters({
   countSlot,
+  downloadSlot,
   agents,
   couriers,
   trackedCourierIds,
 }: {
   countSlot?: React.ReactNode;
+  /**
+   * The download button, top right.
+   *
+   * Passed in rather than imported so this stays a pure filter bar: it knows
+   * which filters are set, and the thing that turns them into a file is none
+   * of its business.
+   */
+  downloadSlot?: React.ReactNode;
   /** Empty for an agent — they only ever see their own parcels. */
   agents: DeliveryAgent[];
   /**
@@ -117,8 +126,10 @@ export default function PortalFilters({
       {/* The courier comes first because it decides what this screen *is* —
           a live view of a courier's own tracking, or the spreadsheet you copy
           addresses out of. Everything below narrows within that. */}
-      {couriers.length > 0 && (
+      {(couriers.length > 0 || downloadSlot) && (
         <div className="flex flex-wrap items-center gap-2 pb-3 mb-3 border-b border-neutral-100">
+          {couriers.length > 0 && (
+            <>
           <Truck className="w-4 h-4 text-neutral-400" />
           <label htmlFor="portal-courier" className="text-xs font-medium text-neutral-500">
             Courier
@@ -170,6 +181,12 @@ export default function PortalFilters({
               ))}
             </>
           )}
+            </>
+          )}
+
+          {/* Top right, and on its own end of the row: it acts on everything
+              the filters below add up to, not on the courier beside it. */}
+          {downloadSlot && <span className="ml-auto">{downloadSlot}</span>}
         </div>
       )}
 

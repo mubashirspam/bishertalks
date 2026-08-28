@@ -76,8 +76,18 @@ export default function PortalGrid({
   const router = useRouter();
   const [syncing, setSyncing] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
-  /** Guards the automatic sync below against React's double-invoked effects. */
-  const autoSynced = useRef(false);
+  /**
+   * The courier the automatic sync below has already run for.
+   *
+   * A courier id rather than a boolean, and that is the whole fix: it used to
+   * be `useRef(false)` on a mount-only effect, so the sync fired once for
+   * whatever was on screen at first paint and never again. Picking a courier
+   * from the filter bar is a client-side navigation — this component
+   * re-renders with new rows and does NOT remount — so the one arrangement
+   * that matters, land on the portal and then choose a courier, asked the
+   * courier nothing at all.
+   */
+  const autoSynced = useRef<string | null>(null);
   const [overrides, setOverrides] = useState<Record<string, OrderStatus>>({});
   const [entered, setEntered] = useState<Record<string, boolean>>({});
   /** Parcels ticked for the courier sheet. Capped at a sheetful, see below. */
@@ -239,13 +249,19 @@ export default function PortalGrid({
    * ask about.
    */
   useEffect(() => {
-    if (!live || !courierId || !rows.length || autoSynced.current) return;
-    autoSynced.current = true;
+    if (!live || !courierId || !rows.length) return;
+    // Once per courier, not once per mount. The refresh this sync triggers
+    // comes back through here with new rows, and so does every filter change
+    // within the one courier — asking again on each of those would hammer the
+    // rate limit for no new information. A different courier is new
+    // information, and is the case this exists for.
+    if (autoSynced.current === courierId) return;
+    autoSynced.current = courierId;
     void syncNow(false);
-    // Deliberately mount-only: re-syncing on every render would hammer the
-    // courier's rate limit for no new information.
+    // syncNow is recreated every render and is stable in what it does; the
+    // guard above is what keeps this from repeating, not the dependency list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [live, courierId, rows.length]);
 
   /** The sheet has been downloaded: those parcels are now with the courier. */
   function sheetDownloaded(confirmed: string[]) {

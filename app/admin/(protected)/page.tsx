@@ -9,8 +9,10 @@ import { formatISTShort, timeAgo, istToday, istDayStartUTC } from "@/lib/format-
 import { requirePageAccess } from "@/lib/admin-auth";
 import { Suspense } from "react";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
+import { listCouriers } from "@/lib/db/couriers";
 import RevenueCharts from "./RevenueCharts";
 import HourlyOrders from "./HourlyOrders";
+import CourierStatusTable from "./CourierStatusTable";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,7 @@ async function DashboardBody() {
     paidOrders,
     needsAddress,
     recent,
+    couriers,
   ] = await Promise.all([
     // Paged. A plain .limit() here silently stopped at 1000 rows, which is why
     // the dashboard used to under-report both revenue and order count once the
@@ -71,11 +74,16 @@ async function DashboardBody() {
       quantity: number | null;
       ordered_at: string;
       source: string | null;
+      // Two more columns on a read this screen already does. The courier x
+      // status table below is counted from these rows rather than from a
+      // second full-table pass — same 3,500 rows, one trip.
+      status: string;
+      courier_id: string | null;
     }>(
       (from, to) =>
         supabaseAdmin
           .from("orders")
-          .select("amount_paise,quantity,ordered_at,source")
+          .select("amount_paise,quantity,ordered_at,source,status,courier_id")
           .eq("payment_status", "paid")
       // ordered_at, not created_at: every row here is paid, so this is the
       // payment date — and money must be counted on the day it arrived, not on
@@ -93,6 +101,9 @@ async function DashboardBody() {
       .gte("ordered_at", todayStart)
       .order("ordered_at", { ascending: false })
       .limit(8),
+    // Names for the table below. Memoised per request, and every other screen
+    // that needs them has already paid for it.
+    listCouriers(),
   ]);
 
   const paid = paidOrders.rows;
@@ -184,6 +195,11 @@ async function DashboardBody() {
       </div>
 
       <RevenueCharts rows={paid} />
+
+      <CourierStatusTable
+        rows={paid}
+        courierNames={new Map(couriers.map((c) => [c.id, c.name]))}
+      />
 
       {needsAddress > 0 && (
         <Link
