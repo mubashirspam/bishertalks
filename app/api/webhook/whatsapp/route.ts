@@ -6,6 +6,9 @@ import {
   markNotificationByMessageId,
   type NotificationStatus,
 } from "@/lib/db/notifications";
+import { upsertContact } from "@/lib/crm/contacts";
+import { recordInbound, bumpUnread, applyReceipt } from "@/lib/crm/messages";
+import { stopWordIn, setOptOut, noteDeliveryFailure, clearFailureStreak } from "@/lib/crm/consent";
 
 /**
  * Meta's WhatsApp webhook.
@@ -36,6 +39,86 @@ const STATUS: Record<string, NotificationStatus> = {
   read: "read",
   failed: "failed",
 };
+
+interface InboundMessage {
+  id?: string;
+  from?: string;
+  type?: string;
+  text?: { body?: string };
+  button?: { text?: string };
+  interactive?: {
+    button_reply?: { title?: string };
+    list_reply?: { title?: string };
+  };
+}
+
+/** Kinds we store verbatim; anything else is recorded as 'other'. */
+const MEDIA_KINDS = new Set(["image", "audio", "video", "document", "sticker"]);
+
+/**
+ * Read one inbound message.
+ *
+ * Order matters here more than anywhere else in the file. The stop check runs
+ * against the text before the message is stored and before the unread count
+ * moves, so that a customer asking us to stop is opted out even if a later
+ * step fails. Everything is best-effort after that: a storage failure must not
+ * make Meta retry, because a retry could deliver the same message again.
+ */
+async function handleInbound(
+  m: InboundMessage,
+  profiles: { wa_id?: string; profile?: { name?: string } }[]
+): Promise<void> {
+  if (!m.id || !m.from) return;
+
+  // What the customer actually wrote, whichever shape it arrived in. A tapped
+  // quick-reply button counts: someone answering "STOP" with a button means it
+  // exactly as much as someone typing it.
+  const text =
+    m.text?.body ??
+    m.button?.text ??
+    m.interactive?.button_reply?.title ??
+    m.interactive?.list_reply?.title ??
+    null;
+
+  const kind = m.type === "text" ? "text" : MEDIA_KINDS.has(m.type ?? "") ? m.type! : "other";
+
+  try {
+    const name = profiles.find((c) => c.wa_id === m.from)?.profile?.name ?? null;
+    const contact = await upsertContact(m.from, { name });
+    if (!contact) {
+      console.warn("[WhatsApp] inbound from an unusable number:", m.from);
+      return;
+    }
+
+    // ── The stop check, first ──
+    const stopWord = stopWordIn(text);
+    if (stopWord) {
+      const set = await setOptOut(
+        contact.id,
+        `Customer wrote "${stopWord}"`,
+        "customer"
+      );
+      if (set) {
+        console.warn("[WhatsApp] opt-out recorded for", contact.phone);
+      }
+    }
+
+    const isNew = await recordInbound({
+      contactId: contact.id,
+      wamid: m.id,
+      kind,
+      body: text,
+    });
+
+    // Only on a genuinely new message. A webhook retry must not make one
+    // customer message look like two.
+    if (isNew) {
+      await bumpUnread(contact.id, new Date().toISOString());
+    }
+  } catch (e) {
+    console.error("[WhatsApp] inbound handling failed:", m.id, e);
+  }
+}
 
 /**
  * The subscription handshake.
@@ -106,7 +189,13 @@ export async function POST(request: NextRequest) {
 
   let body: {
     entry?: {
-      changes?: { value?: { statuses?: StatusEntry[]; messages?: unknown[] } }[];
+      changes?: {
+        value?: {
+          statuses?: StatusEntry[];
+          messages?: InboundMessage[];
+          contacts?: { wa_id?: string; profile?: { name?: string } }[];
+        };
+      }[];
     }[];
   };
 
@@ -119,14 +208,11 @@ export async function POST(request: NextRequest) {
 
   for (const entry of body.entry ?? []) {
     for (const change of entry.changes ?? []) {
-      // Inbound customer replies. Not handled yet — deliberately, rather than
-      // by omission: replying opens a 24-hour window in which we could send
-      // free-form Malayalam instead of templates, and that is its own piece of
-      // work. Acknowledged so Meta stops retrying.
-      if (change.value?.messages?.length) {
-        console.log(
-          `[WhatsApp] ${change.value.messages.length} inbound message(s) — not handled`
-        );
+      // Inbound customer replies. Each one opens the 24-hour window in which
+      // we may answer in free-form Malayalam, so it is stored, counted, and
+      // read for a stop request before anything else looks at it.
+      for (const m of change.value?.messages ?? []) {
+        await handleInbound(m, change.value?.contacts ?? []);
       }
 
       for (const s of change.value?.statuses ?? []) {
@@ -135,19 +221,45 @@ export async function POST(request: NextRequest) {
 
         const failure = s.errors?.[0];
 
+        const errorText =
+          [failure?.title, failure?.message].filter(Boolean).join(" — ").slice(0, 1000) ||
+          "Delivery failed";
+
         await markNotificationByMessageId(s.id, {
           status,
           ...(status === "failed"
-            ? {
-                error:
-                  [failure?.title, failure?.message]
-                    .filter(Boolean)
-                    .join(" — ")
-                    .slice(0, 1000) || "Delivery failed",
-                errorCode: failure?.code ?? null,
-              }
+            ? { error: errorText, errorCode: failure?.code ?? null }
             : {}),
         });
+
+        // The same receipt against the CRM's copy. A message sent from the
+        // inbox or a campaign lives in whatsapp_messages, not notification_log,
+        // and both need to walk forward.
+        const touched = await applyReceipt(
+          s.id,
+          status,
+          status === "failed"
+            ? { error: errorText, code: failure?.code ?? null }
+            : undefined
+        );
+
+        if (touched?.contactId) {
+          if (status === "failed") {
+            // Enough undeliverable sends in a row and we stop by ourselves —
+            // Meta never tells you a customer blocked you, and continuing to
+            // push at a number that keeps refusing is how one block becomes a
+            // quality rating.
+            const stopped = await noteDeliveryFailure(touched.contactId, failure?.code);
+            if (stopped) {
+              console.warn(
+                "[WhatsApp] contact auto-opted-out after repeated failures:",
+                touched.contactId
+              );
+            }
+          } else if (status === "delivered" || status === "read") {
+            await clearFailureStreak(touched.contactId);
+          }
+        }
 
         if (status === "failed") {
           console.error(

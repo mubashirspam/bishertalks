@@ -392,6 +392,84 @@ ${SIGNATURE}`,
   },
 };
 
+/**
+ * What a campaign template is given.
+ *
+ * Deliberately two fields. A campaign message goes to someone chosen by a
+ * segment, not by an order event, and the only things reliably true about
+ * every member of a segment are who they are and which order put them in it.
+ * Anything richer would be a template that works for one segment and renders
+ * "—" for the next.
+ */
+export interface CampaignContext {
+  customerName: string;
+  orderNumber: string;
+}
+
+export interface CampaignTemplateDef {
+  name: string;
+  category: TemplateCategory;
+  body: string;
+  example: string[];
+  params: (c: CampaignContext) => string[];
+  buttons?: TemplateButton[];
+}
+
+/**
+ * Templates a campaign may use. Not order events — nothing sends these
+ * automatically, and nothing sends them at all until Meta approves them.
+ *
+ * Both are MARKETING, submitted that way on purpose. A nudge to finish a
+ * payment is a nudge to buy however carefully it is worded, and Meta has
+ * already rejected one of this account's templates for reading as promotion
+ * when it was submitted as utility. Arguing the category costs a rejection;
+ * accepting it costs a fraction of a rupee.
+ *
+ * Both carry their own opt-out line in the body, in Malayalam. Meta expects a
+ * way out of a marketing message, and retrofitting one later means a second
+ * review round on a template that is already live.
+ */
+export const CAMPAIGN_TEMPLATES: Record<string, CampaignTemplateDef> = {
+  /**
+   * Started paying and stopped. The largest recoverable segment, and the one
+   * with the strongest claim to be worth a message: they chose the book, they
+   * opened the payment page, and something interrupted them.
+   */
+  payment_reminder_1: {
+    name: "payment_reminder_1",
+    category: "MARKETING",
+    body: `ഹായ് {{1}} 🙏
+നിങ്ങളുടെ Neuro Code ഓർഡർ {{2}} പൂർത്തിയായിട്ടില്ല എന്ന് കാണുന്നു.
+
+പേയ്‌മെന്റ് പൂർത്തിയാക്കാൻ സഹായം വേണമെങ്കിൽ ഈ മെസ്സേജിന് മറുപടി അയച്ചാൽ മതി.
+
+ഇനി ഇത്തരം മെസ്സേജുകൾ വേണ്ടെങ്കിൽ "വേണ്ട" എന്ന് മറുപടി അയക്കുക.
+
+${SIGNATURE}`,
+    example: ["Asraf", "ORD-K3523P"],
+    params: (c) => [c.customerName, c.orderNumber],
+  },
+
+  /**
+   * The payment was actually attempted and refused. Different message from the
+   * one above: nothing they did was wrong, and saying so is the whole point.
+   */
+  payment_failed_1: {
+    name: "payment_failed_1",
+    category: "MARKETING",
+    body: `ഹായ് {{1}} 🙏
+നിങ്ങളുടെ ഓർഡർ {{2}}-ന്റെ പേയ്‌മെന്റ് പരാജയപ്പെട്ടതായി കണ്ടു. പണം കുറഞ്ഞിട്ടുണ്ടെങ്കിൽ അത് ബാങ്ക് തിരികെ നൽകുന്നതാണ്.
+
+വീണ്ടും ശ്രമിക്കാൻ സഹായം വേണമെങ്കിൽ ഈ മെസ്സേജിന് മറുപടി അയക്കൂ.
+
+ഇനി ഇത്തരം മെസ്സേജുകൾ വേണ്ടെങ്കിൽ "വേണ്ട" എന്ന് മറുപടി അയക്കുക.
+
+${SIGNATURE}`,
+    example: ["Asraf", "ORD-K3523P"],
+    params: (c) => [c.customerName, c.orderNumber],
+  },
+};
+
 /** How many {{n}} placeholders a body actually contains. */
 export function variableCount(body: string): number {
   return new Set(body.match(/\{\{\d+\}\}/g) ?? []).size;
@@ -525,6 +603,13 @@ function validateButtons(def: TemplateDef): string[] {
  * on the day someone promotes it into TEMPLATES and pushes.
  */
 export function validateAllTemplates(): string[] {
-  return [...Object.values(TEMPLATES), ...Object.values(DRAFT_TEMPLATES)]
-    .flatMap(validateTemplate);
+  return [
+    ...Object.values(TEMPLATES),
+    ...Object.values(DRAFT_TEMPLATES),
+    // Campaign templates share the shape, so they share the rules. A campaign
+    // body that starts with a variable is rejected exactly as an order one is.
+    ...Object.values(CAMPAIGN_TEMPLATES).map(
+      (c): TemplateDef => ({ ...c, params: () => c.example })
+    ),
+  ].flatMap(validateTemplate);
 }

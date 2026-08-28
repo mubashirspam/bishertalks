@@ -47,6 +47,16 @@ export const PERMISSIONS = {
   // actually received without being able to change the wording. Editing an
   // automated template means a Meta resubmission, which belongs in a commit.
   "templates.view": "Read the message templates — WhatsApp, manual and email",
+
+  // ── CRM ──
+  // Split four ways because the consequences are four different sizes. Reading
+  // a conversation is nothing; clearing somebody's stop flag undoes a thing
+  // they explicitly asked for; a campaign messages hundreds of people at once
+  // and is the only action here that can cost the number its rating.
+  "crm.view": "Read the WhatsApp inbox, contacts and message log",
+  "crm.reply": "Reply to a customer on WhatsApp",
+  "crm.consent": "Set or clear a contact's stop flag",
+  "crm.campaign": "Create and run bulk campaigns, and use the kill switch",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -65,6 +75,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Business", permissions: ["insights.view", "reports.view", "referrals.view", "referrals.payout", "staff.manage"] },
   { label: "Reference", permissions: ["templates.view"] },
+  { label: "WhatsApp CRM", permissions: ["crm.view", "crm.reply", "crm.consent", "crm.campaign"] },
 ];
 
 // ── Roles ───────────────────────────────────────────────────────────────────
@@ -118,6 +129,9 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "courses.manage", "landing.manage", "promos.manage",
     "insights.view", "reports.view", "referrals.view",
     "templates.view",
+    // Not crm.campaign: bulk sending stays with the owner until enough
+    // campaigns have run to know what the opt-out rate looks like.
+    "crm.view", "crm.reply", "crm.consent",
   ],
 
   // Not delivery.complete: a partner ships and hands over, and the parcel is
@@ -126,7 +140,11 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
   // and not a role test.
   delivery: ["delivery.portal"],
 
-  support: ["orders.view", "users.view", "delivery.view", "templates.view"],
+  support: [
+    "orders.view", "users.view", "delivery.view", "templates.view",
+    // Support answer customers; they do not decide who may be messaged.
+    "crm.view", "crm.reply",
+  ],
 };
 
 // ── Checking ────────────────────────────────────────────────────────────────

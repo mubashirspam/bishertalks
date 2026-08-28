@@ -16,11 +16,9 @@ import {
   markNotificationResults,
 } from "@/lib/db/notifications";
 import { WIRE_EVENT, type OrderEvent } from "@/lib/notify-events";
-import {
-  sendTemplate,
-  toWhatsAppNumber,
-  whatsappConfigured,
-} from "@/lib/whatsapp";
+import { upsertContact } from "@/lib/crm/contacts";
+import { sendTemplateMessage } from "@/lib/crm/send";
+import { toWhatsAppNumber, whatsappConfigured } from "@/lib/whatsapp";
 import {
   TEMPLATES,
   TEMPLATE_LANGUAGE,
@@ -252,19 +250,72 @@ async function deliver(
   const to = toWhatsAppNumber(payload.customer.phone);
   if (!to) return { ok: false, error: "Unusable phone number" };
 
-  const template = TEMPLATES[event];
-  const result = await sendTemplate({
-    to,
-    template: template.name,
-    language: TEMPLATE_LANGUAGE,
-    params: template.params(templateContext(payload)),
+  // Through the gate, like everything else. An order notification is the one
+  // kind of message with a real claim to be exempt — the customer paid for the
+  // thing it is about — and it is still not exempt from the stop flag. Someone
+  // who asked us to stop asked us to stop; the shop has their email and their
+  // phone for anything that genuinely cannot wait.
+  const contact = await upsertContact(to, {
+    name: payload.customer.name,
+    orderNumber: payload.order?.number ?? null,
   });
 
-  return {
-    ok: result.ok,
-    error: result.error,
-    messageId: result.messageId,
-  };
+  if (!contact) return { ok: false, error: "Unusable phone number" };
+
+  const template = TEMPLATES[event];
+  const context = templateContext(payload);
+
+  const outcome = await sendTemplateMessage({
+    contact,
+    kind: "transactional",
+    template: {
+      name: template.name,
+      category: template.category,
+      language: TEMPLATE_LANGUAGE,
+    },
+    params: template.params(context),
+    buttonParams: buttonParamsFor(template, context),
+    preview: fillPreview(template, context),
+  });
+
+  if (outcome.ok) return { ok: true, messageId: outcome.wamid ?? undefined };
+
+  // A refusal is not a failure to retry — it is a decision. Marked skipped so
+  // the log says "we chose not to" rather than "it broke".
+  if (outcome.refused) {
+    console.warn("[Notify] refused by gate:", template.name, outcome.reason);
+    return { ok: false, error: outcome.reason, skipped: outcome.code === "opted_out" };
+  }
+
+  return { ok: false, error: outcome.error };
+}
+
+/**
+ * The values for any URL button whose link carries a variable.
+ *
+ * Meta counts a button's `{{1}}` separately from the body's, and a template
+ * with a variable button URL and no button component fails outright — so this
+ * has to walk the buttons in the order they were approved in.
+ */
+function buttonParamsFor(
+  template: (typeof TEMPLATES)[OrderEvent],
+  context: ReturnType<typeof templateContext>
+): string[] {
+  return (template.buttons ?? [])
+    .filter((b) => b.type === "URL" && b.param)
+    .map((b) => (b.type === "URL" && b.param ? b.param(context) : ""));
+}
+
+/** The message as the customer will read it, for the conversation thread. */
+function fillPreview(
+  template: (typeof TEMPLATES)[OrderEvent],
+  context: ReturnType<typeof templateContext>
+): string {
+  let text = template.body;
+  template.params(context).forEach((value, i) => {
+    text = text.replaceAll(`{{${i + 1}}}`, value);
+  });
+  return text;
 }
 
 /**

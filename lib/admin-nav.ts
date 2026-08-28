@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
   Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
-  MessageSquare,
+  MessageSquare, Inbox,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -46,6 +46,7 @@ export const NAV: NavItem[] = [
   // Reference, not configuration: nothing on this screen can be edited from
   // it. Sits next to Staff because it is the other thing you open to answer a
   // question rather than to do the day's work.
+  { href: "/admin/crm", label: "WhatsApp CRM", icon: Inbox, permission: "crm.view" },
   { href: "/admin/templates", label: "Message templates", icon: MessageSquare, permission: "templates.view" },
   // Last on purpose: for an agent it's the only item, and for everyone else
   // it's the screen someone else works in, not part of the owner's daily run.

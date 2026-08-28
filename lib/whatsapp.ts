@@ -143,6 +143,53 @@ export interface TemplateSend {
   language: string;
   /** Body parameters, in the order {{1}}, {{2}}, … appear in the template. */
   params: string[];
+  /**
+   * One value per URL button whose link carries a variable, in button order.
+   *
+   * Required whenever the approved template has such a button: Meta counts the
+   * button's `{{1}}` separately from the body's, and a template with a
+   * variable URL and no button component fails the send outright. Templates
+   * with static buttons, or none, leave this empty.
+   */
+  buttonParams?: string[];
+}
+
+/**
+ * The components Meta expects at send time.
+ *
+ * Two kinds, and they are counted separately. The body's parameters fill
+ * `{{1}}…{{n}}` in the text. A URL button whose link ends in `{{1}}` needs its
+ * own component — one per button, carrying that button's index — and the
+ * numbering restarts at 1 inside each button.
+ *
+ * Omitting a button component for a template that has a variable URL does not
+ * degrade gracefully: Meta rejects the whole message. So this is not an
+ * enhancement for templates that use buttons, it is the thing that makes them
+ * sendable at all.
+ */
+function templateComponents(send: TemplateSend): Record<string, unknown>[] {
+  const components: Record<string, unknown>[] = [];
+
+  if (send.params.length) {
+    components.push({
+      type: "body",
+      parameters: send.params.map((text) => ({
+        type: "text",
+        text: sanitiseParam(text),
+      })),
+    });
+  }
+
+  (send.buttonParams ?? []).forEach((value, index) => {
+    components.push({
+      type: "button",
+      sub_type: "url",
+      index: String(index),
+      parameters: [{ type: "text", text: sanitiseParam(value) }],
+    });
+  });
+
+  return components;
 }
 
 /**
@@ -165,20 +212,7 @@ export async function sendTemplate(send: TemplateSend): Promise<SendResult> {
     template: {
       name: send.template,
       language: { code: send.language },
-      // Body only. A parameter inside a URL button needs its own component and
-      // a different shape, and getting that wrong fails the send — so the
-      // links live in the body text, where they are also tappable.
-      components: send.params.length
-        ? [
-            {
-              type: "body",
-              parameters: send.params.map((text) => ({
-                type: "text",
-                text: sanitiseParam(text),
-              })),
-            },
-          ]
-        : [],
+      components: templateComponents(send),
     },
   };
 
@@ -230,6 +264,86 @@ export async function sendTemplate(send: TemplateSend): Promise<SendResult> {
     // status callback either arrives or doesn't.
     const error = e instanceof Error ? e.message : "Request failed";
     console.error("[WhatsApp] send error:", send.template, error);
+    return { ok: false, error, retryable: true };
+  }
+}
+
+/**
+ * Send free text, inside the 24-hour customer service window.
+ *
+ * Only legal when the customer has messaged us in the last 24 hours. Outside
+ * it Meta answers 131047, which is why `assertSendable()` checks the window
+ * itself and refuses first — this function is the wire call, not the rule.
+ *
+ * Deliberately not merged with sendTemplate: the payloads differ, the rules
+ * differ, and one function with a mode flag would make it easy to send free
+ * text where a template was required.
+ */
+export async function sendText(send: {
+  to: string;
+  body: string;
+}): Promise<SendResult> {
+  const config = whatsappConfig();
+  if (!config) {
+    return { ok: false, error: "WhatsApp not configured", retryable: false };
+  }
+
+  const text = send.body.trim();
+  if (!text) {
+    return { ok: false, error: "Message is empty", retryable: false };
+  }
+
+  try {
+    const res = await fetch(
+      `${GRAPH}/${API_VERSION}/${config.phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: send.to,
+          type: "text",
+          // Link previews off: a preview of our own tracking page adds nothing
+          // and turns a two-line reply into a card.
+          text: { preview_url: false, body: text.slice(0, 4096) },
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }
+    );
+
+    const json = (await res.json().catch(() => ({}))) as {
+      messages?: { id: string }[];
+      error?: { message?: string; code?: number; error_data?: { details?: string } };
+    };
+
+    if (!res.ok || json.error) {
+      const code = json.error?.code;
+      const hint = code !== undefined ? ERROR_HINTS[code] : undefined;
+      const error = [
+        json.error?.message ?? `HTTP ${res.status}`,
+        json.error?.error_data?.details,
+        hint ? `(${hint})` : null,
+      ]
+        .filter(Boolean)
+        .join(" — ");
+
+      console.error("[WhatsApp] text send failed:", send.to, error);
+      return {
+        ok: false,
+        error: error.slice(0, 1000),
+        code,
+        retryable: code !== undefined ? RETRYABLE.has(code) : res.status >= 500,
+      };
+    }
+
+    return { ok: true, messageId: json.messages?.[0]?.id };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Request failed";
+    console.error("[WhatsApp] text send error:", error);
     return { ok: false, error, retryable: true };
   }
 }

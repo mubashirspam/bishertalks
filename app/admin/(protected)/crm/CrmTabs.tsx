@@ -1,0 +1,36 @@
+import Link from "@/components/admin/AdminLink";
+
+/**
+ * The CRM's own navigation.
+ *
+ * A section rather than a screen: the inbox, the campaigns and the number's
+ * health are three different jobs that happen to share a data model, and
+ * putting them behind one sidebar item with tabs keeps the main nav from
+ * growing four entries for one feature.
+ */
+const TABS = [
+  { key: "inbox", href: "/admin/crm", label: "Inbox" },
+  { key: "campaigns", href: "/admin/crm/campaigns", label: "Campaigns" },
+  { key: "log", href: "/admin/crm/log", label: "Message log" },
+  { key: "health", href: "/admin/crm/health", label: "Number health" },
+] as const;
+
+export default function CrmTabs({ active }: { active: (typeof TABS)[number]["key"] }) {
+  return (
+    <div className="mb-5 flex flex-wrap gap-1 border-b border-neutral-200">
+      {TABS.map((t) => (
+        <Link
+          key={t.key}
+          href={t.href}
+          className={`-mb-px border-b-2 px-3 py-2 text-sm font-medium transition ${
+            active === t.key
+              ? "border-primary-500 text-primary-700"
+              : "border-transparent text-neutral-500 hover:text-neutral-800"
+          }`}
+        >
+          {t.label}
+        </Link>
+      ))}
+    </div>
+  );
+}
