@@ -87,3 +87,85 @@ export default function Pookalam({ className = "" }: { className?: string }) {
     </svg>
   );
 }
+
+/**
+ * A thoranam — the flower-and-leaf hanging strung up either side of a doorway
+ * at a Kerala festival.
+ *
+ * Used down the left and right edges of the hero, which is where the page has
+ * spare width: the content column is capped at max-w-lg and everything outside
+ * it is empty margin on anything wider than a phone. Framing that emptiness is
+ * free; narrowing the reading column to decorate it would not be.
+ *
+ * Drawn as one repeating unit tiled vertically by `count`, so the strand
+ * stretches to whatever height it is given without the SVG being redrawn. It
+ * mirrors horizontally via a prop rather than a CSS transform so the leaves on
+ * the right-hand strand lean inwards, towards the text, the way a real pair
+ * either side of a door does.
+ */
+export function Thoranam({
+  side = "left",
+  count = 7,
+  className = "",
+}: {
+  side?: "left" | "right";
+  count?: number;
+  className?: string;
+}) {
+  const UNIT = 60;
+  const flip = side === "right" ? -1 : 1;
+
+  return (
+    <svg
+      viewBox={`0 0 40 ${UNIT * count}`}
+      preserveAspectRatio="none"
+      className={className}
+      role="presentation"
+      aria-hidden="true"
+    >
+      {/* The string the whole thing hangs from. */}
+      <line
+        x1="20" y1="0" x2="20" y2={UNIT * count}
+        stroke="#a16207" strokeWidth="1.4" opacity="0.5"
+      />
+
+      {Array.from({ length: count }, (_, i) => {
+        const y = i * UNIT;
+        // Alternate which way the leaf pair tips, so a long strand does not
+        // read as a stack of identical stamps.
+        const tilt = i % 2 === 0 ? 8 : -8;
+        return (
+          <g key={i} transform={`translate(20 ${y})`}>
+            {/* Mango leaves, in pairs. */}
+            <g transform={`rotate(${tilt})`}>
+              <path
+                d={`M0 8 C ${flip * 13} 12, ${flip * 17} 26, 0 34 Z`}
+                fill="#15803d"
+                opacity="0.85"
+              />
+              <path
+                d={`M0 8 C ${flip * -9} 13, ${flip * -12} 25, 0 32 Z`}
+                fill="#166534"
+                opacity="0.7"
+              />
+            </g>
+
+            {/* A marigold, sitting where the leaves meet the next unit. */}
+            <g transform="translate(0 40)">
+              {Array.from({ length: 8 }, (_, p) => (
+                <ellipse
+                  key={p}
+                  cx="7" cy="0" rx="5.5" ry="3.6"
+                  fill={i % 3 === 0 ? "#dc2626" : "#f59e0b"}
+                  opacity="0.9"
+                  transform={`rotate(${p * 45})`}
+                />
+              ))}
+              <circle r="3" fill="#fde68a" />
+            </g>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}

@@ -193,39 +193,33 @@ export const NLP_COURSE = {
 };
 
 /**
- * The Onam band.
+ * The Onam dressing on the free-course card.
  *
- * A greeting first and an offer second, in that order and not the other way
- * round. A festival banner that opens with a discount reads as a shop using
- * Onam; one that opens with ഓണാശംസകൾ reads as a shop wishing you Onam and
- * mentioning that the price is good. The second is the only one worth putting
- * on a page that is otherwise this careful about tone.
+ * There is no separate Onam section any more, and that is the right call: a
+ * festival band of its own competed with the price card for the same decision
+ * and made a page that already asks a lot ask twice. The greeting now opens
+ * the hero, and the offer rides on the card the reader is already stopping on.
  *
- * No date anywhere in the copy on purpose — Thiruvonam moves by a fortnight
- * between years, and lib/onam.ts controls when this appears. Nothing written
- * here can contradict the calendar.
+ * No date appears anywhere here. Thiruvonam moves by a fortnight or more
+ * between years, so lib/onam.ts decides when any of this shows and nothing
+ * written here can contradict the calendar.
  */
 export const ONAM = {
   eyebrow: "ONAM 2026",
-  /** The greeting itself. Large, and the first thing read. */
+  /** Opens the hero during the season. */
   greeting: "ഓണാശംസകൾ",
-  wish:
-    "ഈ ഓണക്കാലം നിങ്ങൾക്കും കുടുംബത്തിനും " +
-    "സന്തോഷവും സമൃദ്ധിയും സമാധാനവും നിറഞ്ഞതാകട്ടെ.",
+  /** The ribbon across the top of the free-course card. */
+  ribbon: "ഓണം സ്‌പെഷ്യൽ ഓഫർ",
   /**
-   * The turn from greeting to offer.
+   * The line that ties the festival to what is actually being given away.
    *
-   * "This Onam, a gift for your mind" — it earns the mention of a book by
-   * connecting it to what the festival is about rather than to a discount.
+   * "An Onam gift for your mind" — it connects the offer to what the festival
+   * is about rather than to a discount, which is the only way a shop can
+   * mention both in one breath without sounding like it is using the festival.
    */
-  bridge: "ഈ ഓണത്തിന് നിങ്ങളുടെ മനസ്സിന് ഒരു സമ്മാനം 🎁",
-  offerLine: "Neuro Code ബുക്ക് + 30 ദിവസത്തെ NLP കോഴ്‌സ്",
-  /** Sits under the price. Free delivery is the line that actually converts. */
-  perks: [
-    "ഇന്ത്യയിലുടനീളം സൗജന്യ ഡെലിവറി",
-    "പണമടച്ച ഉടൻ NLP കോഴ്‌സ് ലഭ്യമാകും",
-  ],
-  cta: "ഓണം ഓഫറിൽ ഓർഡർ ചെയ്യൂ",
+  cardLine: "ഈ ഓണത്തിന് നിങ്ങളുടെ മനസ്സിന് ഒരു സമ്മാനം",
+  /** Sits beside the saving. */
+  savingLabel: "ഓണം ഓഫർ",
 };
 
 export const OFFER = {

@@ -12,7 +12,7 @@ import type { ProductPricing } from "@/lib/db/courses";
 import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
 import { gaViewItem, gaBeginCheckout } from "@/lib/analytics";
 import { buildFaqs } from "./faqs";
-import Pookalam from "./Pookalam";
+import Pookalam, { Thoranam } from "./Pookalam";
 import { Band, Card, Heading, OrderNow, Rule } from "./ui";
 import { CountdownBoxes, CountdownClock, useCountdown } from "./Countdown";
 import {
@@ -137,10 +137,46 @@ export default function NeuroCodeLanding({
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-malayalam-bold overflow-x-hidden pb-36 lg:pb-0">
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
-      <section className="relative px-5 pt-8 pb-12">
+      <section className="relative px-5 pt-8 pb-12 overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[420px] h-[420px] bg-primary-500/20 dark:bg-primary-500/15 rounded-full blur-[110px] pointer-events-none" />
 
+        {/* Onam garlands down both edges, in season only.
+            They live in the margin the layout already wastes — the content
+            column is capped at max-w-lg, so on anything wider than a phone
+            everything outside it is empty. Narrow and faint on a phone, where
+            width is the scarce thing and the reading column must not move. */}
+        {onam.live && (
+          <>
+            <Thoranam
+              side="left"
+              className="pointer-events-none absolute inset-y-0 left-0 w-8 sm:w-12 opacity-45 dark:opacity-30"
+            />
+            <Thoranam
+              side="right"
+              className="pointer-events-none absolute inset-y-0 right-0 w-8 sm:w-12 opacity-45 dark:opacity-30"
+            />
+          </>
+        )}
+
         <div className="relative max-w-lg mx-auto text-center">
+          {/* The greeting, first thing on the page during the season.
+              The pookalam earns its place by sitting next to the words that
+              explain it — on its own at the top of a book page it would read
+              as an unexplained graphic. */}
+          {onam.live && (
+            <div className="mb-5 flex items-center justify-center gap-3">
+              <Pookalam className="w-14 h-14 flex-shrink-0 drop-shadow-[0_4px_12px_rgba(180,83,9,0.25)] motion-safe:animate-[spin_60s_linear_infinite]" />
+              <div className="text-left">
+                <span className="font-anek block text-[10px] font-black tracking-[0.18em] text-amber-700/80 dark:text-amber-400/70">
+                  {ONAM.eyebrow}
+                </span>
+                <span className="block text-[26px] leading-tight font-black bg-gradient-to-b from-amber-600 to-primary-600 dark:from-amber-300 dark:to-primary-400 bg-clip-text text-transparent">
+                  {ONAM.greeting}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* The edition badge, above everything.
               It is the fact that explains every other change on this page: why
               there is a wait, why the price has a deadline, why the button says
@@ -193,9 +229,30 @@ export default function NeuroCodeLanding({
               only real objection — "so I pay now and get nothing for a
               fortnight?". Hence the INSTANT stamp rather than a FREE one:
               free was never in doubt, immediate is. */}
-          <div className="relative mt-7 rounded-2xl p-[2px] bg-gradient-to-br from-primary-400 via-primary-200 dark:via-primary-500/30 to-primary-500">
+          <div
+            className={`relative mt-7 rounded-2xl p-[2px] bg-gradient-to-br ${
+              onam.live
+                ? "from-amber-400 via-primary-300 dark:via-primary-500/40 to-primary-500"
+                : "from-primary-400 via-primary-200 dark:via-primary-500/30 to-primary-500"
+            }`}
+          >
             <div className="relative rounded-[14px] bg-gradient-to-br from-primary-50 via-white to-primary-50 dark:from-primary-500/10 dark:via-neutral-950 dark:to-primary-500/10 p-4 overflow-hidden">
               <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/70 dark:via-white/5 to-transparent skew-x-12 animate-shimmer" />
+
+              {/* The Onam offer rides on this card rather than getting a band
+                  of its own. This is where the reader already stops — it is
+                  the answer to "I pay now and get nothing for a fortnight" —
+                  and a second festive block elsewhere would ask for the same
+                  decision twice. */}
+              {onam.live && (
+                <div className="relative -mx-4 -mt-4 mb-3.5 flex items-center justify-center gap-2 bg-gradient-to-r from-amber-400 via-primary-500 to-amber-400 px-4 py-1.5">
+                  <Pookalam className="w-4 h-4 flex-shrink-0" />
+                  <span className="font-anek text-[11px] font-black tracking-wide text-white">
+                    {ONAM.ribbon}
+                  </span>
+                  <Pookalam className="w-4 h-4 flex-shrink-0" />
+                </div>
+              )}
               <div className="flex items-center gap-3">
                 <span className="relative flex-shrink-0 flex items-center justify-center w-11 h-11 rounded-full bg-primary-500 shadow-md shadow-primary-500/40">
                   <Gift className="w-5 h-5 text-white" />
@@ -232,6 +289,31 @@ export default function NeuroCodeLanding({
               <p className="font-anek text-[12px] leading-[1.8] text-neutral-600 dark:text-neutral-400 mt-2 text-center">
                 {PREORDER.instantBody}
               </p>
+
+              {/* Price and saving, in season. Named as the Onam offer here so
+                  the festival is doing something rather than only decorating —
+                  the same number the offer card further down carries, so the
+                  two cannot disagree. */}
+              {onam.live && (
+                <div className="mt-3 rounded-xl border border-amber-300 dark:border-amber-500/30 bg-amber-50/80 dark:bg-amber-500/10 px-3 py-2.5 text-center">
+                  <p className="font-anek text-[12.5px] font-black text-amber-900 dark:text-amber-200">
+                    {ONAM.cardLine}
+                  </p>
+                  <div className="mt-1.5 flex items-baseline justify-center gap-2">
+                    <span className="text-neutral-400 line-through text-[15px]">
+                      ₹{OFFER.mrpRupees}
+                    </span>
+                    <span className="text-primary-600 dark:text-primary-400 font-black text-[30px] leading-none">
+                      ₹{pricing.payable}
+                    </span>
+                  </div>
+                  {saving > 0 && (
+                    <span className="font-anek mt-1.5 inline-block rounded-full bg-green-600 px-2.5 py-0.5 text-[10.5px] font-black text-white">
+                      {ONAM.savingLabel} · ₹{saving.toLocaleString("en-IN")} ലാഭം
+                    </span>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2 mt-3 text-center">
                 {[
                   { icon: Play, label: "Video Lessons" },
@@ -289,93 +371,6 @@ export default function NeuroCodeLanding({
           </div>
         </div>
       </section>
-
-      {/* ── ONAM ─────────────────────────────────────────────────────────────
-          Directly after the hero, and only during the season — lib/onam.ts
-          decides, on the server, so the band cannot flicker in on hydration.
-
-          Greeting first, offer second. A festival banner that opens with a
-          discount is a shop using Onam; one that opens with ഓണാശംസകൾ is a shop
-          wishing you Onam that also has a price. On a page this careful about
-          tone, only the second is worth running.
-
-          It deliberately does not restate the price card further down. Two
-          different-looking prices on one page is how people stop trusting
-          both — this sends them to the same offer rather than competing
-          with it. */}
-      {onam.live && (
-        <section className="relative px-5 py-12 overflow-hidden border-y border-amber-300/50 dark:border-amber-500/20 bg-gradient-to-b from-amber-50 via-orange-50 to-white dark:from-amber-500/10 dark:via-orange-500/5 dark:to-neutral-950">
-          {/* Two warm pools behind the card, echoing the hero's single one so
-              the section reads as part of this page and not pasted onto it. */}
-          <div className="pointer-events-none absolute -top-16 -left-16 w-64 h-64 rounded-full bg-amber-400/25 dark:bg-amber-500/10 blur-[90px]" />
-          <div className="pointer-events-none absolute -bottom-20 -right-12 w-64 h-64 rounded-full bg-primary-500/20 dark:bg-primary-500/10 blur-[90px]" />
-
-          <div className="relative max-w-lg mx-auto text-center">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-amber-400/70 dark:border-amber-500/40 bg-white/70 dark:bg-white/5 text-amber-800 dark:text-amber-300 text-[10px] font-black font-anek tracking-[0.18em]">
-              {ONAM.eyebrow}
-            </span>
-
-            <div className="mt-5 flex items-center justify-center">
-              <Pookalam className="w-28 h-28 sm:w-32 sm:h-32 drop-shadow-[0_6px_18px_rgba(180,83,9,0.28)] motion-safe:animate-[spin_60s_linear_infinite]" />
-            </div>
-
-            {/* The greeting, and the largest type in the band. */}
-            <h2 className="mt-5 text-[34px] sm:text-[40px] leading-[1.15] font-black tracking-tight bg-gradient-to-b from-amber-600 to-primary-600 dark:from-amber-300 dark:to-primary-400 bg-clip-text text-transparent">
-              {ONAM.greeting}
-            </h2>
-
-            <p className="font-anek mt-3 text-[14.5px] font-bold leading-[1.95] text-neutral-700 dark:text-neutral-300">
-              {ONAM.wish}
-            </p>
-
-            <div className="mt-7 rounded-2xl p-[2px] bg-gradient-to-br from-amber-400 via-primary-300 dark:via-primary-500/40 to-primary-500">
-              <div className="rounded-[14px] bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm p-5">
-                <p className="font-anek text-[15px] font-black text-neutral-900 dark:text-white leading-snug">
-                  {ONAM.bridge}
-                </p>
-
-                <p className="font-anek mt-2 text-[13px] font-bold text-neutral-600 dark:text-neutral-400 leading-relaxed">
-                  {ONAM.offerLine}
-                </p>
-
-                <div className="mt-4 flex items-baseline justify-center gap-2.5">
-                  <span className="text-neutral-400 line-through text-lg">
-                    ₹{OFFER.mrpRupees}
-                  </span>
-                  <span className="text-primary-500 font-black text-[44px] leading-none">
-                    ₹{pricing.payable}
-                  </span>
-                </div>
-
-                {saving > 0 && (
-                  <span className="inline-block mt-2.5 px-3 py-1 rounded-full bg-green-600 text-white text-[11px] font-black">
-                    ₹{saving.toLocaleString("en-IN")} ലാഭം
-                  </span>
-                )}
-
-                <ul className="mt-4 space-y-1.5 text-left">
-                  {ONAM.perks.map((perk) => (
-                    <li
-                      key={perk}
-                      className="font-anek flex items-start gap-2 text-[12.5px] font-bold text-neutral-700 dark:text-neutral-300"
-                    >
-                      <Check className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-600 dark:text-green-400" />
-                      {perk}
-                    </li>
-                  ))}
-                </ul>
-
-                <OrderNow
-                  price={pricing.payable}
-                  onClick={order}
-                  label={ONAM.cta}
-                  className="mt-5"
-                />
-              </div>
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* ── PROBLEMS ─────────────────────────────────────────────────────── */}
       <Band tinted>
@@ -884,7 +879,12 @@ export default function NeuroCodeLanding({
           >
             <span className="pointer-events-none absolute inset-y-0 left-0 w-1/4 bg-gradient-to-r from-transparent via-white/50 to-transparent skew-x-12 animate-shimmer" />
             <span className="relative flex items-baseline gap-2">
-              <span className="text-[16px]">Pre-book at</span>
+              {/* "Order Now", not "Pre-book at". The sticky bar is the last
+                  thing between a reader and the checkout, and "pre-book" asks
+                  them to accept a wait at the exact moment they are deciding.
+                  The edition badge in the hero and the delivery card already
+                  explain the wait — this button's job is to be pressed. */}
+              <span className="text-[16px]">Order Now</span>
               <span className="line-through decoration-white/70 text-white/70 text-[14px] font-semibold">
                 ₹{OFFER.compareAtRupees}
               </span>
