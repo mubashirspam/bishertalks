@@ -363,6 +363,71 @@ ${SIGNATURE}`,
     ],
   },
 
+  /**
+   * The replacement for `payment_received`, whose address ask is wrong.
+   *
+   * A new name rather than an edit to the approved one, so TEMPLATES keeps
+   * describing what Meta actually holds. Nothing is lost by waiting: the
+   * event is in HELD_EVENTS and sends nothing at all today.
+   *
+   * Modelled on funnelWaMessage's `paid_no_address` case in lib/wa-message.ts
+   * — the message the team already hand-sends in exactly this situation, and
+   * therefore the best available evidence of what the ask should say. Three
+   * things it has that the approved template does not:
+   *
+   *   * The product is named. "Your payment was received" with an order
+   *     number reads like a bank alert; "thank you for ordering Neuro Code"
+   *     reads like the shop.
+   *   * The ask is bounded — the address is the ONLY thing still needed —
+   *     which is what stops someone assuming a form full of questions is
+   *     waiting behind the link.
+   *   * The free course and the login number come too. Half these buyers gave
+   *     no email address, so this is their only route to the thing they can
+   *     use immediately, while the book is still being printed.
+   *
+   * Deliberately carries NO delivery estimate. The approved template promises
+   * the book goes out "immediately" once the address arrives, and the hand-
+   * sent one says 5–7 days — both were written before the third edition ran
+   * out. paidThankYouMessage already tells buyers the fourth edition ships
+   * from a named date. Rather than add a third answer, this one makes no
+   * promise; see the note in PENDING before adding one back.
+   */
+  payment_received_2: {
+    name: "payment_received_2",
+    category: "UTILITY",
+    body: `ഹായ് {{1}} 🙏
+Neuro Code ഓർഡർ ചെയ്തതിന് ഒരുപാട് നന്ദി ❤️
+നിങ്ങളുടെ പേയ്‌മെന്റ് ലഭിച്ചു ✅
+
+ഓർഡർ നമ്പർ: {{2}}
+അടച്ച തുക: ₹{{3}}
+
+📮 ബുക്ക് അയക്കാൻ ഇനി നിങ്ങളുടെ ഡെലിവറി വിലാസം മാത്രം മതി. ദയവായി ഇവിടെ നൽകൂ:
+{{4}}
+
+🎁 ഒപ്പം ലഭിക്കുന്ന സൗജന്യ NLP കോഴ്‌സ് ഇപ്പോൾ തന്നെ തുടങ്ങാം:
+{{5}}
+ലോഗിൻ ചെയ്യാൻ നിങ്ങളുടെ മൊബൈൽ നമ്പർ {{6}} മാത്രം മതി — പാസ്‌വേഡ് വേണ്ട.
+
+${SIGNATURE}`,
+    example: [
+      "Asraf",
+      "ORD-K3523P",
+      "699",
+      "https://bishertalks.com/neuro-code/address?id=ORD-K3523P&t=abc123",
+      "https://bishertalks.com/courses/nlp",
+      "9847759381",
+    ],
+    params: (c) => [
+      c.customerName,
+      c.orderNumber,
+      c.amount,
+      c.addressUrl,
+      c.courseUrl,
+      c.loginPhone,
+    ],
+  },
+
   order_delay_1: {
     name: "order_delay_1",
     category: "UTILITY",
