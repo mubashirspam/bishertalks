@@ -22,6 +22,8 @@ const ALL_STATUSES: OrderStatus[] = [
 
 /** Wire event names from lib/notify.ts, in the words an admin would use. */
 const NOTIFY_LABELS: Record<string, string> = {
+  // Retired event, kept so an old log row renders with a name rather than a
+  // raw wire string. Nothing writes this any more.
   "payment.received": "Payment received — address requested",
   "order.confirmed": "Order confirmed",
   "order.shipped": "Shipped",

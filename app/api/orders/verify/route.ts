@@ -136,20 +136,23 @@ export async function POST(request: NextRequest) {
       console.error("[Verify] Failed to grant course access:", e);
     }
 
-    // Pick the message. In this flow the address is collected AFTER payment, so
-    // normally we ask for it; if we already have one (Magic Checkout backfill,
-    // or a returning customer) we confirm the order instead.
     const { data: addr } = await supabaseAdmin
       .from("orders")
       .select("address_line1")
       .eq("order_number", order_number)
       .maybeSingle();
-    const whatsappEvent = addr?.address_line1 ? "confirmed" : "payment_received";
 
-    // WhatsApp notification, after the response — only on the first
-    // confirmation. The customer shouldn't wait on Make to see their receipt.
-    if (isFirstConfirmation) {
-      notifyAfterResponse(order_number, whatsappEvent);
+    // One automatic message on payment: the order confirmation, and only when
+    // there is an address to confirm.
+    //
+    // There used to be a second — `payment_received`, asking for the address —
+    // and it is retired. Nothing is substituted for it: order_confirmed names
+    // the delivery place in its body, so sending it without an address would
+    // announce "delivering to: —" to somebody who has not told us where they
+    // live. An order in that state gets nothing automatic, and the Orders
+    // screen's hand-sent message covers it.
+    if (isFirstConfirmation && addr?.address_line1) {
+      notifyAfterResponse(order_number, "confirmed");
     }
 
     // Send the browser straight to the address form when we still need one.

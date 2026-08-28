@@ -128,32 +128,24 @@ const SIGNATURE = "_Bisher Talks_";
  */
 export const TEMPLATES: Record<OrderEvent, TemplateDef> = {
   /**
-   * Paid, but we still don't know where to send the book.
+   * `payment_received` used to live here and has been retired.
    *
-   * The most valuable message in the system: on the standard checkout the
-   * address form comes after payment, so anyone whose connection dropped at
-   * that moment is a paid customer we cannot ship to. This is how they get
-   * back to the form.
+   * It was the message for a customer who had paid but not yet given a
+   * delivery address. That state does not occur: all 3,620 paid orders have
+   * an address by the time payment is verified, so it never sent once in its
+   * life, and the shop has decided it is not wanted.
+   *
+   * The template is still APPROVED on the WhatsApp Business Account, left
+   * there rather than deleted — Meta locks a deleted template's name for 30
+   * days, and an approved template nobody sends costs nothing. `list` will
+   * keep showing it, correctly, as something Meta holds that this app does
+   * not use.
+   *
+   * An order that somehow reaches payment with no address now gets no
+   * automatic message at all, rather than a confirmation announcing an
+   * address we do not have. The Orders screen still offers the hand-sent
+   * version for that case — funnelWaMessage's `paid_no_address`.
    */
-  payment_received: {
-    name: "payment_received",
-    category: "UTILITY",
-    body: `ഹായ് {{1}} 🙏
-നിങ്ങളുടെ പേയ്‌മെന്റ് ലഭിച്ചു ✅
-
-ഓർഡർ നമ്പർ: {{2}}
-അടച്ച തുക: ₹{{3}}
-
-ഇനി ഒരു കാര്യം മാത്രം — ബുക്ക് എവിടേക്ക് അയക്കണമെന്ന് ഈ ലിങ്കിൽ നൽകൂ:
-{{4}}
-
-വിലാസം ലഭിച്ചാൽ ഉടൻ ബുക്ക് അയക്കുന്നതാണ്.
-
-${SIGNATURE}`,
-    example: ["Asraf", "ORD-K3523P", "699", "https://bishertalks.com/a/abc123"],
-    params: (c) => [c.customerName, c.orderNumber, c.amount, c.addressUrl],
-  },
-
   /** Paid and we have an address — the order is really on. */
   confirmed: {
     name: "order_confirmed",
@@ -360,71 +352,6 @@ ${SIGNATURE}`,
         example: `${PUBLIC_BASE}/neuro-code/track?view=details&id=ORD-K3523P`,
         param: (c) => c.orderNumber,
       },
-    ],
-  },
-
-  /**
-   * The replacement for `payment_received`, whose address ask is wrong.
-   *
-   * A new name rather than an edit to the approved one, so TEMPLATES keeps
-   * describing what Meta actually holds. Nothing is lost by waiting: the
-   * event is in HELD_EVENTS and sends nothing at all today.
-   *
-   * Modelled on funnelWaMessage's `paid_no_address` case in lib/wa-message.ts
-   * — the message the team already hand-sends in exactly this situation, and
-   * therefore the best available evidence of what the ask should say. Three
-   * things it has that the approved template does not:
-   *
-   *   * The product is named. "Your payment was received" with an order
-   *     number reads like a bank alert; "thank you for ordering Neuro Code"
-   *     reads like the shop.
-   *   * The ask is bounded — the address is the ONLY thing still needed —
-   *     which is what stops someone assuming a form full of questions is
-   *     waiting behind the link.
-   *   * The free course and the login number come too. Half these buyers gave
-   *     no email address, so this is their only route to the thing they can
-   *     use immediately, while the book is still being printed.
-   *
-   * Deliberately carries NO delivery estimate. The approved template promises
-   * the book goes out "immediately" once the address arrives, and the hand-
-   * sent one says 5–7 days — both were written before the third edition ran
-   * out. paidThankYouMessage already tells buyers the fourth edition ships
-   * from a named date. Rather than add a third answer, this one makes no
-   * promise; see the note in PENDING before adding one back.
-   */
-  payment_received_2: {
-    name: "payment_received_2",
-    category: "UTILITY",
-    body: `ഹായ് {{1}} 🙏
-Neuro Code ഓർഡർ ചെയ്തതിന് ഒരുപാട് നന്ദി ❤️
-നിങ്ങളുടെ പേയ്‌മെന്റ് ലഭിച്ചു ✅
-
-ഓർഡർ നമ്പർ: {{2}}
-അടച്ച തുക: ₹{{3}}
-
-📮 ബുക്ക് അയക്കാൻ ഇനി നിങ്ങളുടെ ഡെലിവറി വിലാസം മാത്രം മതി. ദയവായി ഇവിടെ നൽകൂ:
-{{4}}
-
-🎁 ഒപ്പം ലഭിക്കുന്ന സൗജന്യ NLP കോഴ്‌സ് ഇപ്പോൾ തന്നെ തുടങ്ങാം:
-{{5}}
-ലോഗിൻ ചെയ്യാൻ നിങ്ങളുടെ മൊബൈൽ നമ്പർ {{6}} മാത്രം മതി — പാസ്‌വേഡ് വേണ്ട.
-
-${SIGNATURE}`,
-    example: [
-      "Asraf",
-      "ORD-K3523P",
-      "699",
-      "https://bishertalks.com/neuro-code/address?id=ORD-K3523P&t=abc123",
-      "https://bishertalks.com/courses/nlp",
-      "9847759381",
-    ],
-    params: (c) => [
-      c.customerName,
-      c.orderNumber,
-      c.amount,
-      c.addressUrl,
-      c.courseUrl,
-      c.loginPhone,
     ],
   },
 

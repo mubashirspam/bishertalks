@@ -7,14 +7,12 @@
  */
 
 export type OrderEvent =
-  | "payment_received"
   | "confirmed"
   | "shipped"
   | "delivered"
   | "course_access";
 
 export const ORDER_EVENTS: OrderEvent[] = [
-  "payment_received",
   "confirmed",
   "shipped",
   "delivered",
@@ -22,26 +20,18 @@ export const ORDER_EVENTS: OrderEvent[] = [
 ];
 
 /**
- * Events that are written, approved, and deliberately NOT sent automatically.
+ * Events that are written and deliberately NOT sent automatically.
  *
- * `payment_received` is held because its wording is wrong. The template is
- * approved by Meta — it is not blocked, it is withheld — and it will start
- * sending the moment its name is removed from this list, so nothing else has
- * to be re-wired when the copy is fixed.
+ * Empty today. The mechanism stays because withholding a message is a
+ * different decision from deleting it, and doing it by commenting out a call
+ * site is how a message comes back by accident six months later. Adding a name
+ * here stops it at all three routes to the wire and logs the fact; removing
+ * the name is the only step needed to start it again.
  *
- * This was previously true by accident rather than by decision. The event only
- * fires for an order that has no address when payment is verified, and every
- * one of the 3,620 paid orders in the database has an address by then, so it
- * had never sent once. An accident is not a guarantee: a slow Magic Checkout
- * backfill or a change to the standard checkout would have started sending the
- * wrong message to real customers with nothing in the code to stop it.
- *
- * A held event still claims its idempotency key and still writes a log row, as
- * 'skipped' with the reason. It has to stay visible — an event that silently
- * vanished would be indistinguishable from one that was never triggered, which
- * is precisely the confusion that hid this for so long.
+ * `course_access` is the obvious candidate — Meta has rejected it twice, and
+ * every attempt costs an API call and a failed row.
  */
-export const HELD_EVENTS: OrderEvent[] = ["payment_received"];
+export const HELD_EVENTS: OrderEvent[] = [];
 
 export function isHeld(event: OrderEvent): boolean {
   return HELD_EVENTS.includes(event);
@@ -58,7 +48,6 @@ export function isOrderEvent(v: unknown): v is OrderEvent {
  * renaming them would split one message's history in two.
  */
 export const WIRE_EVENT: Record<OrderEvent, string> = {
-  payment_received: "payment.received",
   confirmed: "order.confirmed",
   shipped: "order.shipped",
   delivered: "order.delivered",

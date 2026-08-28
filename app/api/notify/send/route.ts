@@ -7,7 +7,6 @@ const INTERNAL_SECRET =
   process.env.INTERNAL_API_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
 const EVENTS: OrderEvent[] = [
-  "payment_received",
   "confirmed",
   "shipped",
   "delivered",

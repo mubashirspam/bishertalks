@@ -390,18 +390,11 @@ export async function sendOrderNotification(
       return { ok: false, status: 409, error: "Order has no phone number yet" };
     }
 
-    // Reminders are the one event meant to repeat, so the counter is part of
-    // the key. Read before the increment below.
-    const sequence =
-      event === "payment_received"
-        ? (order.address_reminders_sent ?? 0) + 1
-        : undefined;
-
     const payload = buildOrderEvent(
       order,
       event,
       phone,
-      eventId(orderNumber, event, { resend: opts.resend, sequence })
+      eventId(orderNumber, event, { resend: opts.resend })
     );
 
     if (!(await claimNotification(payload))) {
@@ -441,13 +434,6 @@ export async function sendOrderNotification(
         provider: "meta",
         providerMessageId: result.messageId,
       });
-    }
-
-    if (event === "payment_received") {
-      await supabaseAdmin
-        .from("orders")
-        .update({ address_reminders_sent: sequence })
-        .eq("order_number", orderNumber);
     }
 
     return { ok: true, status: 200 };

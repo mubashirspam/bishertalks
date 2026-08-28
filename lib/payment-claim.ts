@@ -101,9 +101,12 @@ export async function claimPaidTransition(
     .select("address_line1")
     .eq("order_number", order.order_number)
     .maybeSingle();
-  const whatsappEvent = addr?.address_line1 ? "confirmed" : "payment_received";
 
-  notifyAfterResponse(order.order_number, whatsappEvent);
+  // Confirmation only, and only with an address — same rule as the verify
+  // route, for the same reason. See the note there.
+  if (addr?.address_line1) {
+    notifyAfterResponse(order.order_number, "confirmed");
+  }
 
   return order.order_number;
 }
