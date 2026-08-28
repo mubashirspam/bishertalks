@@ -23,7 +23,7 @@ import {
   PROBLEMS, PROBLEMS_HEADING, PROBLEMS_LEAD, PROBLEMS_TITLE,
   PROBLEMS_CLOSER, CHAIN_HEADING, CODE_CHAIN, CHAIN_NOTE, PATTERN_TRIAD, STEPS,
   VIDEO_HEADING, VIDEO_NOTE, INSIDE, INSIDE_HEADING,
-  OFFER, ONAM, NLP_COURSE, AUTHOR, SECTION_TITLES, FINAL_CTA, TESTIMONIAL_HEADING, AUDIO_HEADING,
+  OFFER, ONAM, STICKY, NLP_COURSE, AUTHOR, SECTION_TITLES, FINAL_CTA, TESTIMONIAL_HEADING, AUDIO_HEADING,
 } from "./content";
 import type { LandingSettings, Testimonial } from "@/lib/types/landing";
 
@@ -34,6 +34,23 @@ const ICONS: Record<string, typeof Target> = {
 };
 
 const STEP_ICONS = [Search, Lightbulb, PencilLine];
+
+/**
+ * The word the sticky strip exists to deliver.
+ *
+ * Yellow on the orange gradient rather than white-on-white: the strip already
+ * carries a shimmer and a struck-through price, and ഫ്രീ has to win against
+ * both. Its own element so both branches of the strip render it identically —
+ * the live one had it underlined and the fallback one plain, which is the sort
+ * of drift nobody notices and everybody feels.
+ */
+function FreeChip() {
+  return (
+    <span className="inline-block rounded-md bg-yellow-300 px-1.5 py-[1px] text-[13px] font-black text-primary-900 shadow-sm align-middle">
+      {STICKY.free}
+    </span>
+  );
+}
 
 /** The flag as a dot — no emoji font to depend on. Ring colour comes from the caller. */
 /**
@@ -837,7 +854,7 @@ export default function NeuroCodeLanding({
             course when the deadline has passed. */}
         <a
           href="#offer"
-          className="relative flex items-center gap-2 px-3.5 py-2 bg-gradient-to-r from-primary-600 to-primary-500 text-white text-[11px] font-bold overflow-hidden"
+          className="relative flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-r from-primary-600 to-primary-500 text-white text-[13px] font-bold overflow-hidden"
         >
           <span className="pointer-events-none absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-white/30 to-transparent skew-x-12 animate-shimmer" />
           {offerLive ? (
@@ -849,9 +866,8 @@ export default function NeuroCodeLanding({
                   screen, the digits never — a half-cut countdown is worse than
                   no countdown. Hence `truncate` on one and `flex-shrink-0` on
                   the other, rather than one line that shortens from the end. */}
-              <span className="relative truncate">
-                ₹{OFFER.mrpRupees}-ന്റെ NLP Course{" "}
-                <span className="underline underline-offset-2">സൗജന്യം</span>
+              <span className="font-anek relative truncate">
+                {STICKY.leadShort} <FreeChip />
               </span>
               <span className="relative ml-auto flex items-baseline gap-1 flex-shrink-0 rounded-full bg-black/20 px-2 py-0.5">
                 <span className="text-[9px] font-bold opacity-90">{PREORDER.countdownStrip}</span>
@@ -860,10 +876,21 @@ export default function NeuroCodeLanding({
             </>
           ) : (
             <>
-              <Gift className="relative w-4 h-4 flex-shrink-0" />
-              <span className="relative">
-                ₹{OFFER.mrpRupees}-ന്റെ NLP Video Course{" "}
-                <span className="underline underline-offset-2">സൗജന്യം</span>
+              <Gift className="relative w-[18px] h-[18px] flex-shrink-0" />
+              {/* No clock beside it, so the full sentence fits: what you get,
+                  what it is worth, and the word that matters last. */}
+              <span className="font-anek relative flex flex-wrap items-center gap-x-1.5 gap-y-0.5 leading-tight">
+                {/* Two nowrap groups rather than one wrapping line. On a 320px
+                    screen this breaks between the sentence and the price, which
+                    reads as two deliberate lines; letting it wrap freely would
+                    strand "ഫ്രീ" on its own or split the Malayalam mid-phrase. */}
+                <span className="whitespace-nowrap">{STICKY.leadLong}</span>
+                <span className="flex items-center gap-1.5 whitespace-nowrap">
+                  <span className="text-white/75 line-through decoration-white/60 text-[12px] font-semibold">
+                    ₹{OFFER.mrpRupees}
+                  </span>
+                  <FreeChip />
+                </span>
               </span>
             </>
           )}

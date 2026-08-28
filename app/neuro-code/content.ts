@@ -222,6 +222,34 @@ export const ONAM = {
   savingLabel: "ഓണം ഓഫർ",
 };
 
+/**
+ * The strip above the sticky order button.
+ *
+ * The narrowest piece of copy on the site and, on a phone, the most seen —
+ * it rides above the button down the whole page. It used to state a fact,
+ * "₹3000-ന്റെ NLP Video Course സൗജന്യം", which is true and gives nobody a
+ * reason to act today.
+ *
+ * `ഇപ്പോൾ വാങ്ങുമ്പോൾ` — "when you buy now" — is what turns it into an offer.
+ * The price it is worth stays, because the number is what makes ഫ്രീ mean
+ * something, and ഫ്രീ is pulled out as its own chip so the eye lands on it
+ * before it reads the sentence around it.
+ *
+ * Two lengths, because the strip carries a countdown while the launch price
+ * is running and the digits must never be clipped — a half-cut clock is worse
+ * than no clock. The long form is for when there is no clock beside it.
+ */
+export const STICKY = {
+  /** With a countdown beside it. Short enough to survive a 320px screen. */
+  leadShort: "ഇപ്പോൾ വാങ്ങുമ്പോൾ NLP കോഴ്‌സ്",
+  /** No countdown — room for the full sentence. */
+  leadLong: "ഇപ്പോൾ വാങ്ങുമ്പോൾ NLP വീഡിയോ കോഴ്‌സ്",
+  /** The word the whole strip exists to deliver. */
+  free: "ഫ്രീ",
+  /** Prefixes the struck price: "₹3000 വിലയുള്ള". */
+  worth: "വിലയുള്ള",
+};
+
 export const OFFER = {
   badge: "PRE-BOOKING OPEN",
   titleTop: "NEURO CODE",
