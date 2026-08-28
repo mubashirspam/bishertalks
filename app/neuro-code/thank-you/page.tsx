@@ -8,7 +8,7 @@ import CopyLinkButton from "./CopyLinkButton";
 import ReferralShare from "@/components/ReferralShare";
 import PurchaseTracking from "@/components/PurchaseTracking";
 import { getReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
-import { PREORDER_DELIVERY_DAYS } from "@/lib/preorder";
+import { PREORDER_DELIVERY_RANGE } from "@/lib/preorder";
 
 async function getOrder(id: string): Promise<Order | null> {
   const { data } = await supabaseAdmin
@@ -121,14 +121,14 @@ export default async function ThankYouPage({
           <div className="flex justify-between text-sm pt-2 border-t border-white/8">
             <span className="text-neutral-400">Est. Delivery</span>
             <span className="text-green-400 font-medium">
-              within {PREORDER_DELIVERY_DAYS} days
+              in {PREORDER_DELIVERY_RANGE} days
             </span>
           </div>
           {/* Said here as well as at checkout. This is the screen people
               screenshot and come back to, and "why has it not arrived" on day
               six is a support message this line prevents. */}
           <p className="text-[11px] text-neutral-500 pt-1">
-            4th edition pre-order — dispatched as soon as printing finishes.
+            4th edition — dispatched as soon as your order is confirmed.
             Your NLP course is already unlocked below.
           </p>
         </div>

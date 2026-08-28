@@ -12,7 +12,7 @@ import {
 import MagicCheckoutForm from "./MagicCheckoutForm";
 import StandardCheckoutForm from "./StandardCheckoutForm";
 import {
-  PREORDER_DELIVERY_DAYS,
+  PREORDER_DELIVERY_RANGE,
   launchOfferIsLive,
   resolveOfferDeadline,
   launchOfferDayLabel,
@@ -48,7 +48,7 @@ export default async function CheckoutPage() {
     live: launchOfferIsLive(Date.now(), deadline),
     day: launchOfferDayLabel(deadline),
     arrivesBy: preorderArrivesBy(),
-    deliveryDays: PREORDER_DELIVERY_DAYS,
+    deliveryDays: PREORDER_DELIVERY_RANGE,
   };
 
   // Magic Checkout collects the address itself, so the two forms are different

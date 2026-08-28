@@ -12,6 +12,7 @@ import type { ProductPricing } from "@/lib/db/courses";
 import { trackViewContent, trackInitiateCheckout } from "@/lib/pixel";
 import { gaViewItem, gaBeginCheckout } from "@/lib/analytics";
 import { buildFaqs } from "./faqs";
+import { PREORDER_DELIVERY_RANGE } from "@/lib/preorder";
 import Pookalam, { Thoranam } from "./Pookalam";
 import { Band, Card, Heading, OrderNow, Rule } from "./ui";
 import { CountdownBoxes, CountdownClock, useCountdown } from "./Countdown";
@@ -90,7 +91,8 @@ export type Campaign = {
   date: string;
   /** "1 Sept" — when a pre-order placed now should arrive. */
   arrivesBy: string;
-  deliveryDays: number;
+  /** The range as copy, e.g. "5–7". Never a bare number — see lib/preorder. */
+  deliveryDays: string;
 };
 
 export default function NeuroCodeLanding({
@@ -153,27 +155,33 @@ export default function NeuroCodeLanding({
 
   return (
     <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white font-malayalam-bold overflow-x-hidden pb-36 lg:pb-0">
+      {/* ── ONAM GARLANDS ────────────────────────────────────────────────
+          Fixed to the viewport, so they stay either side of the reader for the
+          whole page rather than scrolling away with the hero.
+
+          They live in the margin the layout already wastes — the content
+          column is capped at max-w-lg, so on anything wider than a phone
+          everything outside it is empty. Narrow and faint at phone width,
+          where the reading column must not move.
+
+          z-0 and pointer-events-none: they must pass clicks through and must
+          never come between a thumb and the sticky order bar at z-40. */}
+      {onam.live && (
+        <>
+          <Thoranam
+            side="left"
+            className="pointer-events-none fixed inset-y-0 left-0 z-0 w-7 sm:w-12 opacity-40 dark:opacity-25"
+          />
+          <Thoranam
+            side="right"
+            className="pointer-events-none fixed inset-y-0 right-0 z-0 w-7 sm:w-12 opacity-40 dark:opacity-25"
+          />
+        </>
+      )}
+
       {/* ── HERO ─────────────────────────────────────────────────────────── */}
       <section className="relative px-5 pt-8 pb-12 overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[420px] h-[420px] bg-primary-500/20 dark:bg-primary-500/15 rounded-full blur-[110px] pointer-events-none" />
-
-        {/* Onam garlands down both edges, in season only.
-            They live in the margin the layout already wastes — the content
-            column is capped at max-w-lg, so on anything wider than a phone
-            everything outside it is empty. Narrow and faint on a phone, where
-            width is the scarce thing and the reading column must not move. */}
-        {onam.live && (
-          <>
-            <Thoranam
-              side="left"
-              className="pointer-events-none absolute inset-y-0 left-0 w-8 sm:w-12 opacity-45 dark:opacity-30"
-            />
-            <Thoranam
-              side="right"
-              className="pointer-events-none absolute inset-y-0 right-0 w-8 sm:w-12 opacity-45 dark:opacity-30"
-            />
-          </>
-        )}
 
         <div className="relative max-w-lg mx-auto text-center">
           {/* The greeting, first thing on the page during the season.
@@ -197,7 +205,7 @@ export default function NeuroCodeLanding({
           {/* The edition badge, above everything.
               It is the fact that explains every other change on this page: why
               there is a wait, why the price has a deadline, why the button says
-              pre-book. A reader who meets "12 days" further down without having
+              pre-book. A reader who meets the delivery wait further down without having
               met this first reads it as slow delivery rather than as a book
               still on the press. */}
           <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-primary-300 dark:border-primary-500/40 bg-primary-500/10 text-primary-700 dark:text-primary-300 text-[11px] font-black font-anek">
@@ -381,10 +389,51 @@ export default function NeuroCodeLanding({
             />
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 mt-4 text-[11px] text-neutral-500 dark:text-neutral-400">
-            <span className="flex items-center gap-1"><Zap className="w-3.5 h-3.5 text-green-600" /> NLP കോഴ്സ് ഉടൻ</span>
-            <span className="flex items-center gap-1"><Truck className="w-3.5 h-3.5 text-green-600" /> Free delivery</span>
-            <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {campaign.deliveryDays} ദിവസത്തിനുള്ളിൽ</span>
+          {/* The three promises, as cards rather than a row of grey 11px text.
+              They were the smallest thing on the screen and are among the most
+              load-bearing — instant course, nothing to pay for delivery, and
+              how long the book takes. Each gets its own tile, its own icon in a
+              tinted disc, and a two-line split between the claim and its
+              qualifier, so the eye can take all three in without reading a
+              sentence. */}
+          <div className="grid grid-cols-3 gap-2 mt-5">
+            {[
+              {
+                icon: Zap,
+                tint: "bg-green-500/15 text-green-600 dark:text-green-400",
+                title: "NLP കോഴ്‌സ്",
+                sub: "ഉടൻ ലഭിക്കും",
+              },
+              {
+                icon: Truck,
+                tint: "bg-primary-500/15 text-primary-600 dark:text-primary-400",
+                title: "FREE",
+                sub: "ഡെലിവറി",
+              },
+              {
+                icon: Clock,
+                tint: "bg-sky-500/15 text-sky-600 dark:text-sky-400",
+                title: `${PREORDER_DELIVERY_RANGE} ദിവസം`,
+                sub: "ഡെലിവറിയിൽ",
+              },
+            ].map((item) => (
+              <div
+                key={item.title}
+                className="rounded-xl border border-neutral-200 dark:border-white/10 bg-white/80 dark:bg-white/[0.04] px-2 py-3 text-center shadow-sm"
+              >
+                <span
+                  className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full ${item.tint}`}
+                >
+                  <item.icon className="h-4 w-4" />
+                </span>
+                <p className="font-anek mt-2 text-[12.5px] font-black leading-tight text-neutral-900 dark:text-white">
+                  {item.title}
+                </p>
+                <p className="font-anek text-[10.5px] font-bold leading-tight text-neutral-500 dark:text-neutral-400 mt-0.5">
+                  {item.sub}
+                </p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -730,7 +779,7 @@ export default function NeuroCodeLanding({
 
           <Card className="p-4">
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-neutral-200 dark:bg-white/10 text-neutral-700 dark:text-neutral-300 text-[10px] font-black font-anek">
-              <Clock className="w-3 h-3" /> {campaign.deliveryDays} DAYS
+              <Clock className="w-3 h-3" /> {PREORDER_DELIVERY_RANGE} DAYS
             </span>
             <p className="font-black text-[15px] mt-2">{PREORDER.deliveryTitle}</p>
             <p className="text-neutral-600 dark:text-neutral-400 text-[12.5px] leading-[1.8] mt-1">

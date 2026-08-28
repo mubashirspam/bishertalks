@@ -3,7 +3,7 @@ import { getCachedProductPricing, getScheduledPriceChange } from "@/lib/db/cours
 import NeuroCodeLanding from "./NeuroCodeLanding";
 import { getLandingContent } from "@/lib/db/landing";
 import {
-  PREORDER_DELIVERY_DAYS,
+  PREORDER_DELIVERY_RANGE,
   launchOfferIsLive,
   resolveOfferDeadline,
   launchOfferDayLabel,
@@ -36,9 +36,9 @@ export async function generateMetadata(): Promise<Metadata> {
 
   const title = "Neuro Code — The Book by Bisher KC | Free NLP Course Included";
   const description =
-    `Pre-book the 4th edition of Neuro Code by Bisher KC for ₹${pricing.payable} — the psychology & NLP book on rewriting your internal programming. ` +
+    `Order the 4th edition of Neuro Code by Bisher KC for ₹${pricing.payable} — the psychology & NLP book on rewriting your internal programming. ` +
     `Read by 3,500+ readers. Free 14-module NLP Mastery course unlocked the moment you order; ` +
-    `book delivered free across India within ${PREORDER_DELIVERY_DAYS} days.`;
+    `book delivered free across India in ${PREORDER_DELIVERY_RANGE} days.`;
 
   return {
     title,
@@ -172,7 +172,7 @@ export default async function NeuroCodePage() {
           dayMl: launchOfferDayLabelMl(deadline),
           date: launchOfferDateLabel(deadline),
           arrivesBy: preorderArrivesBy(),
-          deliveryDays: PREORDER_DELIVERY_DAYS,
+          deliveryDays: PREORDER_DELIVERY_RANGE,
         }}
       />
     </>

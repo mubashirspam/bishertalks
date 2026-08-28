@@ -9,10 +9,10 @@ import { istDayEndUTC } from "@/lib/format-date";
  *
  * That changes three promises the site makes, and they are gathered here rather
  * than typed into each screen, because the expensive failure is them
- * disagreeing: a checkout that says 12 days and a WhatsApp that says 5–7 is a
- * support call per order.
+ * disagreeing: a checkout that says one number and a WhatsApp that says
+ * another is a support call per order.
  *
- *   how long delivery takes   longer, because it is printing
+ *   how long delivery takes   5–7 days, now that printing is done
  *   what arrives immediately  the NLP course, which does not wait for a van
  *   how long this price lasts until the end of Saturday
  *
@@ -34,7 +34,8 @@ export type PreorderFacts = {
   day: string;
   /** "1 Sept" — when an order placed now should arrive. */
   arrivesBy: string;
-  deliveryDays: number;
+  /** The range as copy, e.g. "5–7" — never a bare number. */
+  deliveryDays: string;
 };
 
 /** Which edition is being taken orders for. */
@@ -43,11 +44,25 @@ export const EDITION_NUMBER = 4;
 /**
  * The delivery promise, in days, and deliberately not "business days".
  *
- * A pre-order waits on a print run rather than on a courier, and a reader
- * counting business days for a book that is being printed will arrive at a
- * different date than we will. Calendar days are the honest unit here.
+ * A reader counting business days will arrive at a different date than we
+ * will. Calendar days are the honest unit here.
+ *
+ * It was 12 while the fourth edition was still on the press. Printing is done
+ * — EDITION_DISPATCH_FROM has passed — so the wait is a courier's again, and
+ * 5–7 is what the shop already tells people everywhere else: the WhatsApp
+ * templates say "5–7 ദിവസം", and so does the message the team hand-sends from
+ * the Orders screen. The page was the only thing still saying 12.
+ *
+ * Two numbers because a range needs both, and one of them has to be the one
+ * every date calculation uses. That is the outer bound: `preorderArrivesBy`
+ * promises a day the book will have arrived BY, and promising the optimistic
+ * end of a range is how a delivery promise gets broken on the sixth day.
  */
-export const PREORDER_DELIVERY_DAYS = 12;
+export const PREORDER_DELIVERY_DAYS_MIN = 5;
+export const PREORDER_DELIVERY_DAYS = 7;
+
+/** "5–7", for the copy. En dash, not a hyphen — it is a range, not a minus. */
+export const PREORDER_DELIVERY_RANGE = `${PREORDER_DELIVERY_DAYS_MIN}–${PREORDER_DELIVERY_DAYS}`;
 
 /**
  * The last IST day the launch price stands, as YYYY-MM-DD.

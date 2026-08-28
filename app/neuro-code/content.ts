@@ -1,3 +1,5 @@
+import { PREORDER_DELIVERY_RANGE } from "@/lib/preorder";
+
 /**
  * Everything written on the Neuro Code landing page.
  *
@@ -13,7 +15,13 @@
 export const EDITION = "4th Edition";
 
 /**
- * The pre-booking campaign.
+ * The launch campaign.
+ *
+ * Pre-booking language is gone from every line below. It described a real
+ * state — the fourth edition was on the press and orders were reservations
+ * against a print run — and that state has ended: printing is finished and
+ * delivery is a courier's 5–7 days again. A page still saying "pre-book" now
+ * asks a reader to accept a wait that no longer exists.
  *
  * This replaced the Independence Day dressing, which came out with August 15.
  * The situation it has to explain is genuinely different from a seasonal offer:
@@ -32,8 +40,8 @@ export const EDITION = "4th Edition";
  */
 export const PREORDER = {
   /** The badge over the headline. What is open, not what has closed. */
-  badge: "പ്രീ-ബുക്കിംഗ് ആരംഭിച്ചു",
-  title: "നാലാം പതിപ്പ് ഇപ്പോൾ പ്രീ-ബുക്ക് ചെയ്യാം",
+  badge: "ഇപ്പോൾ ലഭ്യമാണ്",
+  title: "നാലാം പതിപ്പ് ഇപ്പോൾ ഓർഡർ ചെയ്യാം",
 
   /** Social proof, said as a readership rather than as a print run. */
   readers: "3,500+ വായനക്കാർ വായിച്ചുകഴിഞ്ഞു",
@@ -44,7 +52,7 @@ export const PREORDER = {
     "{day}യ്ക് ശേഷം നാലാം പതിപ്പിന്റെ വില വർധിക്കും.",
 
   /** Over the countdown. The same deadline, said as a quantity of time left. */
-  countdownLead: "പ്രീ-ബുക്കിംഗ് വില അവസാനിക്കാൻ",
+  countdownLead: "ഈ വില അവസാനിക്കാൻ",
   /** The sticky bar's version — shorter, because it shares a line with the clock. */
   countdownStrip: "ഓഫർ അവസാനിക്കാൻ",
 
@@ -54,10 +62,17 @@ export const PREORDER = {
     "പുസ്തകം എത്താൻ കാത്തിരിക്കേണ്ട — ഓർഡർ ചെയ്ത ഉടൻ തന്നെ " +
     "NLP Mastery Course ആരംഭിക്കാം.",
 
-  /** The honest bit. */
-  deliveryTitle: "12 ദിവസത്തിനുള്ളിൽ ഡെലിവറി",
+  /**
+   * The honest bit.
+   *
+   * Interpolated rather than typed, so the day count lives in exactly one
+   * place. A number written into a Malayalam string is the one nobody
+   * remembers to change — which is how this page went on promising 12 days
+   * after the WhatsApp messages had moved to 5–7.
+   */
+  deliveryTitle: `${PREORDER_DELIVERY_RANGE} ദിവസത്തിനുള്ളിൽ ഡെലിവറി`,
   deliveryBody:
-    "നാലാം പതിപ്പിന്റെ അച്ചടി പൂർത്തിയായ ഉടൻ അയക്കും. " +
+    "ഓർഡർ ഉറപ്പായ ഉടൻ ബുക്ക് അയക്കും. " +
     "ഇന്ത്യയിൽ എവിടെയും സൗജന്യ ഡെലിവറി.",
 
   /** One line under the course name in the hero card. */
@@ -81,7 +96,7 @@ export const HERO = {
     "പാറ്റേണുകളാണ്. അത്തരം പാറ്റേണുകളുടെ കോഡുകൾ തിരിച്ചറിയാനും, " +
     "മാറ്റിയെഴുതാനും, ജീവിതത്തെ പുതിയ രീതിയിൽ കാണാനും സഹായിക്കുന്ന ഒരു " +
     "മലയാള പുസ്തകം — NEURO CODE.",
-  cta: "ഇപ്പോൾ നാലാം പതിപ്പ് പ്രീ-ബുക്ക് ചെയ്യാം",
+  cta: "ഇപ്പോൾ നാലാം പതിപ്പ് ഓർഡർ ചെയ്യാം",
   rating: "4.9",
   readers: "3,500+ വായനക്കാർ",
 };
@@ -244,14 +259,21 @@ export const STICKY = {
   leadShort: "ഇപ്പോൾ വാങ്ങുമ്പോൾ NLP കോഴ്‌സ്",
   /** No countdown — room for the full sentence. */
   leadLong: "ഇപ്പോൾ വാങ്ങുമ്പോൾ NLP വീഡിയോ കോഴ്‌സ്",
-  /** The word the whole strip exists to deliver. */
-  free: "ഫ്രീ",
+  /**
+   * The word the whole strip exists to deliver, in English on purpose.
+   *
+   * The page is Malayalam and English survives only where it is the word
+   * people actually use — and FREE is one of those, the same way NLP and COD
+   * are. It also reads at a glance in a way ഫ്രീ does not: four wide capitals
+   * against Malayalam's tall conjuncts is the shape the eye finds first.
+   */
+  free: "FREE",
   /** Prefixes the struck price: "₹3000 വിലയുള്ള". */
   worth: "വിലയുള്ള",
 };
 
 export const OFFER = {
-  badge: "PRE-BOOKING OPEN",
+  badge: "ORDERS OPEN",
   titleTop: "NEURO CODE",
   titleAccent: "— 30 DAYS NLP COURSE",
   bookLine: "NEURO CODE — 4th EDITION",
@@ -322,7 +344,7 @@ export const SECTION_TITLES = {
 export const FINAL_CTA = {
   line1: "നിങ്ങളുടെ പാറ്റേണുകൾ മാറ്റാൻ",
   accent: "ഇന്ന് തുടങ്ങാം",
-  sub: "നാലാം പതിപ്പ് പ്രീ-ബുക്കിംഗ് · സൗജന്യ ഡെലിവറി · NLP കോഴ്സ് ഉടൻ",
+  sub: "നാലാം പതിപ്പ് · സൗജന്യ ഡെലിവറി · NLP കോഴ്‌സ് ഉടൻ",
 };
 
 /** Every call to action on the page says the same thing. */

@@ -435,7 +435,7 @@ export function DeliveryPromise({ preorder }: { preorder: PreorderFacts }) {
           <Truck className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
         </span>
         <span>
-          4th edition pre-order — delivery within{" "}
+          4th edition — delivery in{" "}
           <strong className="text-neutral-900 dark:text-white font-semibold">
             {preorder.deliveryDays} days
           </strong>
