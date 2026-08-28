@@ -41,6 +41,12 @@ export const PERMISSIONS = {
   "referrals.view": "See referrers and what they've earned",
   "referrals.payout": "Settle referral commissions",
   "staff.manage": "Add, edit and remove staff",
+
+  // Read-only by design. The screen shows every message the shop can send —
+  // automated, hand-sent and email — so support can check what a customer
+  // actually received without being able to change the wording. Editing an
+  // automated template means a Meta resubmission, which belongs in a commit.
+  "templates.view": "Read the message templates — WhatsApp, manual and email",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -58,6 +64,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Business", permissions: ["insights.view", "reports.view", "referrals.view", "referrals.payout", "staff.manage"] },
+  { label: "Reference", permissions: ["templates.view"] },
 ];
 
 // ── Roles ───────────────────────────────────────────────────────────────────
@@ -110,6 +117,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
     "insights.view", "reports.view", "referrals.view",
+    "templates.view",
   ],
 
   // Not delivery.complete: a partner ships and hands over, and the parcel is
@@ -118,7 +126,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
   // and not a role test.
   delivery: ["delivery.portal"],
 
-  support: ["orders.view", "users.view", "delivery.view"],
+  support: ["orders.view", "users.view", "delivery.view", "templates.view"],
 };
 
 // ── Checking ────────────────────────────────────────────────────────────────

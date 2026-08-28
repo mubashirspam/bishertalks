@@ -1,6 +1,7 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
   Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
+  MessageSquare,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -42,6 +43,10 @@ export const NAV: NavItem[] = [
   { href: "/admin/promos", label: "Checkout", icon: Tag, permission: "promos.manage" },
   { href: "/admin/referrals", label: "Referrals", icon: Gift, permission: "referrals.view" },
   { href: "/admin/staff", label: "Staff", icon: Shield, permission: "staff.manage" },
+  // Reference, not configuration: nothing on this screen can be edited from
+  // it. Sits next to Staff because it is the other thing you open to answer a
+  // question rather than to do the day's work.
+  { href: "/admin/templates", label: "Message templates", icon: MessageSquare, permission: "templates.view" },
   // Last on purpose: for an agent it's the only item, and for everyone else
   // it's the screen someone else works in, not part of the owner's daily run.
   { href: "/admin/delivery-portal", label: "Delivery portal", icon: ClipboardCheck, permission: "delivery.portal" },
