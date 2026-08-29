@@ -359,6 +359,8 @@ export const TEMPLATE_BUTTON_PAYLOADS: Record<string, string[]> = {
   neuro_interest_intro: ["intro:more_details", "intro:buy_now", "intro:later"],
   neuro_later_reminder: ["later:buy_now", "later:more_details", "later:not_now"],
   neuro_order_receipt: ["paid:need_help"],
+  // Same conversation as the delivery flow: they have the book and a question.
+  order_delivered: ["delivery:need_help"],
   // Drafted, not submitted — wired now so approving it needs no code change.
   course_order_confirmation: ["paid:need_help"],
   course_order_confirmation_v2: ["paid:need_help"],

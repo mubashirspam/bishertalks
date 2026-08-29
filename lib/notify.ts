@@ -23,6 +23,7 @@ import {
   TEMPLATES,
   TEMPLATE_LANGUAGE,
   type TemplateContext,
+  PUBLIC_BASE,
 } from "@/lib/whatsapp-templates";
 
 /**
@@ -79,8 +80,29 @@ const PRODUCT_NAME = "Neuro Code";
 /** The bonus course every book buyer gets. */
 const BONUS_COURSE = { title: "Neuro Linguistic Programming", slug: "nlp" };
 
+/**
+ * The base for links that go into a customer's message.
+ *
+ * Never localhost, whatever the environment says. `NEXT_PUBLIC_APP_URL` is
+ * `http://localhost:3000` on every developer's machine, and a local run sends
+ * real WhatsApp messages to real numbers — so before this guard, 101 messages
+ * were written carrying `http://localhost:3000`, and four of them reached
+ * customers who could not open the link.
+ *
+ * `lib/whatsapp-templates.ts` already refused to read this variable for button
+ * URLs, for a related reason: an approved button URL is fixed at review time.
+ * The same reasoning applies to a link in the body and was never applied to
+ * it. It is now.
+ *
+ * A configured non-local value still wins, so a staging deployment links to
+ * itself. Only the loopback addresses are overridden.
+ */
+const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i;
+
 function appUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!configured || LOOPBACK.test(configured)) return PUBLIC_BASE;
+  return configured.replace(/\/+$/, "");
 }
 
 /**

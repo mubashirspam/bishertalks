@@ -70,7 +70,7 @@ export interface TemplateContext {
  * cannot come from an environment variable that says localhost in development.
  * Matches `metadataBase` in app/layout.tsx — no `www`.
  */
-const PUBLIC_BASE = "https://bishertalks.com";
+export const PUBLIC_BASE = "https://bishertalks.com";
 
 /**
  * A button under the message.
@@ -270,6 +270,26 @@ ${SIGNATURE}`,
       "https://bishertalks.com/courses/nlp",
     ],
     params: (c) => [c.customerName, c.orderNumber, c.courseUrl],
+    /**
+     * Order Details rather than a course button, deliberately.
+     *
+     * A URL button pointing at the course is the exact shape Meta refused five
+     * times as INCORRECT_CATEGORY, and this template is already approved — an
+     * edit that reads as a course promotion risks the approval it has. The
+     * details page carries the course link and the login steps anyway, so the
+     * customer still gets there, by a route the classifier has no argument
+     * with.
+     */
+    buttons: [
+      {
+        type: "URL",
+        text: "Order Details",
+        url: `${PUBLIC_BASE}/neuro-code/track?view=details&id={{1}}`,
+        example: `${PUBLIC_BASE}/neuro-code/track?view=details&id=ORD-K3523P`,
+        param: (c) => c.orderNumber,
+      },
+      { type: "QUICK_REPLY", text: "Need Help" },
+    ],
   },
 
   /**

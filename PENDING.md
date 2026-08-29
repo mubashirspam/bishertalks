@@ -237,6 +237,21 @@ What shipped and why, plus the Meta JSON:
       link last. Course access appears only on a paid order
       - It is also where course access now lives at all, since the WhatsApp
         announcement for it is held
+- [ ] **Do not deploy until `order_delivered` is APPROVED.** It gained an
+      Order Details button and is back in review; the code now sends a button
+      parameter the live version has no slot for. `npm run whatsapp:templates list`
+- [x] **Stopped localhost links reaching customers.** `lib/notify.ts` built
+      body links from `NEXT_PUBLIC_APP_URL`, which is `http://localhost:3000`
+      on every developer machine — and a local run sends real WhatsApp
+      messages. 101 messages were written carrying it; 97 were the token
+      failures and never left, but **4 customers received a dead course link**
+      (3 read, 1 delivered, all `order_delivered` on 2026-08-29). `appUrl()`
+      now overrides the loopback addresses only, so staging still links to
+      itself. `lib/whatsapp-templates.ts` had already refused to read that
+      variable for button URLs; the same reasoning had never been applied to
+      links in the body
+      - Worth deciding: those four got a link they could not open. A short
+        apology with the working link is one `send-test-template` run each
 - [ ] 🔴 **Re-run the campaign template edit after 2026-08-30.** The new
       Malayalam wording and the three Malayalam buttons
       (`ഓർഡർ പൂർത്തിയാക്കാൻ` / `വീണ്ടും ശ്രമിക്കാൻ` · `കൂടുതൽ അറിയാൻ` ·
