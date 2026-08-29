@@ -15,12 +15,19 @@ import {
 } from "@/lib/types/order";
 import { funnelWaMessage, deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import { orderStage, STAGE_LABELS as FUNNEL_LABELS, STAGE_BADGE as FUNNEL_BADGE } from "@/lib/order-stage";
+import { HELD_EVENTS, WIRE_EVENT } from "@/lib/notify-events";
+import ResendMessage from "./ResendMessage";
 
 const ALL_STATUSES: OrderStatus[] = [
   "confirmed", "processing", "shipped", "out_for_delivery", "delivered", "cancelled",
 ];
 
 /** Wire event names from lib/notify.ts, in the words an admin would use. */
+/** Events whose retry would send nothing — see lib/notify-events.ts. */
+const HELD_WIRE_EVENTS = new Set(
+  HELD_EVENTS.map((e) => WIRE_EVENT[e])
+);
+
 const NOTIFY_LABELS: Record<string, string> = {
   // Retired event, kept so an old log row renders with a name rather than a
   // raw wire string. Nothing writes this any more.
@@ -1190,6 +1197,22 @@ export default function AdminOrderDetailPage() {
                       {n.error && (
                         <p className="text-red-500 mt-0.5 break-words">{n.error}</p>
                       )}
+
+                      {/* Only on a message that did not reach them. A retry on
+                          one that landed is a second copy. */}
+                      {["failed", "skipped", "queued"].includes(n.status) &&
+                        (HELD_WIRE_EVENTS.has(n.event) ? (
+                          <p className="mt-1 text-[11px] text-neutral-400">
+                            Held — no approved template, so a retry would send
+                            nothing.
+                          </p>
+                        ) : (
+                          <ResendMessage
+                            orderNumber={order.order_number}
+                            event={n.event}
+                            status={n.status}
+                          />
+                        ))}
                     </div>
                   </li>
                 ))}

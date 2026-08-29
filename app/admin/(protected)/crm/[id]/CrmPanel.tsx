@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Clock, Tag, X, CalendarClock, AlertTriangle } from "lucide-react";
-import { TAG_LABELS, HOLD_TAGS } from "@/lib/crm/tags";
+// Labels only. Importing these from lib/crm/tags would pull the Supabase
+// admin client into this bundle — see lib/crm/tag-labels.ts.
+import { TAG_LABELS, HOLD_TAGS } from "@/lib/crm/tag-labels";
 
 /**
  * Tags, stage and what happens next.

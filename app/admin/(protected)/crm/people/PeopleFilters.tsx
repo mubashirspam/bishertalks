@@ -3,6 +3,7 @@
 import { useSearchParams } from "next/navigation";
 import { CalendarDays, MapPin, Search, X } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
+// Labels only — lib/crm/people reads every order in the database.
 import {
   PERSON_STAGES,
   PERSON_STAGE_LABELS,
@@ -13,7 +14,7 @@ import {
   PRIORITY_TONE,
   type PersonStage,
   type Priority,
-} from "@/lib/crm/people";
+} from "@/lib/crm/people-labels";
 
 /**
  * The filter bar for the people list.

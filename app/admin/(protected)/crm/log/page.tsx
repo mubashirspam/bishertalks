@@ -5,6 +5,53 @@ import { requirePageAccess } from "@/lib/admin-auth";
 import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import { listMessages } from "@/lib/crm/messages";
 import CrmTabs from "../CrmTabs";
+import LogFilters from "./LogFilters";
+import { RANGES, DEFAULT_RANGE } from "./ranges";
+
+/** One screenful. Enough to scan, small enough that the count is the cost. */
+const PER_PAGE = 50;
+
+/**
+ * The window to read, as UTC bounds.
+ *
+ * An explicit from/to wins over a quick range — two controls claiming to set
+ * the same window is how a filter starts lying about what is on screen.
+ *
+ * `datetime-local` gives a wall-clock string with no zone. The admins are in
+ * IST and the database is UTC, so it is read as IST here rather than as the
+ * server's local time, which in production is neither.
+ */
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function istLocalToUtc(local: string): string | undefined {
+  // "2026-08-29T14:30" → the same moment in UTC.
+  const parsed = Date.parse(`${local}:00.000Z`);
+  return Number.isNaN(parsed)
+    ? undefined
+    : new Date(parsed - IST_OFFSET_MS).toISOString();
+}
+
+function windowFor(params: { range?: string; from?: string; to?: string }): {
+  from?: string;
+  to?: string;
+} {
+  if (params.from || params.to) {
+    return {
+      from: params.from ? istLocalToUtc(params.from) : undefined,
+      to: params.to ? istLocalToUtc(params.to) : undefined,
+    };
+  }
+
+  const key = params.range ?? DEFAULT_RANGE;
+  const range =
+    RANGES.find((r) => r.key === key) ??
+    RANGES.find((r) => r.key === DEFAULT_RANGE)!;
+  // "All time" is the one window with no lower bound, and it is deliberately
+  // not the default: this table grows with every message, campaign row and
+  // refusal, so the unbounded read is the one that eventually times out.
+  if (!range.hours) return {};
+  return { from: new Date(Date.now() - range.hours * 3600_000).toISOString() };
+}
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +74,14 @@ const STATUS_STYLE: Record<string, string> = {
 export default async function MessageLogPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; direction?: string }>;
+  searchParams: Promise<{
+    status?: string;
+    direction?: string;
+    range?: string;
+    from?: string;
+    to?: string;
+    page?: string;
+  }>;
 }) {
   await requirePageAccess("crm.view");
   const params = await searchParams;
@@ -40,54 +94,67 @@ export default async function MessageLogPage({
         </h1>
         <p className="text-neutral-500 text-sm mt-1">
           Everything sent and received on the automated number, newest first —
-          including messages the system refused to send, and why.
+          including messages the system refused to send, and why. Showing the
+          last 7 days by default; widen the window above to go further back.
         </p>
       </div>
 
       <CrmTabs active="log" />
 
       <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={10} columns={5} /></>}>
-        <Body status={params.status} direction={params.direction} />
+        <Body params={params} />
       </Suspense>
     </div>
   );
 }
 
-async function Body({ status, direction }: { status?: string; direction?: string }) {
-  const rows = await listMessages({
-    status,
-    direction: direction === "in" || direction === "out" ? direction : undefined,
-  });
+async function Body({
+  params,
+}: {
+  params: {
+    status?: string;
+    direction?: string;
+    range?: string;
+    from?: string;
+    to?: string;
+    page?: string;
+  };
+}) {
+  const page = Math.max(0, parseInt(params.page ?? "1") - 1);
+  const bounds = windowFor(params);
 
-  const filters = [
-    { label: "All", href: "/admin/crm/log", active: !status && !direction },
-    { label: "Received", href: "/admin/crm/log?direction=in", active: direction === "in" },
-    { label: "Sent", href: "/admin/crm/log?direction=out", active: direction === "out" },
-    { label: "Failed", href: "/admin/crm/log?status=failed", active: status === "failed" },
-    { label: "Read", href: "/admin/crm/log?status=read", active: status === "read" },
-  ];
+  const { rows, count } = await listMessages(
+    {
+      status: params.status,
+      direction:
+        params.direction === "in" || params.direction === "out"
+          ? params.direction
+          : undefined,
+      ...bounds,
+    },
+    page,
+    PER_PAGE
+  );
+
+  const totalPages = Math.ceil(count / PER_PAGE);
+
+  const pageLink = (p: number) => {
+    const sp = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v && k !== "page") sp.set(k, String(v));
+    }
+    if (p > 1) sp.set("page", String(p));
+    const qs = sp.toString();
+    return `/admin/crm/log${qs ? `?${qs}` : ""}`;
+  };
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-1.5">
-        {filters.map((f) => (
-          <Link
-            key={f.label}
-            href={f.href}
-            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-              f.active
-                ? "border-primary-500 bg-primary-50 text-primary-700"
-                : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"
-            }`}
-          >
-            {f.label}
-          </Link>
-        ))}
-      </div>
+      <LogFilters count={count} showing={rows.length} />
 
       {!rows.length ? (
         <p className="rounded-xl border border-neutral-200 bg-white px-4 py-8 text-center text-sm text-neutral-400">
-          Nothing recorded yet.
+          Nothing in this window. Widen the range, or try All time.
         </p>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white">
@@ -166,6 +233,32 @@ async function Body({ status, direction }: { status?: string; direction?: string
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-neutral-500">
+            Page {page + 1} of {totalPages.toLocaleString("en-IN")}
+          </p>
+          <div className="flex gap-2">
+            {page > 0 && (
+              <Link
+                href={pageLink(page)}
+                className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm transition-all hover:border-neutral-300"
+              >
+                ← Prev
+              </Link>
+            )}
+            {page + 1 < totalPages && (
+              <Link
+                href={pageLink(page + 2)}
+                className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-sm transition-all hover:border-neutral-300"
+              >
+                Next →
+              </Link>
+            )}
+          </div>
         </div>
       )}
     </div>

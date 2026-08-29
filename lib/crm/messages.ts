@@ -257,32 +257,65 @@ export interface LogFilters {
   templateName?: string;
   campaignId?: string;
   contactId?: string;
-  limit?: number;
+  /** Inclusive lower bound on created_at, as a UTC ISO string. */
+  from?: string;
+  /** Exclusive upper bound. */
+  to?: string;
 }
 
 export interface LogRow extends Message {
   contact: { phone: string; display_name: string | null } | null;
 }
 
-export async function listMessages(f: LogFilters = {}): Promise<LogRow[]> {
+export interface LogPage {
+  rows: LogRow[];
+  /** How many the filters match, before paging. */
+  count: number;
+}
+
+/**
+ * One page of the message log.
+ *
+ * Paged and time-bounded rather than "the newest 200". Every outbound
+ * message, every inbound one and every refusal lands in this table — a
+ * campaign of fifty writes fifty rows, and the poller and the flows write
+ * more — so an unbounded read is one that gets slower every week and takes
+ * the screen with it.
+ *
+ * The count is asked for in the same round trip. Paging without a total gives
+ * you a Next button that cannot say whether there is a next.
+ */
+export async function listMessages(
+  f: LogFilters = {},
+  page = 0,
+  perPage = 50
+): Promise<LogPage> {
+  const from = page * perPage;
+
   let query = supabaseAdmin
     .from("whatsapp_messages")
-    .select(`${COLUMNS}, contact:whatsapp_contacts(phone, display_name)`)
+    .select(`${COLUMNS}, contact:whatsapp_contacts(phone, display_name)`, {
+      count: "exact",
+    })
     .order("created_at", { ascending: false })
-    .limit(Math.min(f.limit ?? 200, 500));
+    .range(from, from + perPage - 1);
 
   if (f.direction) query = query.eq("direction", f.direction);
   if (f.status) query = query.eq("status", f.status);
   if (f.templateName) query = query.eq("template_name", f.templateName);
   if (f.campaignId) query = query.eq("campaign_id", f.campaignId);
   if (f.contactId) query = query.eq("contact_id", f.contactId);
+  // The bound that does the most work. Everything else narrows a scan; this
+  // one stops the table being scanned to the beginning of time.
+  if (f.from) query = query.gte("created_at", f.from);
+  if (f.to) query = query.lt("created_at", f.to);
 
-  const { data, error } = await query;
+  const { data, error, count } = await query;
   if (error) {
     console.error("[CRM] listMessages failed:", error.message);
-    return [];
+    return { rows: [], count: 0 };
   }
-  return (data ?? []) as unknown as LogRow[];
+  return { rows: (data ?? []) as unknown as LogRow[], count: count ?? 0 };
 }
 
 /**
