@@ -85,6 +85,8 @@ export default function CampaignManager({
   const [personStage, setPersonStage] = useState(fromPeople.personStage);
   const [priority, setPriority] = useState(fromPeople.priority);
   const [messaged, setMessaged] = useState(fromPeople.messaged);
+  const [deliveredMin, setDeliveredMin] = useState("");
+  const [deliveredMax, setDeliveredMax] = useState("");
   const [orderStage, setOrderStage] = useState("");
   const [deliveryStage, setDeliveryStage] = useState("");
   const [cap, setCap] = useState(defaultCap);
@@ -95,6 +97,8 @@ export default function CampaignManager({
     ...(priority ? { priority } : {}),
     ...(messaged ? { messaged } : {}),
     ...(fromPeople.district ? { district: fromPeople.district } : {}),
+    ...(deliveredMin ? { deliveredMinDays: Number(deliveredMin) } : {}),
+    ...(deliveredMax ? { deliveredMaxDays: Number(deliveredMax) } : {}),
     ...(orderStage ? { orderStage } : {}),
     ...(deliveryStage ? { deliveryStage } : {}),
   });
@@ -301,6 +305,38 @@ export default function CampaignManager({
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-neutral-600">
+                Delivered how long ago
+              </span>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={deliveredMin}
+                  onChange={(e) => invalidate(setDeliveredMin)(e.target.value)}
+                  placeholder="10"
+                  className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm tabular-nums focus:border-primary-400 focus:outline-none"
+                />
+                <span className="text-xs text-neutral-400">to</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={365}
+                  value={deliveredMax}
+                  onChange={(e) => invalidate(setDeliveredMax)(e.target.value)}
+                  placeholder="any"
+                  className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm tabular-nums focus:border-primary-400 focus:outline-none"
+                />
+                <span className="whitespace-nowrap text-xs text-neutral-400">days</span>
+              </div>
+              <span className="mt-1 block text-[11px] text-neutral-400">
+                How the reading follow-ups are targeted. 10 and blank = everyone
+                whose parcel arrived 10 or more days ago.
+              </span>
             </label>
 
             <label className="block">

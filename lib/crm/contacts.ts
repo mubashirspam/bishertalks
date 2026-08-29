@@ -121,6 +121,36 @@ export async function getContact(id: string): Promise<Contact | null> {
   return (data as Contact | null) ?? null;
 }
 
+/**
+ * Several contacts in one read.
+ *
+ * The campaign worker used to call getContact() once per recipient — twenty
+ * round trips to send twenty messages, on a platform that limits requests and
+ * a plan that counts them. One query returns the same rows, just as fresh:
+ * the point of re-reading is that the list was built earlier, and a single
+ * read taken now satisfies that exactly as well as twenty do.
+ */
+export async function getContacts(ids: string[]): Promise<Map<string, Contact>> {
+  const map = new Map<string, Contact>();
+  const wanted = [...new Set(ids.filter(Boolean))];
+  if (!wanted.length) return map;
+
+  const CHUNK = 200;
+  for (let i = 0; i < wanted.length; i += CHUNK) {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_contacts")
+      .select(COLUMNS)
+      .in("id", wanted.slice(i, i + CHUNK));
+
+    if (error) {
+      console.error("[CRM] getContacts failed:", error.message);
+      return map;
+    }
+    for (const c of (data ?? []) as unknown as Contact[]) map.set(c.id, c);
+  }
+  return map;
+}
+
 export interface InboxFilters {
   /** Free text over name and phone. */
   q?: string;

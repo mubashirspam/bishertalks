@@ -25,6 +25,20 @@ export interface FlowReply {
 export interface FlowAction {
   /** What we send back, inside the window. */
   reply: FlowReply;
+  /**
+   * NOTE ON SCHEDULING
+   *
+   * The reading follow-up, the encouragement and the 30-day feedback used to
+   * be queued from here as well as by a cron rule. They are campaigns now —
+   * built by a person, with a preview and a recipient count, filtered by how
+   * long ago the parcel was delivered. A tap still tags and still replies; it
+   * no longer commits the shop to a message a fortnight out that nobody
+   * reviewed.
+   *
+   * `later_reminder` and `referral_followup` remain scheduled here: both are
+   * one person answering a question they were just asked, days apart, in a
+   * conversation they opened.
+   */
   /** A CRM tag to add. */
   tag?: string;
   /** The relationship stage this sets. */
@@ -229,11 +243,6 @@ export const FLOW_ACTIONS: Record<string, FlowAction> = {
       body: "സന്തോഷം. വായന ആരംഭിക്കൂ. Course activities കൂടി follow ചെയ്താൽ കൂടുതൽ benefit ലഭിക്കും.",
     },
     stage: "delivered_confirmed",
-    schedule: {
-      eventType: "reading_followup_10d",
-      template: "neuro_reading_followup_10d",
-      afterDays: 10,
-    },
   },
   "delivery:not_received": {
     reply: {
@@ -258,7 +267,6 @@ export const FLOW_ACTIONS: Record<string, FlowAction> = {
     },
     tag: "active_reader",
     stage: "active_reader",
-    schedule: { eventType: "feedback_30d", template: "neuro_feedback_30d", afterDays: 30 },
   },
   "reading10:read_little": {
     reply: {
@@ -266,11 +274,6 @@ export const FLOW_ACTIONS: Record<string, FlowAction> = {
     },
     tag: "slow_reader",
     stage: "slow_reader",
-    schedule: {
-      eventType: "encouragement",
-      template: "neuro_reading_encouragement",
-      afterDays: 7,
-    },
   },
   "reading10:not_started": {
     reply: {
@@ -278,11 +281,6 @@ export const FLOW_ACTIONS: Record<string, FlowAction> = {
     },
     tag: "not_started",
     stage: "not_started",
-    schedule: {
-      eventType: "encouragement",
-      template: "neuro_reading_encouragement",
-      afterDays: 5,
-    },
   },
 
   // ── neuro_reading_encouragement ───────────────────────────────────────
@@ -325,7 +323,6 @@ export const FLOW_ACTIONS: Record<string, FlowAction> = {
       body: "ശരി. സമയം എടുത്ത് വായിക്കൂ. Course activities കൂടി follow ചെയ്താൽ കൂടുതൽ benefit ലഭിക്കും.",
     },
     tag: "still_reading",
-    schedule: { eventType: "feedback_30d", template: "neuro_feedback_30d", afterDays: 15 },
   },
 
   // ── neuro_referral_followup ───────────────────────────────────────────

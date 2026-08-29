@@ -3,31 +3,24 @@ export const maxDuration = 300;
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
-import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   claimDue,
   finishEvent,
   noteAttempt,
   releaseStale,
-  scheduleEvent,
   type AutomationEvent,
 } from "@/lib/crm/automation";
-import { getContact, upsertContact } from "@/lib/crm/contacts";
+import { getContacts } from "@/lib/crm/contacts";
 import { sendTemplateMessage } from "@/lib/crm/send";
-import { tagsFor, onHold } from "@/lib/crm/tags";
+import { crmFieldsFor, onHold } from "@/lib/crm/tags";
 import { FLOW_TEMPLATES, TEMPLATE_LANGUAGE } from "@/lib/whatsapp-templates";
 
 /**
  * The follow-up worker.
  *
- * Two halves, in this order:
- *
- *   enqueue  turn elapsed time into queued rows — the "10 days after it was
- *            delivered" kind of rule, which no button tap will ever create
- *   drain    send what is due
- *
- * Enqueue first so a rule that becomes true this minute is acted on this run
- * rather than the next one.
+ * One job: drain what a customer's own button tap put in the queue. It does
+ * not decide that anybody is due a message — see the note below the handler
+ * for the rule that used to, and what it did.
  *
  * Every row still passes the gate on its own at send time. That is the whole
  * reason this is a queue and not a loop inside the thing that schedules: a
@@ -68,88 +61,31 @@ export async function GET(request: NextRequest) {
   }
 
   const released = await releaseStale();
-  const queued = await enqueueElapsed();
   const drained = await drain();
 
-  return NextResponse.json({ ok: true, released, queued, ...drained });
+  return NextResponse.json({ ok: true, released, ...drained });
 }
 
 /**
- * Rules that fire on elapsed time rather than on a tap.
+ * There is no time-based enqueue any more, and that is deliberate.
  *
- * Deliberately only the two the brief describes from `delivered_at`. The
- * unique index on (contact, event_type, order) makes this safe to run every
- * fifteen minutes forever: a parcel delivered eleven days ago whose customer
- * already tapped *Received* has a pending or sent row and gets nothing new.
+ * There was one: "ten days after delivered_at, queue the reading follow-up",
+ * with a thirty-day trailing window meant to keep it off the back catalogue.
+ * It queued **700 people in one run** — every order delivered in the last
+ * forty days, most of whom had had their book for weeks. Six hundred messages
+ * were attempted before the daily budget refused the rest, and the budget
+ * being the thing that stopped it is the tell: nothing else was going to.
  *
- * `neuro_order_paid` and `neuro_delivery_confirmed` are NOT enqueued here.
- * Both duplicate templates `lib/notify.ts` already sends on those events, and
- * sending two confirmations for one order is worse than sending the older
- * wording. Decide which survives first — see docs/neuro-crm-automation-plan.md.
+ * A rule that turns elapsed time into a bulk send is a campaign wearing a
+ * cron's clothes. It has no preview, no recipient count, no cap anybody
+ * chose, and no person deciding that today is the day. Campaigns have all
+ * four — so the reading follow-up, the encouragement and the 30-day feedback
+ * are built there now, filtered by how long ago the parcel was delivered.
+ *
+ * What remains in this worker is the queue itself, which still drains: rows
+ * put there by a customer tapping a button, one person at a time, in a
+ * conversation they started.
  */
-async function enqueueElapsed(): Promise<number> {
-  const rules = [
-    { days: 10, eventType: "reading_followup_10d", template: "neuro_reading_followup_10d" },
-    { days: 30, eventType: "feedback_30d", template: "neuro_feedback_30d" },
-  ];
-
-  let queued = 0;
-
-  for (const rule of rules) {
-    const cutoff = new Date(Date.now() - rule.days * 86_400_000).toISOString();
-
-    const { data, error } = await supabaseAdmin
-      .from("orders")
-      .select("id, order_number, buyer_name, buyer_phone, delivered_at")
-      .eq("status", "delivered")
-      .not("delivered_at", "is", null)
-      .lte("delivered_at", cutoff)
-      // A month past the trigger it stops being a follow-up and starts being
-      // a message out of nowhere. The back catalogue is not an audience.
-      .gte("delivered_at", new Date(Date.now() - (rule.days + 30) * 86_400_000).toISOString())
-      .limit(200);
-
-    if (error) {
-      console.error("[Automation] enqueue read failed:", rule.eventType, error.message);
-      continue;
-    }
-
-    for (const order of (data ?? []) as OrderRow[]) {
-      // No contact row means nobody has ever messaged them through this
-      // system. Create one — that is what makes them reachable — but do not
-      // invent consent; the gate still decides.
-      const contact = await upsertContact(order.buyer_phone, {
-        name: order.buyer_name,
-        orderNumber: order.order_number,
-      });
-      if (!contact || contact.opt_out_at) continue;
-
-      const tags = await tagsFor(contact.id);
-      if (onHold(tags)) continue;
-
-      const row = await scheduleEvent({
-        contactId: contact.id,
-        orderId: order.id,
-        eventType: rule.eventType,
-        templateName: rule.template,
-        // Due now: the elapsed time IS the schedule.
-        afterDays: 0,
-        reason: `${rule.days} days after delivery`,
-      });
-      if (row) queued++;
-    }
-  }
-
-  return queued;
-}
-
-interface OrderRow {
-  id: string;
-  order_number: string;
-  buyer_name: string | null;
-  buyer_phone: string | null;
-  delivered_at: string | null;
-}
 
 async function drain(): Promise<{
   claimed: number;
@@ -164,8 +100,13 @@ async function drain(): Promise<{
   let failed = 0;
   let cancelled = 0;
 
+  // One read for the whole run rather than one per row. A hundred due events
+  // used to mean a hundred contact lookups before a single message was sent —
+  // requests Meta's neighbour, the database, counts just as carefully.
+  const contacts = await getContacts(rows.map((r) => r.contact_id));
+
   for (const event of rows) {
-    const outcome = await runOne(event);
+    const outcome = await runOne(event, contacts.get(event.contact_id) ?? null);
     if (outcome === "sent") sent++;
     else if (outcome === "refused") refused++;
     else if (outcome === "cancelled") cancelled++;
@@ -176,7 +117,10 @@ async function drain(): Promise<{
 }
 
 async function runOne(
-  event: AutomationEvent
+  event: AutomationEvent,
+  contact: Awaited<ReturnType<typeof getContacts>> extends Map<string, infer C>
+    ? C | null
+    : never
 ): Promise<"sent" | "refused" | "failed" | "cancelled"> {
   const template = event.template_name ? FLOW_TEMPLATES[event.template_name] : null;
 
@@ -188,7 +132,6 @@ async function runOne(
     return "cancelled";
   }
 
-  const contact = await getContact(event.contact_id);
   if (!contact) {
     await finishEvent(event.id, { status: "cancelled", error: "Contact is gone" });
     return "cancelled";
@@ -201,7 +144,7 @@ async function runOne(
     return "cancelled";
   }
 
-  const tags = await tagsFor(contact.id);
+  const { tags } = await crmFieldsFor(contact.id);
   if (onHold(tags)) {
     await finishEvent(event.id, {
       status: "cancelled",

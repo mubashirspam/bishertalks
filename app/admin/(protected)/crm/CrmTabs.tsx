@@ -14,6 +14,9 @@ const TABS = [
   // happens in: read what came back, decide who to reach, then reach them.
   { key: "people", href: "/admin/crm/people", label: "People" },
   { key: "campaigns", href: "/admin/crm/campaigns", label: "Campaigns" },
+  // Between campaigns and the log: what the system sends on its own sits
+  // between what a person sends and the record of everything.
+  { key: "automation", href: "/admin/crm/automation", label: "Automation" },
   { key: "log", href: "/admin/crm/log", label: "Message log" },
   { key: "health", href: "/admin/crm/health", label: "Number health" },
 ] as const;

@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { resolveSegment, type Segment, type SegmentResult } from "@/lib/crm/segments";
-import { upsertContact, getSettings, getContact } from "@/lib/crm/contacts";
+import { upsertContact, getSettings, getContacts } from "@/lib/crm/contacts";
 import { sendTemplateMessage } from "@/lib/crm/send";
 import { latestHealth } from "@/lib/crm/health";
 import { CAMPAIGN_TEMPLATES, FLOW_TEMPLATES } from "@/lib/whatsapp-templates";
@@ -353,6 +353,23 @@ export async function setCampaignStatus(
  */
 const BATCH = 20;
 
+/**
+ * Consecutive failures that stop a campaign dead.
+ *
+ * The opening messages of a campaign are a test of everything the rest depends
+ * on: the token, the template, the category, the consent rule. If five in a
+ * row do not land, the sixth will not either — and each attempt is a Graph
+ * call that Meta counts and bills whether or not a customer ever sees it.
+ *
+ * Five rather than one, because a single bad number proves nothing. Five in a
+ * row is never bad luck.
+ *
+ * Account-level refusals — budget, cap, paused, health — do not count toward
+ * this. Those are handled above by requeueing and stopping the batch: they
+ * clear on their own and the queue should survive them.
+ */
+const HALT_AFTER_CONSECUTIVE = 5;
+
 export interface WorkerReport {
   campaignId: string;
   sent: number;
@@ -372,6 +389,18 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
     halted: null,
     remaining: 0,
   };
+
+  // A campaign that has already spent its opening on failures must not be
+  // resumed into the same wall. This catches the case the per-run counter
+  // cannot: five failures spread over five runs, one each, looking fine
+  // individually and identical in aggregate.
+  if (campaign.sent_count === 0 && campaign.failed_count + campaign.refused_count >= HALT_AFTER_CONSECUTIVE) {
+    const why =
+      `Nothing has sent — ${campaign.failed_count} failed and ` +
+      `${campaign.refused_count} refused before the first success`;
+    await setCampaignStatus(campaign.id, "halted", why);
+    return { ...report, halted: why };
+  }
 
   const halt = await shouldHalt(campaign);
   if (halt) {
@@ -405,11 +434,18 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
     attempts: number;
   }[];
 
+  // Every contact in the batch, in one read rather than one per recipient.
+  // The list was built when the campaign was created and someone may have
+  // asked us to stop since — a single read taken now answers that for all
+  // twenty exactly as well as twenty reads would, at a twentieth of the
+  // requests.
+  const contacts = await getContacts(batch.map((r) => r.contact_id));
+
+  // Consecutive failures, reset by any success. See HALT_AFTER_CONSECUTIVE.
+  let consecutiveBad = 0;
+
   for (const row of batch) {
-    // Re-read the contact every time. The list was built when the campaign was
-    // created; someone may have asked us to stop since, and the gate must see
-    // the state as it is now, not as it was then.
-    const contact = await getContact(row.contact_id);
+    const contact = contacts.get(row.contact_id);
     if (!contact) {
       await markRecipient(row.id, "refused", { refuse_reason: "Contact no longer exists" });
       report.refused++;
@@ -443,6 +479,7 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
     if (outcome.ok) {
       await markRecipient(row.id, "sent", { wamid: outcome.wamid });
       report.sent++;
+      consecutiveBad = 0;
     } else if (outcome.refused) {
       await markRecipient(row.id, "refused", { refuse_reason: outcome.reason });
       report.refused++;
@@ -459,6 +496,18 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
         report.refused--;
         break;
       }
+
+      // A per-contact refusal that repeats is a campaign-level problem wearing
+      // a per-contact disguise — "no marketing opt-in" is true of everybody or
+      // nobody.
+      consecutiveBad++;
+      if (consecutiveBad >= HALT_AFTER_CONSECUTIVE) {
+        const why =
+          `${consecutiveBad} in a row refused — last reason: ${outcome.reason}`;
+        await setCampaignStatus(campaign.id, "halted", why);
+        report.halted = why;
+        break;
+      }
     } else {
       const attempts = row.attempts + 1;
       if (outcome.retryable && attempts < 3) {
@@ -469,6 +518,17 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
       } else {
         await markRecipient(row.id, "failed", { error: outcome.error });
         report.failed++;
+
+        // Same rule for hard failures. An expired token or a template Meta has
+        // stopped carrying fails identically for every recipient, and the only
+        // thing continuing buys is a bill.
+        consecutiveBad++;
+        if (consecutiveBad >= HALT_AFTER_CONSECUTIVE) {
+          const why = `${consecutiveBad} in a row failed — last error: ${outcome.error}`;
+          await setCampaignStatus(campaign.id, "halted", why);
+          report.halted = why;
+          break;
+        }
       }
     }
   }

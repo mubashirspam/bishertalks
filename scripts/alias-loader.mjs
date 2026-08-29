@@ -33,7 +33,23 @@ export async function resolve(specifier, context, next) {
       }
     }
   }
-  return next(specifier, context);
+  try {
+    return await next(specifier, context);
+  } catch (e) {
+    // `next/server` and friends resolve through package "exports" conditions
+    // that Next's own bundler sets and a plain Node run does not, so the
+    // subpath comes back unresolved with the file sitting right there. Falling
+    // back to the explicit file is enough for a script.
+    if (
+      e?.code === "ERR_MODULE_NOT_FOUND" &&
+      !specifier.startsWith(".") &&
+      !specifier.startsWith("@/") &&
+      !/\.[cm]?js$/.test(specifier)
+    ) {
+      return next(`${specifier}.js`, context);
+    }
+    throw e;
+  }
 }
 
 // Node ≥20.6: register this file's hooks from within itself, so one --import

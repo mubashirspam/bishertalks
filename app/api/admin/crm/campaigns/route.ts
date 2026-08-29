@@ -41,6 +41,16 @@ function parseSegment(raw: unknown): Segment {
   if (typeof s.from === "string") seg.from = s.from;
   if (typeof s.to === "string") seg.to = s.to;
   if (typeof s.district === "string") seg.district = s.district;
+  // Days, not dates: "ten days after delivery" is the question people ask, and
+  // it stays true tomorrow without anybody editing the campaign.
+  const days = (v: unknown) =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 365
+      ? Math.floor(v)
+      : undefined;
+  const min = days(s.deliveredMinDays);
+  const max = days(s.deliveredMaxDays);
+  if (min !== undefined) seg.deliveredMinDays = min;
+  if (max !== undefined) seg.deliveredMaxDays = max;
   if (s.hasReplied === true) seg.hasReplied = true;
   if (s.marketingOptInOnly === true) seg.marketingOptInOnly = true;
   return seg;

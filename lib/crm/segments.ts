@@ -55,6 +55,22 @@ export interface Segment {
   /** Orders placed before this date. */
   to?: string;
   district?: string;
+  /**
+   * How long ago the parcel was delivered, in days.
+   *
+   * The filter the reading follow-ups are built on. It replaced a cron rule
+   * that turned the same question into an automatic send: "ten days after
+   * delivered_at" queued 700 people in one run, because elapsed time is true
+   * of everybody at once and a timer has no opinion about that.
+   *
+   * As a campaign filter the same question is safe — it comes with a preview,
+   * a count, a cap and somebody deciding today is the day.
+   *
+   *   deliveredMinDays: 10                 delivered 10 or more days ago
+   *   deliveredMinDays: 10, max: 20        the ten-to-twenty day cohort
+   */
+  deliveredMinDays?: number;
+  deliveredMaxDays?: number;
   /** Only contacts who have written to us at least once. */
   hasReplied?: boolean;
   /** Only contacts who have opted in to marketing. */
@@ -199,6 +215,12 @@ type Seeds = {
 
 /** Whether any person-level filter is set, which decides how members are found. */
 function usesPeople(segment: Segment): boolean {
+  // A delivery window is a question about parcels, and only the order rows
+  // carry delivered_at — so it takes the order path even alongside a person
+  // filter, and the phone collapse afterwards still gives one message each.
+  if (segment.deliveredMinDays !== undefined || segment.deliveredMaxDays !== undefined) {
+    return false;
+  }
   return !!(segment.personStage || segment.priority || segment.messaged);
 }
 
@@ -302,6 +324,21 @@ async function matchingOrders(segment: Segment, limit: number): Promise<OrderRow
   if (segment.to) query = query.lt("ordered_at", segment.to);
   if (segment.district) query = query.eq("district", segment.district);
 
+  // Delivered, and how long ago. `delivered_at` rather than the status alone:
+  // a parcel marked delivered this morning and one delivered in July are the
+  // same status and completely different audiences.
+  if (segment.deliveredMinDays !== undefined || segment.deliveredMaxDays !== undefined) {
+    query = query.eq("status", "delivered").not("delivered_at", "is", null);
+    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+    // "at least N days ago" is an upper bound on the timestamp.
+    if (segment.deliveredMinDays !== undefined) {
+      query = query.lte("delivered_at", daysAgo(segment.deliveredMinDays));
+    }
+    if (segment.deliveredMaxDays !== undefined) {
+      query = query.gte("delivered_at", daysAgo(segment.deliveredMaxDays));
+    }
+  }
+
   const { data, error } = await query;
   if (error) {
     console.error("[CRM] segment query failed:", error.message);
@@ -353,6 +390,17 @@ export function describeSegment(segment: Segment): string {
     parts.push(
       SEGMENT_SOURCES[1].options.find((o) => o.value === segment.deliveryStage)?.label ??
         segment.deliveryStage
+    );
+  }
+  if (segment.deliveredMinDays !== undefined || segment.deliveredMaxDays !== undefined) {
+    const min = segment.deliveredMinDays;
+    const max = segment.deliveredMaxDays;
+    parts.push(
+      min !== undefined && max !== undefined
+        ? `delivered ${min}–${max} days ago`
+        : min !== undefined
+          ? `delivered ${min}+ days ago`
+          : `delivered within ${max} days`
     );
   }
   if (segment.district) parts.push(`in ${segment.district}`);

@@ -264,6 +264,44 @@ export async function releaseStale(): Promise<number> {
   return (data as number) ?? 0;
 }
 
+/**
+ * The automation's activity, newest first.
+ *
+ * What the Automation screen reads. It exists because "is anything sending on
+ * its own?" had no answer short of querying the table by hand — and the day
+ * that question mattered, a rule had queued 700 people and the only visible
+ * symptom was refusals piling up in the message log.
+ */
+export async function listEvents(
+  filters: { status?: string } = {},
+  page = 0,
+  perPage = 50
+): Promise<{ rows: (AutomationEvent & { contact: { phone: string; display_name: string | null } | null })[]; count: number }> {
+  const from = page * perPage;
+
+  let q = supabaseAdmin
+    .from("whatsapp_automation_events")
+    .select(`${COLUMNS}, contact:whatsapp_contacts(phone, display_name)`, {
+      count: "exact",
+    })
+    .order("created_at", { ascending: false })
+    .range(from, from + perPage - 1);
+
+  if (filters.status) q = q.eq("status", filters.status);
+
+  const { data, error, count } = await q;
+  if (error) {
+    missing(error);
+    return { rows: [], count: 0 };
+  }
+  return {
+    rows: (data ?? []) as unknown as (AutomationEvent & {
+      contact: { phone: string; display_name: string | null } | null;
+    })[],
+    count: count ?? 0,
+  };
+}
+
 /** Counts for the admin screen: how the queue is doing, by status. */
 export async function queueSummary(): Promise<Record<string, number>> {
   const out: Record<string, number> = {};
