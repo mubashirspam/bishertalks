@@ -5,8 +5,11 @@ import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
 import { getContact, windowState, formatWindow } from "@/lib/crm/contacts";
 import { listThread } from "@/lib/crm/messages";
+import { crmFieldsFor } from "@/lib/crm/tags";
+import { pendingFor } from "@/lib/crm/automation";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import ThreadClient from "./ThreadClient";
+import CrmPanel from "./CrmPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +32,11 @@ export default async function ThreadPage({
   const contact = await getContact(id);
   if (!contact) notFound();
 
-  const [messages, orders] = await Promise.all([
+  const [messages, orders, crm, pending] = await Promise.all([
     listThread(contact.id),
     ordersFor(contact.phone),
+    crmFieldsFor(contact.id),
+    pendingFor(contact.id),
   ]);
 
   const win = windowState(contact.last_inbound_at);
@@ -85,6 +90,9 @@ export default async function ThreadPage({
             direction: m.direction,
             body: m.body,
             kind: m.kind,
+            hasMedia: !!m.media_id,
+            mediaMime: m.media_mime ?? null,
+            mediaFilename: m.media_filename ?? null,
             templateName: m.template_name,
             status: m.status,
             error: m.error,
@@ -99,8 +107,23 @@ export default async function ThreadPage({
           canConsent={can(staff, "crm.consent")}
         />
 
-        {/* ── What they bought ──────────────────────────────────────────── */}
-        <aside className="space-y-3">
+        {/* ── Where they are, and what happens next ─────────────────────── */}
+        <aside className="space-y-5">
+          <CrmPanel
+            contactId={contact.id}
+            tags={crm.tags}
+            stage={crm.stage}
+            pending={pending.map((e) => ({
+              id: e.id,
+              eventType: e.event_type,
+              templateName: e.template_name,
+              scheduledAt: e.scheduled_at,
+              reason: e.created_reason,
+            }))}
+            canEdit={can(staff, "crm.reply")}
+          />
+
+          <div className="space-y-3">
           <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
             Their orders
           </h2>
@@ -132,6 +155,7 @@ export default async function ThreadPage({
               ))}
             </div>
           )}
+          </div>
         </aside>
       </div>
     </div>

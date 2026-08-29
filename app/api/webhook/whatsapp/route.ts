@@ -9,6 +9,10 @@ import {
 import { upsertContact } from "@/lib/crm/contacts";
 import { recordInbound, bumpUnread, applyReceipt } from "@/lib/crm/messages";
 import { stopWordIn, setOptOut, noteDeliveryFailure, clearFailureStreak } from "@/lib/crm/consent";
+import { lastTemplateSent } from "@/lib/crm/messages";
+import { runFlowAction, payloadForTitle } from "@/lib/crm/flows";
+import { cancelEvents } from "@/lib/crm/automation";
+import { addTag } from "@/lib/crm/tags";
 
 /**
  * Meta's WhatsApp webhook.
@@ -45,11 +49,45 @@ interface InboundMessage {
   from?: string;
   type?: string;
   text?: { body?: string };
-  button?: { text?: string };
+  /**
+   * A tap on a TEMPLATE's quick-reply button.
+   *
+   * `payload` is whatever was set at approval time, which for these templates
+   * is nothing — Meta does not let a quick-reply button on a template carry an
+   * id. So the title is all there is, and placing it needs the template that
+   * was sent last. See payloadForTitle().
+   */
+  button?: { text?: string; payload?: string };
+  /** A tap on a button WE sent on an interactive message, which carries our id. */
   interactive?: {
-    button_reply?: { title?: string };
-    list_reply?: { title?: string };
+    button_reply?: { id?: string; title?: string };
+    list_reply?: { id?: string; title?: string };
   };
+
+  /**
+   * Media, which never arrives inline.
+   *
+   * Meta sends an id and a mime type; the bytes are fetched later, by
+   * exchanging the id for a short-lived URL that only answers to a request
+   * carrying the access token. Every one of these shapes is the same three
+   * fields under a different key, which is why they are read by lookup below
+   * rather than five near-identical branches.
+   *
+   * `caption` is on image, video and document only — a voice note has no words
+   * by definition.
+   */
+  image?: MediaPayload;
+  audio?: MediaPayload;
+  video?: MediaPayload;
+  document?: MediaPayload;
+  sticker?: MediaPayload;
+}
+
+interface MediaPayload {
+  id?: string;
+  mime_type?: string;
+  caption?: string;
+  filename?: string;
 }
 
 /** Kinds we store verbatim; anything else is recorded as 'other'. */
@@ -78,9 +116,23 @@ async function handleInbound(
     m.button?.text ??
     m.interactive?.button_reply?.title ??
     m.interactive?.list_reply?.title ??
+    // A caption is what the customer wrote, so it is the message body — and it
+    // is checked for stop words like any other text. Somebody replying "stop"
+    // under a photo means it.
+    m.image?.caption ??
+    m.video?.caption ??
+    m.document?.caption ??
     null;
 
   const kind = m.type === "text" ? "text" : MEDIA_KINDS.has(m.type ?? "") ? m.type! : "other";
+
+  // The id is the whole point. Without it the row records that a photo
+  // arrived and gives nobody any way to look at it — which is what the thread
+  // did until 0054: "(image)", in italics, for a customer's picture of a
+  // damaged parcel.
+  const media: MediaPayload | undefined = MEDIA_KINDS.has(m.type ?? "")
+    ? (m as unknown as Record<string, MediaPayload | undefined>)[m.type!]
+    : undefined;
 
   try {
     const name = profiles.find((c) => c.wa_id === m.from)?.profile?.name ?? null;
@@ -100,14 +152,40 @@ async function handleInbound(
       );
       if (set) {
         console.warn("[WhatsApp] opt-out recorded for", contact.phone);
+        // Everything queued for them goes. The stop flag would refuse each one
+        // at the gate anyway, but a queue full of messages that will never
+        // send is a queue nobody can read.
+        await cancelEvents(contact.id, { reason: "Customer opted out" });
+        await addTag(contact.id, "opted_out");
       }
+    }
+
+    // ── What they tapped, if they tapped ──
+    //
+    // Two shapes, and only one of them carries an id. An interactive reply is
+    // a button we sent and gave an id to, so it routes itself. A template's
+    // quick reply arrives as a bare title — Meta does not let an approved
+    // template button carry a payload — so it is placed against the last
+    // template that went to this contact. Three templates have a "Need Help"
+    // button; without that lookup all three land in the same place.
+    const replyId = m.interactive?.button_reply?.id ?? null;
+    const buttonTitle =
+      m.button?.text ?? m.interactive?.button_reply?.title ?? null;
+
+    let payload = replyId ?? m.button?.payload ?? null;
+    if (!payload && buttonTitle) {
+      payload = payloadForTitle(await lastTemplateSent(contact.id), buttonTitle);
     }
 
     const isNew = await recordInbound({
       contactId: contact.id,
       wamid: m.id,
-      kind,
+      kind: buttonTitle ? "button" : kind,
       body: text,
+      buttonPayload: payload,
+      mediaId: media?.id ?? null,
+      mediaMime: media?.mime_type ?? null,
+      mediaFilename: media?.filename ?? null,
     });
 
     // Only on a genuinely new message. A webhook retry must not make one
@@ -115,6 +193,38 @@ async function handleInbound(
     if (isNew) {
       await bumpUnread(contact.id, new Date().toISOString());
     }
+
+    // ── Then route it ──
+    //
+    // After storing, and only for a message we have not already handled — a
+    // redelivered webhook must not re-run a flow, or a customer gets the same
+    // reply twice and a second follow-up queued.
+    if (!isNew || !payload || stopWord) return;
+
+    // The window is judged from THIS message, not from the row we read a
+    // moment ago: on somebody's first ever message that row says they have
+    // never written, and the reply to their first tap would be refused as
+    // out-of-window.
+    const outcome = await runFlowAction(payload, {
+      ...contact,
+      last_inbound_at: new Date().toISOString(),
+    });
+
+    if (!outcome.matched) {
+      // A button we do not know. Left in the inbox for a person rather than
+      // guessed at — the flows are the only thing that should answer, and a
+      // wrong guess is a wrong message.
+      console.warn("[WhatsApp] unrouted button:", payload, contact.phone);
+      return;
+    }
+
+    console.log(
+      "[WhatsApp] flow:",
+      payload,
+      contact.phone,
+      outcome.replied ? "replied" : (outcome.note ?? "no reply"),
+      outcome.scheduled ? `· queued ${outcome.scheduled}` : ""
+    );
   } catch (e) {
     console.error("[WhatsApp] inbound handling failed:", m.id, e);
   }

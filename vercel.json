@@ -1,4 +1,22 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "regions": ["hnd1"]
+  "regions": ["hnd1"],
+  "crons": [
+    {
+      "path": "/api/cron/whatsapp-health",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/cron/courier-poll",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-automation",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/whatsapp-campaigns",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

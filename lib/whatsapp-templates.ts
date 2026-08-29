@@ -146,36 +146,79 @@ export const TEMPLATES: Record<OrderEvent, TemplateDef> = {
    * address we do not have. The Orders screen still offers the hand-sent
    * version for that case — funnelWaMessage's `paid_no_address`.
    */
-  /** Paid and we have an address — the order is really on. */
+  /**
+   * Paid and we have an address — the order is really on.
+   *
+   * The minimum possible change from a template Meta already approved:
+   * `order_confirmed`'s wording, with the tracking link moved out of the body
+   * and onto a button, plus a Need Help quick reply. A new name because a
+   * rejected or approved name cannot be recreated — `push` skips anything Meta
+   * already holds.
+   *
+   * What is deliberately NOT here is the course. The version that named it,
+   * linked it and put "Open Course" on a button — `neuro_order_confirm_track`
+   * — was auto-rejected as INCORRECT_CATEGORY in seconds: to Meta's
+   * classifier, course promotion inside a receipt is marketing, whatever the
+   * template is submitted as. Re-categorising it would be worse than the
+   * rejection, because a MARKETING template needs marketing consent and a
+   * receipt that waits for consent never sends.
+   *
+   * The course now gets its own message — `bonus_course_access` below — which
+   * is what it always should have been.
+   *
+   * Button order is load-bearing: the variable URL button must come first.
+   * See validateButtons().
+   */
   confirmed: {
-    name: "order_confirmed",
+    name: "neuro_order_receipt",
     category: "UTILITY",
     body: `ഹായ് {{1}} 🙏
-നിങ്ങളുടെ ഓർഡർ സ്ഥിരീകരിച്ചു ✅
+നിങ്ങളുടെ Neuro Code ഓർഡർ സ്ഥിരീകരിച്ചു ✅
 
 ഓർഡർ നമ്പർ: {{2}}
 അടച്ച തുക: ₹{{3}}
 എത്തിക്കുന്ന സ്ഥലം: {{4}}
 പ്രതീക്ഷിക്കുന്ന ഡെലിവറി: {{5}}
 
-ഓർഡർ ട്രാക്ക് ചെയ്യാൻ: {{6}}
+ഓർഡർ ട്രാക്ക് ചെയ്യാൻ താഴെയുള്ള button ഉപയോഗിക്കൂ.
 
 ${SIGNATURE}`,
-    example: [
-      "Asraf",
-      "ORD-K3523P",
-      "699",
-      "കണ്ണൂർ, Kerala",
-      "5–7 ദിവസം",
-      "https://bishertalks.com/neuro-code/track?id=ORD-K3523P",
-    ],
+    example: ["Asraf", "ORD-K3523P", "699", "കണ്ണൂർ, Kerala", "5–7 ദിവസം"],
     params: (c) => [
       c.customerName,
       c.orderNumber,
       c.amount,
       c.addressShort,
       c.expectedDelivery,
-      c.trackingUrl,
+    ],
+    // Both URL buttons come before the quick reply, and that ordering is
+    // load-bearing rather than tidy. At send time `buttonParams` is a flat
+    // list of the *variable* buttons, and Meta is given each one's position in
+    // that list as its button index — so the two only agree while the variable
+    // buttons occupy the first slots. Put the quick reply between them and the
+    // second link is filled at the wrong index and the send is rejected.
+    buttons: [
+      {
+        type: "URL",
+        text: "Track Order",
+        url: `${PUBLIC_BASE}/neuro-code/track?id={{1}}`,
+        example: `${PUBLIC_BASE}/neuro-code/track?id=ORD-K3523P`,
+        param: (c) => c.orderNumber,
+      },
+      {
+        type: "URL",
+        text: "Order Details",
+        // `view=details` exists so the two URLs differ, which Meta requires of
+        // two buttons on one template. The track page ignores the parameter
+        // today and renders the same thing — status, address, courier and
+        // amount are all already on it — so these two buttons currently land
+        // in the same place. Worth making the page render a fuller view if
+        // that difference is meant to be real.
+        url: `${PUBLIC_BASE}/neuro-code/track?view=details&id={{1}}`,
+        example: `${PUBLIC_BASE}/neuro-code/track?view=details&id=ORD-K3523P`,
+        param: (c) => c.orderNumber,
+      },
+      { type: "QUICK_REPLY", text: "Need Help" },
     ],
   },
 
@@ -244,9 +287,32 @@ ${SIGNATURE}`,
    * purchase it belongs to and calls the link what it is (access, not
    * "start here"), which is what keeps it Utility rather than Marketing.
    * Do not reintroduce a standalone course pitch here.
+   *
+   * That rewording was never resubmitted, which is why course access has been
+   * failing this whole time: `course_access` is still REJECTED at Meta, and
+   * `push` skips any name Meta already holds, so the fix sat in this file
+   * doing nothing.
+   *
+   * Resubmitted under this name on 2026-08-29. **Rejected again, in seconds,
+   * INCORRECT_CATEGORY.** Two attempts, a careful rewording between them, same
+   * verdict — so it is not the wording. Meta's classifier reads "here is a
+   * course and a link" as marketing whatever frames it, and the same
+   * classifier rejected the receipt that merely mentioned the course.
+   *
+   * Do not submit a third variation. Guessing at a classifier by resubmitting
+   * is how an account collects rejections, and three near-identical templates
+   * would look like exactly that. The way out is a human: appeal the rejection
+   * in Meta Business Manager, where a post-purchase fulfilment message has a
+   * real case that an automated check cannot hear. If the appeal fails, the
+   * choice is to accept MARKETING for this one message — with the consent that
+   * implies — or to deliver course access off WhatsApp entirely.
+   *
+   * No buttons on purpose. A URL button to the course is exactly the shape
+   * that got the receipt rejected; the link is in the body, where it reads as
+   * access to a thing already bought.
    */
   course_access: {
-    name: "course_access",
+    name: "bonus_course_access",
     category: "UTILITY",
     body: `ഹായ് {{1}} 🙏
 നിങ്ങൾ വാങ്ങിയ ബുക്കിനൊപ്പം ലഭിക്കുന്ന കോഴ്‌സിന്റെ ആക്‌സസ് തയ്യാറായി ✅
@@ -284,6 +350,128 @@ ${SIGNATURE}`,
  * own if it is only ever going to be sent by hand from the admin.
  */
 export const DRAFT_TEMPLATES: Record<string, TemplateDef> = {
+  /**
+   * The course, written as an order confirmation rather than as a course.
+   *
+   * The fourth attempt at getting course access past Meta, and deliberately a
+   * different shape from the three that failed. `course_access`,
+   * `bonus_course_access` and `neuro_order_confirm_track` were all rejected
+   * INCORRECT_CATEGORY within seconds, and they had one thing in common: they
+   * read as "here is a course, go and open it". That is a promotion to a
+   * classifier, whatever the wording around it.
+   *
+   * This one is a receipt. It has an order number, a line item, a price and a
+   * validity — the same furniture as the book's confirmation, which Meta
+   * approved twice. The course is what was ordered, not what is being offered,
+   * and ₹0 says plainly that nothing is being sold here.
+   *
+   * It was not enough. Submitted 2026-08-29, **rejected in seconds,
+   * INCORRECT_CATEGORY** — the fourth time, and the fourth identical verdict.
+   *
+   * That settles it. Four framings have now been tried: "your course is
+   * activated", "access ready, tied to the purchase", the course folded into
+   * the book's receipt, and this one — a receipt with an order number, a line
+   * item, ₹0 and a validity. Every one auto-rejected without human review, and
+   * the only thing they share is a course and a link inside a UTILITY
+   * template. Meta's classifier will not read that as utility, and no fifth
+   * wording is going to change its mind.
+   *
+   * **Do not submit a fifth.** Four rejections is already a pattern on this
+   * account. What is left is a person (appeal in Business Manager), a
+   * different category (MARKETING, which needs consent nobody has), or a
+   * different channel — email is configured and works today.
+   *
+   * Kept here rather than deleted: whoever appeals will want the exact wording
+   * that was refused.
+   *
+   * Validity is text, not a variable — there is no expiry on the order and one
+   * fewer variable is one fewer thing for a reviewer to object to. If access
+   * ever really does lapse at a year, this needs a real date.
+   */
+  /**
+   * The same message, in the category Meta says it belongs to.
+   *
+   * Submitted as MARKETING on the theory that INCORRECT_CATEGORY meant "this
+   * is marketing, not utility". **Rejected in seconds, INCORRECT_CATEGORY
+   * again** — the same code, for the opposite category.
+   *
+   * So the code does not mean what it appears to. A refusal that is identical
+   * whether the template claims UTILITY or MARKETING is not a statement about
+   * the category at all: either the classifier cannot place this content, or
+   * near-identical text that has already been refused four times is being
+   * turned away on sight. Both readings say the same thing — resubmitting
+   * variations of this message is finished as a strategy.
+   *
+   * Five rejected course templates now sit on this account. Do not add a
+   * sixth. The remaining routes are an appeal, or another channel entirely.
+   *
+   * Kept rather than deleted so whoever appeals has the exact wording and the
+   * exact history: same body, two categories, one verdict.
+   */
+  course_order_confirmation_v2: {
+    name: "course_order_confirmation_v2",
+    category: "MARKETING",
+    body: `ഹായ് {{1}} 🙏
+നിങ്ങളുടെ കോഴ്‌സ് ഓർഡർ സ്ഥിരീകരിച്ചു ✅
+
+ഓർഡർ നമ്പർ: {{2}}
+കോഴ്‌സ്: {{3}}
+തുക: ₹0 — Neuro Code ബുക്കിനൊപ്പം സൗജന്യം
+വാലിഡിറ്റി: 1 വർഷം
+
+ലോഗിൻ ചെയ്യാൻ നിങ്ങളുടെ മൊബൈൽ നമ്പർ {{4}} മാത്രം മതി — പാസ്‌വേഡ് വേണ്ട.
+
+${SIGNATURE}`,
+    example: [
+      "Asraf",
+      "ORD-K3523P",
+      "Neuro Linguistic Programming",
+      "9847759381",
+    ],
+    params: (c) => [c.customerName, c.orderNumber, c.courseTitle, c.loginPhone],
+    buttons: [
+      {
+        type: "URL",
+        text: "View Now",
+        url: `${PUBLIC_BASE}/courses/nlp`,
+        example: `${PUBLIC_BASE}/courses/nlp`,
+      },
+      { type: "QUICK_REPLY", text: "Need Help" },
+    ],
+  },
+
+  course_order_confirmation: {
+    name: "course_order_confirmation",
+    category: "UTILITY",
+    body: `ഹായ് {{1}} 🙏
+നിങ്ങളുടെ കോഴ്‌സ് ഓർഡർ സ്ഥിരീകരിച്ചു ✅
+
+ഓർഡർ നമ്പർ: {{2}}
+കോഴ്‌സ്: {{3}}
+തുക: ₹0 — Neuro Code ബുക്കിനൊപ്പം സൗജന്യം
+വാലിഡിറ്റി: 1 വർഷം
+
+ലോഗിൻ ചെയ്യാൻ നിങ്ങളുടെ മൊബൈൽ നമ്പർ {{4}} മാത്രം മതി — പാസ്‌വേഡ് വേണ്ട.
+
+${SIGNATURE}`,
+    example: [
+      "Asraf",
+      "ORD-K3523P",
+      "Neuro Linguistic Programming",
+      "9847759381",
+    ],
+    params: (c) => [c.customerName, c.orderNumber, c.courseTitle, c.loginPhone],
+    buttons: [
+      {
+        type: "URL",
+        text: "View Now",
+        url: `${PUBLIC_BASE}/courses/nlp`,
+        example: `${PUBLIC_BASE}/courses/nlp`,
+      },
+      { type: "QUICK_REPLY", text: "Need Help" },
+    ],
+  },
+
   /**
    * A delivery held up by something wrong with the address.
    *
@@ -430,16 +618,41 @@ export const CAMPAIGN_TEMPLATES: Record<string, CampaignTemplateDef> = {
   payment_reminder_1: {
     name: "payment_reminder_1",
     category: "MARKETING",
+    // The shop's own wording, in full. The one line added is the last
+    // sentence: theirs ends on "if you want to know more about the book",
+    // which is a lead-in with nothing to lead to — it has to point at the
+    // button or it reads as a message that was cut off.
     body: `ഹായ് {{1}} 🙏
-നിങ്ങളുടെ Neuro Code ഓർഡർ {{2}} പൂർത്തിയായിട്ടില്ല എന്ന് കാണുന്നു.
+Neuro code വാങ്ങാൻ തടസ്സം നേരിട്ടതിൽ ഖേദം പ്രകടിപ്പിക്കുന്നു
 
-പേയ്‌മെന്റ് പൂർത്തിയാക്കാൻ സഹായം വേണമെങ്കിൽ ഈ മെസ്സേജിന് മറുപടി അയച്ചാൽ മതി.
+Neuro code വാങ്ങാൻ താല്പര്യം കാണിച്ചതിലുള്ള നന്ദി അറിയിക്കുന്നു.
+
+പുസ്തകവുമായി ബന്ധപ്പെട്ട കൂടുതൽ കാര്യങ്ങൾ അറിയാനുണ്ടെങ്കിൽ താഴെയുള്ള button ഉപയോഗിക്കൂ.
 
 ഇനി ഇത്തരം മെസ്സേജുകൾ വേണ്ടെങ്കിൽ "വേണ്ട" എന്ന് മറുപടി അയക്കുക.
 
 ${SIGNATURE}`,
-    example: ["Asraf", "ORD-K3523P"],
-    params: (c) => [c.customerName, c.orderNumber],
+    // One variable now. The order number left with the old wording, which
+    // referred to it; a variable a template does not mention cannot stay,
+    // because Meta requires them to run 1..n with nothing skipped.
+    example: ["Asraf"],
+    params: (c) => [c.customerName],
+    // Malayalam throughout, matching the body. The other templates keep
+    // English button text — that was the original brief — but a fully
+    // Malayalam message with English buttons under it reads as two messages.
+    //
+    // Counted in code points by validateButtons(), which is what Meta counts:
+    // the longest of these is 19 of the 25 allowed.
+    buttons: [
+      {
+        type: "URL",
+        text: "ഓർഡർ പൂർത്തിയാക്കാൻ",
+        url: `${PUBLIC_BASE}/neuro-code`,
+        example: `${PUBLIC_BASE}/neuro-code`,
+      },
+      { type: "QUICK_REPLY", text: "കൂടുതൽ അറിയാൻ" },
+      { type: "QUICK_REPLY", text: "സഹായം വേണം" },
+    ],
   },
 
   /**
@@ -449,18 +662,227 @@ ${SIGNATURE}`,
   payment_failed_1: {
     name: "payment_failed_1",
     category: "MARKETING",
+    // Same wording as the reminder above, as asked. The two used to differ —
+    // "your payment failed, the bank will refund it" against "you did not
+    // finish" — and that distinction is now carried only by which segment
+    // each campaign targets, not by the copy.
     body: `ഹായ് {{1}} 🙏
-നിങ്ങളുടെ ഓർഡർ {{2}}-ന്റെ പേയ്‌മെന്റ് പരാജയപ്പെട്ടതായി കണ്ടു. പണം കുറഞ്ഞിട്ടുണ്ടെങ്കിൽ അത് ബാങ്ക് തിരികെ നൽകുന്നതാണ്.
+Neuro code വാങ്ങാൻ തടസ്സം നേരിട്ടതിൽ ഖേദം പ്രകടിപ്പിക്കുന്നു
 
-വീണ്ടും ശ്രമിക്കാൻ സഹായം വേണമെങ്കിൽ ഈ മെസ്സേജിന് മറുപടി അയക്കൂ.
+Neuro code വാങ്ങാൻ താല്പര്യം കാണിച്ചതിലുള്ള നന്ദി അറിയിക്കുന്നു.
+
+പുസ്തകവുമായി ബന്ധപ്പെട്ട കൂടുതൽ കാര്യങ്ങൾ അറിയാനുണ്ടെങ്കിൽ താഴെയുള്ള button ഉപയോഗിക്കൂ.
 
 ഇനി ഇത്തരം മെസ്സേജുകൾ വേണ്ടെങ്കിൽ "വേണ്ട" എന്ന് മറുപടി അയക്കുക.
 
 ${SIGNATURE}`,
-    example: ["Asraf", "ORD-K3523P"],
-    params: (c) => [c.customerName, c.orderNumber],
+    example: ["Asraf"],
+    params: (c) => [c.customerName],
+    buttons: [
+      {
+        type: "URL",
+        text: "വീണ്ടും ശ്രമിക്കാൻ",
+        url: `${PUBLIC_BASE}/neuro-code`,
+        example: `${PUBLIC_BASE}/neuro-code`,
+      },
+      { type: "QUICK_REPLY", text: "കൂടുതൽ അറിയാൻ" },
+      { type: "QUICK_REPLY", text: "സഹായം വേണം" },
+    ],
   },
 };
+
+/**
+ * The Neuro Code flow templates.
+ *
+ * Eight templates that start or continue a conversation, each ending in
+ * buttons the customer taps. What happens next lives in `lib/crm/flows.ts`,
+ * keyed on the button id — not on the button text, which is repeated across
+ * flows ("Need Help" appears in three) and would route three different
+ * conversations to the same place.
+ *
+ * Bodies are **verbatim** from the approved brief and must stay that way: what
+ * is in this file has to equal what Meta approved, character for character, or
+ * the send is rejected at the wire. That is also why no signature is appended
+ * here, unlike CAMPAIGN_TEMPLATES above.
+ *
+ * Language is `ml`. There is no `ml_IN` in Meta's list, whatever a brief says.
+ *
+ * Six of the eight are MARKETING, which the gate refuses to anyone without
+ * `marketing_opt_in_at`. `lib/crm/tags.ts` sets that when somebody taps a
+ * button only an interested person taps — see noteMarketingOptIn().
+ */
+export const FLOW_TEMPLATES: Record<string, CampaignTemplateDef> = {
+  /** First contact. The only template that opens a conversation cold. */
+  neuro_interest_intro: {
+    name: "neuro_interest_intro",
+    category: "MARKETING",
+    body: `ഹായ് {{1}}, Neuro Code പുസ്തകത്തിൽ താല്പര്യം കാണിച്ചതിന് നന്ദി.
+
+ഈ പുസ്തകത്തെ കുറിച്ച് കൂടുതൽ അറിയാനോ order ചെയ്യാനോ താഴെയുള്ള option തിരഞ്ഞെടുക്കൂ.
+
+Reply STOP to opt out.`,
+    example: ["രാഹുൽ"],
+    params: (c) => [c.customerName],
+    buttons: [
+      { type: "QUICK_REPLY", text: "More Details" },
+      { type: "QUICK_REPLY", text: "Buy Now" },
+      { type: "QUICK_REPLY", text: "Later" },
+    ],
+  },
+
+  /** Three days after they tapped Later. Scheduled, never sent by hand. */
+  neuro_later_reminder: {
+    name: "neuro_later_reminder",
+    category: "MARKETING",
+    body: `ഹായ് {{1}}, Neuro Code പുസ്തകത്തെ കുറിച്ച് നിങ്ങൾ പിന്നീട് അറിയിക്കാമെന്ന് പറഞ്ഞിരുന്നു.
+
+ഇപ്പോൾ order ചെയ്യണോ, അല്ലെങ്കിൽ കൂടുതൽ details വേണോ?
+
+Reply STOP to opt out.`,
+    example: ["രാഹുൽ"],
+    params: (c) => [c.customerName],
+    buttons: [
+      { type: "QUICK_REPLY", text: "Buy Now" },
+      { type: "QUICK_REPLY", text: "More Details" },
+      { type: "QUICK_REPLY", text: "Not Now" },
+    ],
+  },
+
+  /**
+   * Did it actually arrive?
+   *
+   * The one template that earns its place twice over: a courier scan says a
+   * parcel was delivered, and this is the only thing that asks the person
+   * holding it.
+   */
+  neuro_delivery_confirmed: {
+    name: "neuro_delivery_confirmed",
+    category: "UTILITY",
+    body: `ഹായ് {{1}}, നിങ്ങളുടെ Neuro Code book delivery completed ആയി എന്ന് ഞങ്ങൾ കാണുന്നു.
+
+Book ലഭിച്ചോ എന്ന് confirm ചെയ്യാമോ?`,
+    example: ["രാഹുൽ"],
+    params: (c) => [c.customerName],
+    buttons: [
+      { type: "QUICK_REPLY", text: "Received" },
+      { type: "QUICK_REPLY", text: "Not Received" },
+      { type: "QUICK_REPLY", text: "Need Help" },
+    ],
+  },
+
+  neuro_reading_followup_10d: {
+    name: "neuro_reading_followup_10d",
+    category: "MARKETING",
+    body: `ഹായ് {{1}}, Neuro Code book ലഭിച്ചിട്ട് ഏകദേശം 10 ദിവസം കഴിഞ്ഞു.
+
+വായന നന്നായി പുരോഗമിക്കുന്നുണ്ടെന്ന് വിശ്വസിക്കുന്നു. Course കേൾക്കാനും activities ചെയ്യാനും സമയം കണ്ടെത്തുമല്ലോ.
+
+Reading status അറിയിക്കൂ.`,
+    example: ["രാഹുൽ"],
+    params: (c) => [c.customerName],
+    buttons: [
+      { type: "QUICK_REPLY", text: "Going Good" },
+      { type: "QUICK_REPLY", text: "Read Little" },
+      { type: "QUICK_REPLY", text: "Not Started" },
+    ],
+  },
+
+  neuro_reading_encouragement: {
+    name: "neuro_reading_encouragement",
+    category: "MARKETING",
+    body: `ഹായ് {{1}}, Neuro Code വായന എങ്ങനെയാണ് പോകുന്നത്?
+
+ദിവസവും കുറച്ച് സമയം മാത്രം മാറ്റിവെച്ചാലും നല്ല progress ഉണ്ടാകും.`,
+    example: ["രാഹുൽ"],
+    params: (c) => [c.customerName],
+    buttons: [
+      { type: "QUICK_REPLY", text: "Started" },
+      { type: "QUICK_REPLY", text: "Need Help" },
+      { type: "QUICK_REPLY", text: "Later" },
+    ],
+  },
+
+  /** Thirty days on, in Bisher's own voice. The only one that says who it is from. */
+  neuro_feedback_30d: {
+    name: "neuro_feedback_30d",
+    category: "MARKETING",
+    body: `ഹായ് {{1}}, ബിഷർ സർ ആണ്.
+
+Neuro Code വായന എങ്ങനെയുണ്ട്? നിങ്ങൾ നൽകിയ തുകയ്ക്ക് value ഉണ്ടെന്ന് തോന്നിയോ? ജീവിതത്തിൽ എന്തെങ്കിലും positive മാറ്റം അനുഭവപ്പെട്ടോ?
+
+നിങ്ങളുടെ honest feedback അറിയാൻ ആഗ്രഹിക്കുന്നു.`,
+    example: ["രാഹുൽ"],
+    params: (c) => [c.customerName],
+    buttons: [
+      { type: "QUICK_REPLY", text: "Give Feedback" },
+      { type: "QUICK_REPLY", text: "Recommend" },
+      { type: "QUICK_REPLY", text: "Still Reading" },
+    ],
+  },
+
+  neuro_referral_followup: {
+    name: "neuro_referral_followup",
+    category: "MARKETING",
+    body: `ഹായ് {{1}}, Neuro Code മറ്റൊരാൾക്ക് recommend ചെയ്യാൻ നിങ്ങൾ താല്പര്യം കാണിച്ചിരുന്നു.
+
+Referral details അയക്കാമോ?`,
+    example: ["രാഹുൽ"],
+    params: (c) => [c.customerName],
+    buttons: [
+      { type: "QUICK_REPLY", text: "Send Details" },
+      { type: "QUICK_REPLY", text: "Share Link" },
+      { type: "QUICK_REPLY", text: "Not Now" },
+    ],
+  },
+};
+
+/**
+ * The Meta creation payload for one template.
+ *
+ * What `POST /<WABA_ID>/message_templates` wants. Generated rather than
+ * hand-written so the JSON submitted for approval and the text this app sends
+ * cannot drift — which is the failure that ends with Meta approving one
+ * wording and the app sending another.
+ */
+export function metaTemplatePayload(def: CampaignTemplateDef): Record<string, unknown> {
+  const components: Record<string, unknown>[] = [
+    {
+      type: "BODY",
+      text: def.body,
+      // Meta rejects a template with variables and no example, without review.
+      ...(variableCount(def.body) > 0
+        ? { example: { body_text: [def.example] } }
+        : {}),
+    },
+  ];
+
+  if (def.buttons?.length) {
+    components.push({
+      type: "BUTTONS",
+      // `example` is the whole URL filled in, and belongs only on a button
+      // whose URL actually varies — the same rule componentsFor() in
+      // scripts/whatsapp-templates.ts follows. An example on a static button
+      // is a rejection nobody enjoys diagnosing.
+      buttons: def.buttons.map((b) =>
+        b.type === "QUICK_REPLY"
+          ? { type: "QUICK_REPLY", text: b.text }
+          : {
+              type: "URL",
+              text: b.text,
+              url: b.url,
+              ...(b.param ? { example: [b.example] } : {}),
+            }
+      ),
+    });
+  }
+
+  return {
+    name: def.name,
+    language: TEMPLATE_LANGUAGE,
+    category: def.category,
+    components,
+  };
+}
 
 /** How many {{n}} placeholders a body actually contains. */
 export function variableCount(body: string): number {
@@ -584,6 +1006,32 @@ function validateButtons(def: TemplateDef): string[] {
     }
   }
 
+  /**
+   * A variable URL button must come before any static one.
+   *
+   * This guards a real trap rather than a Meta rule. At send time each
+   * variable button needs a component carrying its index, and `buttonParams`
+   * is a flat list of the variable ones — so the index sent is the button's
+   * position among *variable* buttons, not its position in the template. With
+   * the variable button first those two numbers agree. Put a static button in
+   * front of it and they stop agreeing, Meta is told to fill button 0 when the
+   * variable is on button 1, and the send is rejected outright.
+   *
+   * Cheap to obey, and the failure it prevents looks like "the template is
+   * broken" rather than "the buttons are in the wrong order".
+   */
+  const urlButtons = buttons.filter((b) => b.type === "URL");
+  const firstStatic = urlButtons.findIndex((b) => b.type === "URL" && !b.param);
+  const lastVariable = urlButtons
+    .map((b) => b.type === "URL" && !!b.param)
+    .lastIndexOf(true);
+  if (firstStatic !== -1 && lastVariable > firstStatic) {
+    problems.push(
+      `${def.name}: a URL button with a variable must come before any static ` +
+        `URL button — otherwise the wrong button index is sent`
+    );
+  }
+
   return problems;
 }
 
@@ -601,6 +1049,12 @@ export function validateAllTemplates(): string[] {
     // Campaign templates share the shape, so they share the rules. A campaign
     // body that starts with a variable is rejected exactly as an order one is.
     ...Object.values(CAMPAIGN_TEMPLATES).map(
+      (c): TemplateDef => ({ ...c, params: () => c.example })
+    ),
+    // Same shape, same rules. Their button text is checked against the 25
+    // character template limit here; the 20-character limit on an interactive
+    // reply button is a different rule and lives in lib/crm/flows.ts.
+    ...Object.values(FLOW_TEMPLATES).map(
       (c): TemplateDef => ({ ...c, params: () => c.example })
     ),
   ].flatMap(validateTemplate);

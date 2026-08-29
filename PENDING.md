@@ -128,6 +128,136 @@ npm run check-env              # local
 npm run check-env -- --vercel  # as production values
 ```
 
+## 🔴 Nothing runs on a timer — and three things depend on one
+
+There is no `crons` block in `vercel.json` and `CRON_SECRET` is unset, so every
+scheduled job in this repo refuses to run or is never called. Three separate
+symptoms, one cause:
+
+- `/api/cron/whatsapp-health` has never run, so `whatsapp_template_status` is
+  empty. That is what refused eight real order.shipped notifications on
+  2026-08-28 with "no approved Malayalam version on record" while the template
+  was approved. The gate now tells the two states apart (`e83dcee`) and allows
+  the send — but until the cron runs it is checking nothing.
+- `/api/cron/courier-poll` refuses outright (`CRON_SECRET is unset`), so 674
+  parcels KKR has already uploaded never learn their waybill.
+- Any CRM automation worker would be dead on arrival.
+
+- [ ] Add `crons` to `vercel.json` and set `CRON_SECRET` locally and on Vercel
+- [ ] Run the health cron once; confirm `whatsapp_template_status` fills
+- [ ] Decide whether to re-send the 96 refused notifications, or let them go
+
+## 🟡 Neuro Code CRM automation — built, needs three things to run
+
+Button routing, tags, scheduled follow-ups and eight templates are implemented.
+What shipped and why, plus the Meta JSON:
+[docs/neuro-crm-automation-plan.md](./docs/neuro-crm-automation-plan.md).
+
+- [ ] Apply `0053_crm_automation.sql` — without it tags read empty and
+      follow-ups silently fail to queue, which is worse than an error
+- [ ] Set `CRON_SECRET` (see the section above) — the worker refuses to run
+- [ ] `npm run whatsapp:templates push-flows`, wait for approval, then run the
+      health cron so `whatsapp_template_status` catches up
+- [x] **Submitted and approved 2026-08-29.** All seven conversation-flow
+      templates are APPROVED, and so is `neuro_order_receipt` — the split
+      confirmation with a Track Order button and a Need Help reply, which
+      `lib/notify.ts` now sends. `payment_reminder_1` and `payment_failed_1`
+      went up with them and are in review
+- [x] `/admin/templates` now shows every registry — automatic, flow, campaign,
+      draft — plus anything Meta holds that no code sends, filtered by status
+      and by kind. It showed two registries of four before, so the seven flow
+      templates existed and appeared nowhere
+- [ ] 🔴 **Appeal `bonus_course_access` in Meta Business Manager.** The course
+      access message has now been rejected twice — once as `course_access`
+      with the original wording, once as `bonus_course_access` with the
+      careful rewording. Same reason both times, in seconds, without human
+      review. It is not the wording: the classifier reads "a course and a
+      link" as marketing however it is framed. **Course access has therefore
+      never sent to anybody.** Appeal is the only path that puts a person in
+      front of it; a third resubmission would just be guessing at a classifier
+      - If the appeal fails: accept MARKETING for that one message (and the
+        consent it needs), or deliver course access off WhatsApp
+- [x] **Held `course_access` 2026-08-29.** It no longer attempts a WhatsApp
+      send on purchase — five templates were refused, so every purchase was
+      spending a Graph call to be rejected and writing a failed row that read
+      like an outage. The notification log now records `skipped` with the
+      reason. Course access itself is unaffected: the grant is a database
+      write and customers still log in with their mobile number
+      - Found while doing it: `isHeld` guarded two of the three routes to the
+        wire, and the unguarded one was `notifyCourseAccess` — the path every
+        purchase takes. Holding the event would have changed nothing. Fixed
+      - Lifting it is one line: remove `"course_access"` from `HELD_EVENTS`
+- [ ] 🔴 **Course access still needs a channel. Decide which.**
+      Four templates, four instant INCORRECT_CATEGORY rejections, no human
+      review: `course_access`, `bonus_course_access`,
+      `neuro_order_confirm_track` and now `course_order_confirmation` — the
+      last written as a receipt with an order number, ₹0 and a validity.
+      `course_order_confirmation_v2` then went up as **MARKETING** — the same
+      body, the opposite category — and came back with the **same
+      INCORRECT_CATEGORY code in seconds**. So the code does not mean what it
+      says: a refusal identical across both categories is not about the
+      category. Either the classifier cannot place this content, or text
+      refused four times is now turned away on sight.
+      **Five rejected course templates are on the account. Do not add a
+      sixth.** Two ways forward:
+      - **Appeal** `course_order_confirmation` in Meta Business Manager — the
+        only route to a human, and the receipt framing is the best case to put
+        in front of one
+      - **Email it instead.** Resend is already configured, and course access
+        is not time-critical the way a delivery update is. Fastest unblock
+      (Re-categorising is no longer one of them — it was tried and refused.)
+- [ ] 🔴 **Decide the marketing-consent rule, or no campaign can ever run.**
+      Three campaigns are queued as drafts and every recipient in all three
+      would be refused: `marketing_opt_in_at` is null on all 228 contacts, and
+      gate check 06 refuses a MARKETING template without it. It is a deadlock,
+      not a backlog — consent is only granted by tapping a button inside a
+      marketing message, and that message cannot be sent without consent
+      - **(a)** Treat giving us a number at checkout as consent for
+        order-related nudges. They started a purchase; the message is about
+        that purchase. One condition in `assertSendable`
+      - **(b)** Leave it strict, and accept that these three never send
+      Do not change this quietly — it is the rule the number's health rests on
+- [ ] Apply `0054_whatsapp_media.sql`. Customers have already sent 3 photos,
+      3 voice notes and a sticker to this number and the CRM showed "(image)"
+      in italics for every one — the webhook read Meta's `type` and threw away
+      the media id beside it, so there was nothing to fetch back. Captured and
+      rendered now, but **the seven that already arrived are unrecoverable**:
+      their ids were never stored, and Meta has no way to look up a past
+      message's media. New ones work from the moment the migration is applied
+- [ ] 🔴 **Do not deploy until `neuro_order_receipt` is APPROVED.** It gained
+      an "Order Details" button and is back in review. The code now sends two
+      button parameters; the version live at Meta has one variable button, so
+      a deploy before approval makes **every order confirmation fail**. Nothing
+      is deployed yet, so today there is no exposure — the risk starts at the
+      deploy. Check with `npm run whatsapp:templates list`
+- [x] **`?view=details` is a real page now.** The two confirmation buttons no
+      longer land in the same place: Order Details shows the order in full
+      (copies, gift, signed, delivery address), the course with its login
+      instructions, how to read the book — all in Malayalam — and the tracking
+      link last. Course access appears only on a paid order
+      - It is also where course access now lives at all, since the WhatsApp
+        announcement for it is held
+- [ ] 🔴 **Re-run the campaign template edit after 2026-08-30.** The new
+      Malayalam wording and the three Malayalam buttons
+      (`ഓർഡർ പൂർത്തിയാക്കാൻ` / `വീണ്ടും ശ്രമിക്കാൻ` · `കൂടുതൽ അറിയാൻ` ·
+      `സഹായം വേണം`) are written and validated, but Meta refused the edit:
+      **"You can only edit an active template once in 24 hours"** — both were
+      already edited earlier the same day. One command tomorrow:
+
+      ```
+      npm run whatsapp:templates edit payment_reminder_1 payment_failed_1
+      ```
+
+      **Until that edit is approved, do not start those two campaigns.** The
+      version at Meta still expects two variables and the code now sends one,
+      so every send would be rejected. They cannot run anyway while the
+      marketing-consent question above is open, so there is no hurry — but the
+      two facts are independent and only one of them is obvious
+- [ ] Decide: `neuro_delivery_confirmed` duplicates the `delivered` template
+      `lib/notify.ts` already sends. Nothing sends it until one is retired
+- [ ] Vercel **Pro** is needed for four crons at 15-minute intervals; Hobby
+      allows two, daily
+
 ## 🟠 WhatsApp — nothing sends until the Make scenario exists
 
 Sending now goes through a Make.com scenario, not the Meta API directly: the app

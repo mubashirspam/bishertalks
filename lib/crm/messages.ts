@@ -23,11 +23,18 @@ export interface Message {
   sent_by: string | null;
   campaign_id: string | null;
   created_at: string;
+  /** 0054. Absent on a database that has not applied it — see listThread. */
+  media_id?: string | null;
+  media_mime?: string | null;
+  media_filename?: string | null;
 }
 
 const COLUMNS =
   "id, contact_id, direction, wamid, kind, body, template_name, status, " +
   "error, error_code, sent_by, campaign_id, created_at";
+
+/** The same, plus what 0054 added. Selected only where a failure is survivable. */
+const COLUMNS_WITH_MEDIA = COLUMNS + ", media_id, media_mime, media_filename";
 
 /**
  * Store an inbound message.
@@ -40,6 +47,23 @@ export async function recordInbound(msg: {
   wamid: string;
   kind: string;
   body: string | null;
+  /**
+   * The button id the customer tapped, for a `button` message.
+   *
+   * Stored separately from the body because the body is what they *read* and
+   * this is what they *chose* — and only the second one can be routed on.
+   */
+  buttonPayload?: string | null;
+  /**
+   * Meta's media id, for a photo, voice note, video or document.
+   *
+   * Stored rather than resolved now: the URL it exchanges for expires in
+   * minutes, so fetching at write time would store something already dead by
+   * the time anybody opened the thread.
+   */
+  mediaId?: string | null;
+  mediaMime?: string | null;
+  mediaFilename?: string | null;
 }): Promise<boolean> {
   try {
     const { data, error } = await supabaseAdmin
@@ -50,6 +74,10 @@ export async function recordInbound(msg: {
         wamid: msg.wamid,
         kind: msg.kind,
         body: msg.body,
+        button_payload: msg.buttonPayload ?? null,
+        media_id: msg.mediaId ?? null,
+        media_mime: msg.mediaMime ?? null,
+        media_filename: msg.mediaFilename ?? null,
       })
       .select("id")
       .maybeSingle();
@@ -72,9 +100,12 @@ export async function recordInbound(msg: {
 export async function recordOutbound(msg: {
   contactId: string;
   wamid?: string | null;
-  kind: "text" | "template";
+  kind: "text" | "template" | "interactive";
   body: string | null;
   templateName?: string | null;
+  /** For an interactive send, the button ids offered — so a reply can be read
+   * back against what was actually on screen. */
+  buttonPayload?: string | null;
   status: "sent" | "failed";
   error?: string | null;
   errorCode?: number | null;
@@ -91,6 +122,7 @@ export async function recordOutbound(msg: {
         kind: msg.kind,
         body: msg.body,
         template_name: msg.templateName ?? null,
+        button_payload: msg.buttonPayload ?? null,
         status: msg.status,
         error: msg.error ?? null,
         error_code: msg.errorCode ?? null,
@@ -164,13 +196,29 @@ export async function applyReceipt(
 
 /** One conversation, oldest first — the order a thread reads in. */
 export async function listThread(contactId: string, limit = 200): Promise<Message[]> {
-  const { data } = await supabaseAdmin
-    .from("whatsapp_messages")
-    .select(COLUMNS)
-    .eq("contact_id", contactId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  return ((data ?? []) as unknown as Message[]).reverse();
+  const read = (columns: string) =>
+    supabaseAdmin
+      .from("whatsapp_messages")
+      .select(columns)
+      .eq("contact_id", contactId)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+  let result = await read(COLUMNS_WITH_MEDIA);
+
+  // Migrations here are applied by hand, and selecting a column that does not
+  // exist fails the whole query — so a database still on 0053 would show an
+  // empty conversation rather than one without pictures. Falling back costs a
+  // second round trip on exactly the deployments that need it.
+  if (result.error) {
+    console.warn(
+      "[CRM] thread read fell back — apply migration 0054 for media:",
+      result.error.message
+    );
+    result = await read(COLUMNS);
+  }
+
+  return ((result.data ?? []) as unknown as Message[]).reverse();
 }
 
 export async function bumpUnread(contactId: string, lastInboundAt: string): Promise<void> {
@@ -236,3 +284,33 @@ export async function listMessages(f: LogFilters = {}): Promise<LogRow[]> {
   }
   return (data ?? []) as unknown as LogRow[];
 }
+
+/**
+ * The last template we sent this contact, if any.
+ *
+ * The lookup that makes template quick replies routable. Meta gives us the
+ * button's title and nothing else — no id, no template name — so "Need Help"
+ * arrives identical from three different flows. The template that went out
+ * most recently is what places it.
+ *
+ * Not perfect, and the imperfection is worth naming: a customer who taps a
+ * button on a message from a fortnight ago, after a newer template has been
+ * sent, is routed against the newer one. That is rare, it is always a stale
+ * tap, and the alternative — guessing from the title alone — is wrong far more
+ * often.
+ */
+export async function lastTemplateSent(contactId: string): Promise<string | null> {
+  const { data } = await supabaseAdmin
+    .from("whatsapp_messages")
+    .select("template_name")
+    .eq("contact_id", contactId)
+    .eq("direction", "out")
+    .eq("status", "sent")
+    .not("template_name", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return (data as { template_name?: string } | null)?.template_name ?? null;
+}
+

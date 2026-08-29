@@ -268,6 +268,110 @@ export async function sendTemplate(send: TemplateSend): Promise<SendResult> {
   }
 }
 
+/** One tappable reply button. `id` is what comes back on the webhook. */
+export interface ReplyButton {
+  /** `<flow>:<action>`, max 256 chars. Match on this, never on the title. */
+  id: string;
+  /** What the customer reads. Meta caps this at **20** characters. */
+  title: string;
+}
+
+/**
+ * Send a message with reply buttons, inside the 24-hour window.
+ *
+ * The third wire shape, and the one the flow replies need: a template's
+ * buttons are fixed at approval time, so anything that branches on what the
+ * customer just tapped has to be sent as an interactive message instead.
+ *
+ * Same window rule as sendText — Meta answers 131047 outside it — which the
+ * gate checks first so the caller gets a sentence rather than a code. In
+ * practice a flow reply is always inside it, because the tap that triggered it
+ * opened the window a second ago.
+ *
+ * Meta's limits, enforced here rather than discovered in production: at most
+ * three buttons, titles of 20 characters (not the template button's 25), and
+ * ids unique within the message. A title over 20 is rejected outright, so it
+ * is truncated — a slightly short button beats no message at all.
+ */
+export async function sendInteractive(send: {
+  to: string;
+  body: string;
+  buttons: ReplyButton[];
+}): Promise<SendResult> {
+  const config = whatsappConfig();
+  if (!config) {
+    return { ok: false, error: "WhatsApp not configured", retryable: false };
+  }
+
+  const text = send.body.trim();
+  if (!text) return { ok: false, error: "Message is empty", retryable: false };
+  if (!send.buttons.length) {
+    return { ok: false, error: "No buttons to send", retryable: false };
+  }
+
+  const buttons = send.buttons.slice(0, 3).map((b) => ({
+    type: "reply",
+    reply: { id: b.id.slice(0, 256), title: b.title.slice(0, 20) },
+  }));
+
+  try {
+    const res = await fetch(
+      `${GRAPH}/${API_VERSION}/${config.phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: send.to,
+          type: "interactive",
+          interactive: {
+            type: "button",
+            // 1024 is Meta's cap on an interactive body.
+            body: { text: text.slice(0, 1024) },
+            action: { buttons },
+          },
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }
+    );
+
+    const json = (await res.json().catch(() => ({}))) as {
+      messages?: { id: string }[];
+      error?: { message?: string; code?: number; error_data?: { details?: string } };
+    };
+
+    if (!res.ok || json.error) {
+      const code = json.error?.code;
+      const hint = code !== undefined ? ERROR_HINTS[code] : undefined;
+      const error = [
+        json.error?.message ?? `HTTP ${res.status}`,
+        json.error?.error_data?.details,
+        hint ? `(${hint})` : null,
+      ]
+        .filter(Boolean)
+        .join(" — ");
+
+      console.error("[WhatsApp] interactive send failed:", send.to, error);
+      return {
+        ok: false,
+        error: error.slice(0, 1000),
+        code,
+        retryable: code !== undefined ? RETRYABLE.has(code) : res.status >= 500,
+      };
+    }
+
+    return { ok: true, messageId: json.messages?.[0]?.id };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Request failed";
+    console.error("[WhatsApp] interactive send error:", error);
+    return { ok: false, error, retryable: true };
+  }
+}
+
 /**
  * Send free text, inside the 24-hour customer service window.
  *

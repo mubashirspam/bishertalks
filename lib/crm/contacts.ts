@@ -26,6 +26,9 @@ export interface Contact {
   assigned_to: string | null;
   failed_streak: number;
   notes: string | null;
+  // Note: 0053's `tags`, `current_stage` and `source` are deliberately absent
+  // from this type and from the SELECT below. See crmFieldsFor() in
+  // lib/crm/tags.ts for why they are read separately.
   created_at: string;
 }
 
@@ -33,6 +36,12 @@ const COLUMNS =
   "id, phone, display_name, user_id, last_order_number, opt_out_at, " +
   "opt_out_reason, opt_out_source, marketing_opt_in_at, last_inbound_at, " +
   "last_outbound_at, unread_count, assigned_to, failed_streak, notes, created_at";
+
+// 0053's columns are deliberately NOT in that list. Selecting a column that
+// does not exist fails the whole query, and this one is read by the webhook on
+// every inbound message — so a database still on 0052 would stop receiving
+// customer messages to show a tag. Read them through crmFieldsFor() in
+// lib/crm/tags.ts, which returns empty rather than throwing.
 
 /**
  * Find or create the contact for a phone number.

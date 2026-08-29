@@ -3,8 +3,9 @@ import { resolveSegment, type Segment, type SegmentResult } from "@/lib/crm/segm
 import { upsertContact, getSettings, getContact } from "@/lib/crm/contacts";
 import { sendTemplateMessage } from "@/lib/crm/send";
 import { latestHealth } from "@/lib/crm/health";
-import { CAMPAIGN_TEMPLATES } from "@/lib/whatsapp-templates";
+import { CAMPAIGN_TEMPLATES, FLOW_TEMPLATES } from "@/lib/whatsapp-templates";
 import { TEMPLATE_LANGUAGE } from "@/lib/whatsapp-templates";
+import type { SegmentMember } from "@/lib/crm/segments";
 
 /**
  * Campaigns: a queue, a worker, and the rules that stop them.
@@ -43,6 +44,100 @@ const COLUMNS =
   "sent_count, failed_count, refused_count, optout_count, created_by_email, " +
   "started_at, finished_at, created_at";
 
+/**
+ * Templates a campaign may send.
+ *
+ * Both registries, because the split between them is about where a template
+ * was written, not about what it can be used for. `neuro_interest_intro` is a
+ * MARKETING template whose entire purpose is to open a conversation with
+ * somebody who has not bought — which is a campaign — and looking only at
+ * CAMPAIGN_TEMPLATES made it unusable for one.
+ */
+export function campaignTemplate(name: string) {
+  return CAMPAIGN_TEMPLATES[name] ?? FLOW_TEMPLATES[name] ?? null;
+}
+
+/** Every template a campaign could be built on, for the composer. */
+export function campaignTemplateNames(): string[] {
+  return [...Object.keys(CAMPAIGN_TEMPLATES), ...Object.keys(FLOW_TEMPLATES)];
+}
+
+/**
+ * Who has already had this exact template, ever.
+ *
+ * The duplicate rule that matters and did not exist. The gate stops a contact
+ * getting campaign messages too *often* — a frequency cap — but nothing stopped
+ * the same wording reaching the same person twice from two campaigns a month
+ * apart, which is the version a customer actually notices and complains about.
+ *
+ * Applied when the queue is built rather than at send time, so the recipient
+ * count on screen is the real one, and so a legitimate repeat scheduled by the
+ * automation worker is untouched.
+ */
+async function alreadySent(
+  contactIds: string[],
+  templateName: string
+): Promise<Set<string>> {
+  const seen = new Set<string>();
+  const ids = contactIds.filter(Boolean);
+  if (!ids.length) return seen;
+
+  const CHUNK = 300;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("contact_id")
+      .eq("direction", "out")
+      .eq("template_name", templateName)
+      .eq("status", "sent")
+      .in("contact_id", ids.slice(i, i + CHUNK));
+
+    if (error) {
+      // Fail closed on a read error would mean messaging everybody twice.
+      // Fail *open* here instead — treat everyone as already-sent — because a
+      // campaign that sends nothing is recoverable and one that double-sends
+      // to 400 people is not.
+      console.error("[CRM] duplicate check failed:", error.message);
+      for (const id of ids) seen.add(id);
+      return seen;
+    }
+    for (const row of (data ?? []) as { contact_id: string }[]) seen.add(row.contact_id);
+  }
+  return seen;
+}
+
+/**
+ * The marketing-consent refusal, predicted before the campaign runs.
+ *
+ * The gate refuses a MARKETING template to anyone without
+ * `marketing_opt_in_at`, but it does that at send time — so a campaign could
+ * be created showing 400 recipients, started, and refuse all 400 one by one.
+ * The dry run has to say so up front, because the whole point of a dry run is
+ * that the number on screen is the number that will be messaged.
+ */
+async function withoutMarketingConsent(phones: string[]): Promise<number> {
+  if (!phones.length) return 0;
+  let missing = 0;
+  const CHUNK = 300;
+
+  for (let i = 0; i < phones.length; i += CHUNK) {
+    const slice = phones.slice(i, i + CHUNK);
+    const { data } = await supabaseAdmin
+      .from("whatsapp_contacts")
+      .select("phone, marketing_opt_in_at")
+      .in("phone", slice);
+
+    const optedIn = new Set(
+      ((data ?? []) as { phone: string; marketing_opt_in_at: string | null }[])
+        .filter((c) => c.marketing_opt_in_at)
+        .map((c) => c.phone)
+    );
+    // A phone with no contact row has never consented either.
+    missing += slice.filter((p) => !optedIn.has(p)).length;
+  }
+  return missing;
+}
+
 export async function listCampaigns(): Promise<Campaign[]> {
   const { data } = await supabaseAdmin
     .from("whatsapp_campaigns")
@@ -74,9 +169,45 @@ export async function dryRun(
   cap: number
 ): Promise<SegmentResult & { willSend: number; preview: string | null }> {
   const result = await resolveSegment(segment);
-  const template = CAMPAIGN_TEMPLATES[templateName];
+  const template = campaignTemplate(templateName);
 
-  const first = result.members[0];
+  const excluded = [...result.excluded];
+  let members = result.members;
+
+  if (template) {
+    // Already had this exact wording. Counted here so the number on screen is
+    // the number that gets messaged, not an optimistic ceiling.
+    const dupes = await alreadySent(
+      members.map((m) => m.contactId),
+      template.name
+    );
+    const before = members.length;
+    members = members.filter((m) => !m.contactId || !dupes.has(m.contactId));
+    if (before > members.length) {
+      excluded.push({
+        reason: "Already had this template",
+        count: before - members.length,
+      });
+    }
+
+    // The gate's category check, predicted. Without this a MARKETING campaign
+    // shows 400 recipients, starts, and refuses all 400 one at a time — the
+    // dry run's whole job is to make that visible before it happens.
+    if (template.category === "MARKETING") {
+      const missing = await withoutMarketingConsent(members.map((m) => m.phone));
+      if (missing > 0) {
+        excluded.push({
+          reason: "Would be refused — no marketing opt-in",
+          count: missing,
+        });
+      }
+      // Not filtered out of `members`: consent can arrive between now and the
+      // send, and a campaign queued today may legitimately run next week.
+      // Reported, so the decision is informed rather than made for somebody.
+    }
+  }
+
+  const first = members[0];
   const preview =
     template && first
       ? fillBody(template.body, template.params({
@@ -87,7 +218,9 @@ export async function dryRun(
 
   return {
     ...result,
-    willSend: Math.min(result.members.length, cap),
+    excluded,
+    members,
+    willSend: Math.min(members.length, cap),
     preview,
   };
 }
@@ -113,7 +246,7 @@ export async function createCampaign(input: {
   cap: number;
   createdBy: { id: string | null; email: string };
 }): Promise<{ ok: true; campaign: Campaign } | { ok: false; error: string }> {
-  const template = CAMPAIGN_TEMPLATES[input.templateName];
+  const template = campaignTemplate(input.templateName);
   if (!template) {
     return { ok: false, error: `Unknown template: ${input.templateName}` };
   }
@@ -121,6 +254,22 @@ export async function createCampaign(input: {
   const resolved = await resolveSegment(input.segment);
   if (!resolved.members.length) {
     return { ok: false, error: "That segment matches nobody who can be messaged." };
+  }
+
+  // Nobody gets the same wording twice, however many campaigns are built on it.
+  const dupes = await alreadySent(
+    resolved.members.map((m) => m.contactId),
+    template.name
+  );
+  const members: SegmentMember[] = resolved.members.filter(
+    (m) => !m.contactId || !dupes.has(m.contactId)
+  );
+
+  if (!members.length) {
+    return {
+      ok: false,
+      error: "Everyone in that segment has already had this template.",
+    };
   }
 
   const { data, error } = await supabaseAdmin
@@ -146,7 +295,7 @@ export async function createCampaign(input: {
 
   // Cap applied at queue time, not send time: the ceiling should be visible in
   // the queue itself, so nobody has to reason about what the worker will skip.
-  const chosen = resolved.members.slice(0, input.cap);
+  const chosen = members.slice(0, input.cap);
   const rows: { campaign_id: string; contact_id: string; order_number: string | null }[] = [];
 
   for (const m of chosen) {

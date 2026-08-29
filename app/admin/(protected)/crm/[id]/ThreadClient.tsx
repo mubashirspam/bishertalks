@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Lock, Ban, RotateCcw, AlertCircle, Check, CheckCheck } from "lucide-react";
+import { Send, Lock, Ban, RotateCcw, AlertCircle, Check, CheckCheck, Paperclip } from "lucide-react";
 
 /**
  * The conversation, and the box under it.
@@ -20,6 +20,10 @@ interface ThreadMessage {
   direction: "in" | "out";
   body: string | null;
   kind: string;
+  /** True when Meta has (or had) a file for this message — see MediaBubble. */
+  hasMedia?: boolean;
+  mediaMime?: string | null;
+  mediaFilename?: string | null;
   templateName: string | null;
   status: string | null;
   error: string | null;
@@ -131,9 +135,24 @@ export default function ThreadClient({
                 </p>
               )}
 
-              <p className="whitespace-pre-wrap break-words">
-                {m.body ?? <span className="italic text-neutral-400">({m.kind})</span>}
-              </p>
+              {m.hasMedia && (
+                <MediaBubble
+                  id={m.id}
+                  kind={m.kind}
+                  mime={m.mediaMime ?? null}
+                  filename={m.mediaFilename ?? null}
+                />
+              )}
+
+              {/* A caption sits under its picture. A message with media and no
+                  caption says nothing here rather than "(image)" beneath an
+                  image, which is what the thread used to show instead of the
+                  image itself. */}
+              {(m.body || !m.hasMedia) && (
+                <p className="whitespace-pre-wrap break-words">
+                  {m.body ?? <span className="italic text-neutral-400">({m.kind})</span>}
+                </p>
+              )}
 
               <p className="mt-1.5 flex items-center justify-end gap-1 text-[10px] text-neutral-500">
                 {new Date(m.createdAt).toLocaleString("en-IN", {
@@ -257,4 +276,103 @@ function Receipt({ status }: { status: string | null }) {
     default:
       return null;
   }
+}
+
+/**
+ * A customer's photo, voice note, video or document.
+ *
+ * Everything loads through /api/admin/crm/media/<message id>, which is a proxy
+ * rather than a link: Meta's media URLs expire in minutes and only answer to a
+ * request carrying the access token, so there is nothing here a browser could
+ * fetch on its own.
+ *
+ * Lazily, and only when the bubble is on screen. A thread with forty voice
+ * notes should not make forty authenticated round trips to Meta because
+ * somebody scrolled past them — the browser fetches an <img> or an <audio>
+ * source when it decides to, and that is the right moment.
+ *
+ * Nothing here retries. Media older than 30 days is gone from Meta's side, and
+ * a retry loop against a file that no longer exists is just noise.
+ */
+function MediaBubble({
+  id,
+  kind,
+  mime,
+  filename,
+}: {
+  id: string;
+  kind: string;
+  mime: string | null;
+  filename: string | null;
+}) {
+  const src = `/api/admin/crm/media/${id}`;
+  const [failed, setFailed] = useState(false);
+
+  if (failed) {
+    return (
+      <p className="mb-1.5 flex items-start gap-1 rounded-lg bg-neutral-100 px-2 py-1.5 text-[11px] text-neutral-500">
+        <AlertCircle className="mt-px h-3 w-3 shrink-0" />
+        <span>
+          This {kind} could not be loaded. WhatsApp keeps media for 30 days —
+          older files are gone from their side.
+        </span>
+      </p>
+    );
+  }
+
+  if (kind === "image" || kind === "sticker") {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={src}
+        alt={`${kind} from the customer`}
+        loading="lazy"
+        onError={() => setFailed(true)}
+        onClick={() => window.open(src, "_blank")}
+        className={`mb-1.5 cursor-zoom-in rounded-lg ${
+          kind === "sticker" ? "max-h-32 w-auto" : "max-h-64 w-auto"
+        }`}
+      />
+    );
+  }
+
+  if (kind === "audio") {
+    return (
+      // A voice note is the one kind people actually send this number, and it
+      // needs no more than the browser's own player.
+      <audio
+        controls
+        preload="none"
+        onError={() => setFailed(true)}
+        className="mb-1.5 w-56 max-w-full"
+      >
+        <source src={src} type={mime ?? undefined} />
+      </audio>
+    );
+  }
+
+  if (kind === "video") {
+    return (
+      <video
+        controls
+        preload="none"
+        onError={() => setFailed(true)}
+        className="mb-1.5 max-h-64 w-auto rounded-lg"
+      >
+        <source src={src} type={mime ?? undefined} />
+      </video>
+    );
+  }
+
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mb-1.5 flex items-center gap-1.5 rounded-lg bg-neutral-100 px-2.5 py-2 text-[12px] font-medium text-neutral-700 transition hover:bg-neutral-200"
+    >
+      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{filename ?? `Download ${kind}`}</span>
+    </a>
+  );
 }

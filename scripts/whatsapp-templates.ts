@@ -27,9 +27,15 @@ import {
   DRAFT_TEMPLATES,
   TEMPLATE_LANGUAGE,
   validateAllTemplates,
+  validateTemplate,
   variableCount,
+  FLOW_TEMPLATES,
+  CAMPAIGN_TEMPLATES,
+  metaTemplatePayload,
   type TemplateDef,
 } from "../lib/whatsapp-templates.ts";
+// Data only, no imports of its own — see the note at the top of that file.
+import { validateFlows } from "../lib/crm/flow-table.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -184,7 +190,17 @@ async function push() {
 
 async function list() {
   const existing = await fetchExisting();
-  const ours = new Set(Object.values(TEMPLATES).map((t) => t.name));
+
+  // Every registry something sends from, not just the order events. Checking
+  // TEMPLATES alone printed "(not used by this app)" against all seven
+  // conversation-flow templates the day they were submitted, which is the
+  // opposite of true and exactly the sort of thing that gets a working
+  // template deleted.
+  const ours = new Set([
+    ...Object.values(TEMPLATES).map((t) => t.name),
+    ...Object.values(FLOW_TEMPLATES).map((t) => t.name),
+    ...Object.values(CAMPAIGN_TEMPLATES).map((t) => t.name),
+  ]);
 
   console.log(`${BOLD}Templates on this WhatsApp Business Account${OFF}\n`);
   for (const t of existing) {
@@ -219,7 +235,7 @@ async function list() {
 }
 
 function check() {
-  const problems = validateAllTemplates();
+  const problems = [...validateAllTemplates(), ...validateFlows()];
 
   for (const [event, def] of Object.entries(TEMPLATES)) {
     let filled = def.body;
@@ -269,12 +285,316 @@ function check() {
   );
 }
 
+/**
+ * Submit the eight Neuro Code flow templates.
+ *
+ * A separate command from `push` on purpose. `push` submits the order
+ * notifications, which are Utility and uncontroversial; this submits six
+ * MARKETING templates, and six marketing templates arriving at Meta because
+ * somebody ran the wrong command is a bad afternoon for the number's rating.
+ *
+ * The payload comes from metaTemplatePayload(), the same function the docs
+ * quote — so what is approved and what this app sends cannot drift apart.
+ */
+async function pushFlows() {
+  const { token, wabaId } = credentials();
+  const existing = await fetchExisting();
+
+  const problems = validateFlows();
+  if (problems.length) {
+    for (const p of problems) console.log(`${RED}✗ ${p}${OFF}`);
+    console.log(`\n${RED}Fix the flow table first — these templates would arrive unroutable.${OFF}`);
+    process.exit(1);
+  }
+
+  for (const def of Object.values(FLOW_TEMPLATES)) {
+    const live = existing.find(
+      (t) => t.name === def.name && t.language === TEMPLATE_LANGUAGE
+    );
+
+    if (live) {
+      console.log(`${DIM}· ${def.name} already exists (${live.status}) — skipping${OFF}`);
+      continue;
+    }
+
+    const res = await fetch(`${GRAPH}/${wabaId}/message_templates`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(metaTemplatePayload(def)),
+    });
+
+    const json = (await res.json()) as {
+      id?: string;
+      status?: string;
+      error?: { message?: string; error_user_msg?: string };
+    };
+
+    if (json.error) {
+      console.log(
+        `${RED}✗ ${def.name}: ${json.error.error_user_msg ?? json.error.message}${OFF}`
+      );
+    } else {
+      console.log(`${GREEN}✓ ${def.name} submitted (${json.status ?? "PENDING"})${OFF}`);
+    }
+  }
+
+  console.log(
+    `\n${DIM}Approval takes minutes to a day. Run the health cron afterwards so ` +
+      `whatsapp_template_status catches up, or the gate is checking nothing.${OFF}`
+  );
+}
+
+/**
+ * Submit everything the code expects to be able to send.
+ *
+ * TEMPLATES, FLOW_TEMPLATES and CAMPAIGN_TEMPLATES — every registry something
+ * actually sends from. DRAFT_TEMPLATES is excluded, and that is the whole
+ * reason drafts are a separate registry: they are written and deliberately not
+ * shown to Meta.
+ *
+ * Anything Meta already holds is skipped, whatever its status. A rejected
+ * template cannot be recreated under the same name — it has to be edited, or
+ * resubmitted under a new one — so silently retrying it would just print a
+ * confusing error every run.
+ */
+async function pushAll() {
+  const { token, wabaId } = credentials();
+  const existing = await fetchExisting();
+
+  const problems = [...validateAllTemplates(), ...validateFlows()];
+  if (problems.length) {
+    for (const p of problems) console.log(`${RED}✗ ${p}${OFF}`);
+    console.log(`\n${RED}Nothing submitted — fix these first.${OFF}`);
+    process.exit(1);
+  }
+
+  const all: { def: TemplateDef; group: string }[] = [
+    ...Object.values(TEMPLATES).map((def) => ({ def, group: "automatic" })),
+    ...Object.values(FLOW_TEMPLATES).map((c) => ({
+      def: { ...c, params: () => c.example } as TemplateDef,
+      group: "flow",
+    })),
+    ...Object.values(CAMPAIGN_TEMPLATES).map((c) => ({
+      def: { ...c, params: () => c.example } as TemplateDef,
+      group: "campaign",
+    })),
+  ];
+
+  let submitted = 0;
+  let skipped = 0;
+  let failed = 0;
+
+  for (const { def, group } of all) {
+    const live = existing.find(
+      (t) => t.name === def.name && t.language === TEMPLATE_LANGUAGE
+    );
+
+    if (live) {
+      console.log(`${DIM}· ${def.name} already at Meta (${live.status}) — skipping${OFF}`);
+      skipped++;
+      continue;
+    }
+
+    const res = await fetch(`${GRAPH}/${wabaId}/message_templates`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(metaTemplatePayload(def)),
+    });
+
+    const json = (await res.json()) as {
+      id?: string;
+      status?: string;
+      error?: { message?: string; error_user_msg?: string };
+    };
+
+    if (json.error) {
+      console.log(
+        `${RED}✗ ${def.name} (${group}): ${json.error.error_user_msg ?? json.error.message}${OFF}`
+      );
+      failed++;
+    } else if (json.status === "REJECTED") {
+      // Meta auto-rejects some templates at creation, in seconds, with no
+      // human review. Worth calling out separately: it reads as a success
+      // otherwise, and it is the opposite.
+      console.log(`${RED}✗ ${def.name} (${group}) submitted and REJECTED immediately${OFF}`);
+      failed++;
+    } else {
+      console.log(`${GREEN}✓ ${def.name} (${group}) submitted (${json.status ?? "PENDING"})${OFF}`);
+      submitted++;
+    }
+  }
+
+  console.log(
+    `\n${BOLD}${submitted} submitted · ${skipped} already at Meta · ${failed} refused${OFF}`
+  );
+  console.log(
+    `${DIM}Drafts were not submitted — that is what DRAFT_TEMPLATES is for.\n` +
+      `Run this again with \`list\` to see how review went.${OFF}`
+  );
+}
+
+/**
+ * Edit templates Meta already holds, so a wording or button change reaches it.
+ *
+ * `push` only ever creates. That gap is how the corrected `course_access`
+ * wording sat in this file for months doing nothing: the name existed at Meta,
+ * push skipped it, and the fix never left the repo.
+ *
+ * Meta re-reviews an edited template. The previous version keeps sending while
+ * that happens, so this is safe to run on something live — but the edit budget
+ * is finite (Meta allows a limited number per template per month), which is
+ * why this takes names rather than editing everything it can.
+ *
+ *   node scripts/whatsapp-templates.ts edit payment_reminder_1 payment_failed_1
+ */
+async function edit(names: string[]) {
+  if (!names.length) {
+    console.log(`${RED}Name at least one template to edit.${OFF}`);
+    process.exit(1);
+  }
+
+  const { token } = credentials();
+  const existing = await fetchExisting();
+
+  const byName = new Map<string, TemplateDef>();
+  for (const def of Object.values(TEMPLATES)) byName.set(def.name, def);
+  for (const c of Object.values(FLOW_TEMPLATES)) {
+    byName.set(c.name, { ...c, params: () => c.example } as TemplateDef);
+  }
+  for (const c of Object.values(CAMPAIGN_TEMPLATES)) {
+    byName.set(c.name, { ...c, params: () => c.example } as TemplateDef);
+  }
+
+  for (const name of names) {
+    const def = byName.get(name);
+    if (!def) {
+      console.log(`${RED}✗ ${name}: no template by that name in the code${OFF}`);
+      continue;
+    }
+
+    const live = existing.find(
+      (t) => t.name === name && t.language === TEMPLATE_LANGUAGE
+    );
+    if (!live) {
+      console.log(`${YELLOW}· ${name} is not at Meta — use push, not edit${OFF}`);
+      continue;
+    }
+
+    const res = await fetch(`${GRAPH}/${live.id}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      // Components only. Sending `name` or `language` on an edit is rejected,
+      // and the category is Meta's to decide.
+      body: JSON.stringify({ components: componentsFor(def) }),
+    });
+
+    const json = (await res.json()) as {
+      success?: boolean;
+      error?: { message?: string; error_user_msg?: string };
+    };
+
+    if (json.error) {
+      console.log(
+        `${RED}✗ ${name}: ${json.error.error_user_msg ?? json.error.message}${OFF}`
+      );
+    } else {
+      console.log(`${GREEN}✓ ${name} edited — back in review${OFF}`);
+    }
+  }
+
+  console.log(
+    `\n${DIM}The previous version keeps sending until the edit is approved.${OFF}`
+  );
+}
+
+/**
+ * Submit one named draft, and only one named draft.
+ *
+ * Drafts are excluded from `push` and `push-all` so they cannot reach Meta by
+ * accident. This is the deliberate way through: you have to type the name,
+ * which is the point — a draft goes up when somebody decides to spend the
+ * attempt, not because they ran the wrong command.
+ *
+ * Submitting does not wire it to anything. It stays in DRAFT_TEMPLATES until
+ * somebody moves it into TEMPLATES under an event, which is a separate
+ * decision with its own consequences.
+ */
+async function pushDraft(names: string[]) {
+  if (!names.length) {
+    console.log(`${RED}Name the draft to submit.${OFF}`);
+    console.log(`${DIM}Drafts: ${Object.keys(DRAFT_TEMPLATES).join(", ")}${OFF}`);
+    process.exit(1);
+  }
+
+  const { token, wabaId } = credentials();
+  const existing = await fetchExisting();
+
+  for (const key of names) {
+    const def =
+      DRAFT_TEMPLATES[key] ??
+      Object.values(DRAFT_TEMPLATES).find((d) => d.name === key);
+
+    if (!def) {
+      console.log(`${RED}✗ ${key}: not a draft. Drafts: ${Object.keys(DRAFT_TEMPLATES).join(", ")}${OFF}`);
+      continue;
+    }
+
+    const problems = validateTemplate(def);
+    if (problems.length) {
+      for (const p of problems) console.log(`${RED}✗ ${p}${OFF}`);
+      continue;
+    }
+
+    const live = existing.find(
+      (t) => t.name === def.name && t.language === TEMPLATE_LANGUAGE
+    );
+    if (live) {
+      console.log(
+        `${YELLOW}· ${def.name} is already at Meta (${live.status}) — use edit${OFF}`
+      );
+      continue;
+    }
+
+    const res = await fetch(`${GRAPH}/${wabaId}/message_templates`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(metaTemplatePayload(def)),
+    });
+
+    const json = (await res.json()) as {
+      id?: string;
+      status?: string;
+      error?: { message?: string; error_user_msg?: string };
+    };
+
+    if (json.error) {
+      console.log(
+        `${RED}✗ ${def.name}: ${json.error.error_user_msg ?? json.error.message}${OFF}`
+      );
+    } else if (json.status === "REJECTED") {
+      console.log(`${RED}✗ ${def.name} submitted and REJECTED immediately${OFF}`);
+    } else {
+      console.log(`${GREEN}✓ ${def.name} submitted (${json.status ?? "PENDING"})${OFF}`);
+      console.log(
+        `${DIM}  Still a draft. Nothing sends it until it moves into TEMPLATES.${OFF}`
+      );
+    }
+  }
+}
+
 const command = process.argv[2] ?? "check";
 
 if (command === "check") check();
 else if (command === "list") await list();
 else if (command === "push") await push();
+else if (command === "push-flows") await pushFlows();
+else if (command === "push-all") await pushAll();
+else if (command === "edit") await edit(process.argv.slice(3));
+else if (command === "push-draft") await pushDraft(process.argv.slice(3));
 else {
-  console.log("Usage: node scripts/whatsapp-templates.ts [check|list|push]");
+  console.log(
+    "Usage: node scripts/whatsapp-templates.ts " +
+      "[check|list|push|push-flows|push-all|edit <name>...|push-draft <name>]"
+  );
   process.exit(1);
 }

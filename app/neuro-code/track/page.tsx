@@ -12,6 +12,10 @@ import { getCourier } from "@/lib/db/couriers";
 import { publicTracking } from "@/lib/couriers";
 import ReferralShare from "@/components/ReferralShare";
 import { getReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
+import OrderDetails, { type DetailsOrder } from "./OrderDetails";
+
+/** The course that comes with the book. Same pair lib/notify.ts sends. */
+const BONUS_COURSE = { title: "Neuro Linguistic Programming", slug: "nlp" };
 
 async function getOrder(id: string): Promise<Order | null> {
   const { data } = await supabaseAdmin
@@ -25,6 +29,26 @@ async function getOrder(id: string): Promise<Order | null> {
     .eq("order_number", id)
     .single();
   return data as Order | null;
+}
+
+/**
+ * The same order, with the fields only the details view shows.
+ *
+ * A separate read rather than widening getOrder(): the tracking view is opened
+ * repeatedly while a parcel is in transit and has no use for an address it
+ * already knows or a gift flag it never renders.
+ */
+async function getOrderDetails(id: string): Promise<DetailsOrder | null> {
+  const { data } = await supabaseAdmin
+    .from("orders")
+    .select(
+      `order_number, buyer_name, buyer_phone, address_line1, address_line2,
+       city, district, state, pincode, amount_paise, quantity, is_gift,
+       is_signed, payment_status, status, ordered_at`
+    )
+    .eq("order_number", id)
+    .single();
+  return (data as DetailsOrder | null) ?? null;
 }
 
 const STEP_ICONS = [Package, Package, Truck, Truck, Home];
@@ -89,19 +113,38 @@ function stepStamp(iso: string): string {
 export default async function TrackPage({
   searchParams,
 }: {
-  searchParams: Promise<{ id?: string }>;
+  searchParams: Promise<{ id?: string; view?: string }>;
 }) {
-  const { id } = await searchParams;
+  const { id, view } = await searchParams;
   if (!id) redirect("/neuro-code");
+
+  // `?view=details` is the second button on the order confirmation. It used to
+  // resolve here — the parameter existed only so the template's two buttons
+  // had different URLs, which Meta requires — and both landed on the same
+  // page, which made one of the two buttons a lie.
+  if (view === "details") {
+    const details = await getOrderDetails(id);
+    if (details) {
+      return (
+        <OrderDetails
+          order={details}
+          courseTitle={BONUS_COURSE.title}
+          courseUrl={`${process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com"}/courses/${BONUS_COURSE.slug}`}
+        />
+      );
+    }
+    // No order under that number: fall through to the not-found card below
+    // rather than inventing a second one that says the same thing.
+  }
 
   const order = await getOrder(id);
   if (!order) {
     return (
-      <div className="min-h-screen bg-neutral-950 text-white flex items-center justify-center px-4">
+      <div className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white flex items-center justify-center px-4">
         <div className="text-center">
-          <Package className="w-12 h-12 text-neutral-600 mx-auto mb-4" />
+          <Package className="w-12 h-12 text-neutral-400 dark:text-neutral-600 mx-auto mb-4" />
           <h1 className="text-xl font-bold mb-2">Order Not Found</h1>
-          <p className="text-neutral-400 text-sm mb-6">
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm mb-6">
             We couldn&apos;t find order <strong>{id}</strong>. Check your order number and try again.
           </p>
           <Link href="/neuro-code" className="px-6 py-3 rounded-full bg-primary-500 text-white text-sm font-bold">
@@ -134,22 +177,22 @@ export default async function TrackPage({
   });
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-white px-4 py-10">
+    <div className="min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-white px-4 py-10">
       <div className="max-w-2xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <Link href="/neuro-code" className="text-neutral-400 hover:text-white text-sm transition-colors">
+          <Link href="/neuro-code" className="text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-white text-sm transition-colors">
             ← Neuro Code
           </Link>
           <h1 className="text-2xl font-black mt-3">Track Order</h1>
-          <p className="text-neutral-400 text-sm font-mono mt-1">{order.order_number}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm font-mono mt-1">{order.order_number}</p>
         </div>
 
         {/* Status Stepper */}
-        <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6 mb-5">
-          <h2 className="font-semibold text-sm text-neutral-300 mb-6">Order Status</h2>
+        <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-6 mb-5 shadow-sm dark:shadow-none">
+          <h2 className="font-semibold text-sm text-neutral-700 dark:text-neutral-300 mb-6">Order Status</h2>
           {isCancelled ? (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 text-red-400 text-sm">
+            <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-xl p-4 text-red-700 dark:text-red-400 text-sm">
               This order has been cancelled.
             </div>
           ) : (
@@ -168,9 +211,9 @@ export default async function TrackPage({
                         className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 transition-all
                           ${isDone
                             ? "bg-primary-500 text-white"
-                            : "bg-neutral-800 text-neutral-600"
+                            : "bg-neutral-200 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-600"
                           }
-                          ${isActive ? "ring-2 ring-primary-400 ring-offset-2 ring-offset-neutral-900" : ""}
+                          ${isActive ? "ring-2 ring-primary-400 ring-offset-2 ring-offset-white dark:ring-offset-neutral-900" : ""}
                         `}
                       >
                         {isDone && !isActive ? (
@@ -182,21 +225,21 @@ export default async function TrackPage({
                         )}
                       </div>
                       {!isLast && (
-                        <div className={`w-0.5 h-8 my-1 ${i < currentStep ? "bg-primary-500" : "bg-neutral-800"}`} />
+                        <div className={`w-0.5 h-8 my-1 ${i < currentStep ? "bg-primary-500" : "bg-neutral-200 dark:bg-neutral-800"}`} />
                       )}
                     </div>
                     {/* Label */}
                     <div className="pb-6 last:pb-0 flex-1">
-                      <p className={`text-sm font-medium ${isDone ? "text-white" : "text-neutral-600"}`}>
+                      <p className={`text-sm font-medium ${isDone ? "text-neutral-900 dark:text-white" : "text-neutral-400 dark:text-neutral-600"}`}>
                         {STATUS_LABELS[step]}
                       </p>
                       {isDone && dates[step] && (
-                        <p className="text-neutral-500 text-xs mt-0.5">
+                        <p className="text-neutral-500 dark:text-neutral-500 text-xs mt-0.5">
                           {stepStamp(dates[step]!)}
                         </p>
                       )}
                       {isActive && (
-                        <p className="text-primary-400 text-xs mt-0.5">Current Status</p>
+                        <p className="text-primary-600 dark:text-primary-400 text-xs mt-0.5">Current Status</p>
                       )}
                     </div>
                   </div>
@@ -208,27 +251,27 @@ export default async function TrackPage({
 
         {/* Shipping info (if shipped+) */}
         {(order.tracking_number || order.courier_name) && (
-          <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6 mb-5">
-            <h2 className="font-semibold text-sm text-neutral-300 mb-4 flex items-center gap-2">
-              <Truck className="w-4 h-4 text-primary-400" /> Shipping Details
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-6 mb-5 shadow-sm dark:shadow-none">
+            <h2 className="font-semibold text-sm text-neutral-700 dark:text-neutral-300 mb-4 flex items-center gap-2">
+              <Truck className="w-4 h-4 text-primary-600 dark:text-primary-400" /> Shipping Details
             </h2>
             <div className="space-y-3 text-sm">
               {order.courier_name && (
                 <div className="flex justify-between">
-                  <span className="text-neutral-400">Courier</span>
-                  <span className="text-white">{order.courier_name}</span>
+                  <span className="text-neutral-500 dark:text-neutral-400">Courier</span>
+                  <span className="text-neutral-900 dark:text-white">{order.courier_name}</span>
                 </div>
               )}
               {order.tracking_number && (
                 <div className="flex justify-between">
-                  <span className="text-neutral-400">Tracking #</span>
-                  <span className="text-white font-mono">{order.tracking_number}</span>
+                  <span className="text-neutral-500 dark:text-neutral-400">Tracking #</span>
+                  <span className="text-neutral-900 dark:text-white font-mono">{order.tracking_number}</span>
                 </div>
               )}
               {order.expected_delivery && (
                 <div className="flex justify-between">
-                  <span className="text-neutral-400">Expected</span>
-                  <span className="text-green-400 font-medium">
+                  <span className="text-neutral-500 dark:text-neutral-400">Expected</span>
+                  <span className="text-green-600 dark:text-green-400 font-medium">
                     {new Date(order.expected_delivery).toLocaleDateString("en-IN", {
                       day: "numeric", month: "long",
                     })}
@@ -244,7 +287,7 @@ export default async function TrackPage({
                 href={courierTracking.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary-500/10 border border-primary-500/25 text-primary-400 text-sm font-semibold hover:bg-primary-500/20 transition-all"
+                className="mt-5 w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-primary-50 dark:bg-primary-500/10 border border-primary-200 dark:border-primary-500/25 text-primary-700 dark:text-primary-400 text-sm font-semibold hover:bg-primary-100 dark:hover:bg-primary-500/20 transition-all"
               >
                 Live tracking on {courierTracking.name}
                 <ExternalLink className="w-3.5 h-3.5" />
@@ -254,22 +297,22 @@ export default async function TrackPage({
         )}
 
         {/* Order details */}
-        <div className="bg-neutral-900 border border-white/8 rounded-2xl p-6 mb-5">
-          <h2 className="font-semibold text-sm text-neutral-300 mb-4 flex items-center gap-2">
-            <Package className="w-4 h-4 text-primary-400" /> Order Details
+        <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-6 mb-5 shadow-sm dark:shadow-none">
+          <h2 className="font-semibold text-sm text-neutral-700 dark:text-neutral-300 mb-4 flex items-center gap-2">
+            <Package className="w-4 h-4 text-primary-600 dark:text-primary-400" /> Order Details
           </h2>
           <div className="space-y-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-neutral-400">Book</span>
-              <span className="text-white">Neuro Code by Bisher KC</span>
+              <span className="text-neutral-500 dark:text-neutral-400">Book</span>
+              <span className="text-neutral-900 dark:text-white">Neuro Code by Bisher KC</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-neutral-400">Amount Paid</span>
-              <span className="text-primary-400 font-bold">₹{Math.round(order.amount_paise / 100)}</span>
+              <span className="text-neutral-500 dark:text-neutral-400">Amount Paid</span>
+              <span className="text-primary-600 dark:text-primary-400 font-bold">₹{Math.round(order.amount_paise / 100)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-neutral-400">Order Date</span>
-              <span className="text-white">{date}</span>
+              <span className="text-neutral-500 dark:text-neutral-400">Order Date</span>
+              <span className="text-neutral-900 dark:text-white">{date}</span>
             </div>
           </div>
         </div>
@@ -289,16 +332,16 @@ export default async function TrackPage({
         )}
 
         {/* Help */}
-        <div className="bg-neutral-900 border border-white/8 rounded-2xl p-5 flex items-center justify-between">
+        <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-5 shadow-sm dark:shadow-none flex items-center justify-between">
           <div>
             <p className="text-sm font-medium">Need help?</p>
-            <p className="text-neutral-500 text-xs mt-0.5">We&apos;re here to assist you</p>
+            <p className="text-neutral-500 dark:text-neutral-500 text-xs mt-0.5">We&apos;re here to assist you</p>
           </div>
           <a
             href={`https://wa.me/916282680794?text=Hi, I need help with order ${order.order_number}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 text-xs font-medium hover:bg-green-500/20 transition-all"
+            className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-green-50 dark:bg-green-500/10 border border-green-200 dark:border-green-500/20 text-green-700 dark:text-green-400 text-xs font-medium hover:bg-green-100 dark:hover:bg-green-500/20 transition-all"
           >
             <MapPin className="w-3.5 h-3.5" /> WhatsApp
           </a>

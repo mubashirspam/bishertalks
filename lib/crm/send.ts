@@ -1,4 +1,4 @@
-import { sendTemplate, sendText } from "@/lib/whatsapp";
+import { sendTemplate, sendText, sendInteractive, type ReplyButton } from "@/lib/whatsapp";
 import { assertSendable, type SendKind, type RefusalCode } from "@/lib/crm/gate";
 import { recordOutbound } from "@/lib/crm/messages";
 import { noteDeliveryFailure } from "@/lib/crm/consent";
@@ -145,4 +145,81 @@ export async function sendReply(msg: {
     };
   }
   return { ok: true, wamid: result.messageId ?? null };
+}
+
+/**
+ * An automated session message, with or without buttons.
+ *
+ * The flow replies in `lib/crm/flows.ts` go out through here. Same window rule
+ * as a hand-typed reply and the same gate — an automated message is not more
+ * entitled to reach someone than a person's is, and a customer who says STOP
+ * mid-flow stops mid-flow.
+ *
+ * `sentBy` is null on purpose: nobody typed it. The template name column stays
+ * null too, because a session message is not a template — which is what makes
+ * these easy to tell apart in the log.
+ */
+export async function sendSessionButtons(msg: {
+  contact: Contact;
+  body: string;
+  buttons: ReplyButton[];
+  /** The flow payload that caused this, for the audit trail. */
+  payload?: string | null;
+}): Promise<SendOutcome> {
+  const verdict = await assertSendable({
+    contact: msg.contact,
+    kind: "reply",
+    freeText: true,
+  });
+
+  if (!verdict.allow) {
+    await recordOutbound({
+      contactId: msg.contact.id,
+      kind: "interactive",
+      body: msg.body,
+      buttonPayload: msg.payload ?? null,
+      status: "failed",
+      error: `Refused: ${verdict.reason}`,
+    });
+    return { ok: false, refused: true, code: verdict.code, reason: verdict.reason };
+  }
+
+  const result = await sendInteractive({
+    to: msg.contact.phone,
+    body: msg.body,
+    buttons: msg.buttons,
+  });
+
+  await recordOutbound({
+    contactId: msg.contact.id,
+    wamid: result.ok ? result.messageId ?? null : null,
+    kind: "interactive",
+    body: msg.body,
+    // The buttons offered, so a later reply can be read against what was on
+    // screen when they tapped it.
+    buttonPayload: msg.buttons.map((b) => b.id).join(","),
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    errorCode: result.ok ? null : result.code ?? null,
+  });
+
+  if (!result.ok) {
+    await noteDeliveryFailure(msg.contact.id, result.code);
+    return {
+      ok: false,
+      refused: false,
+      error: result.error ?? "Send failed",
+      code: result.code,
+      retryable: result.retryable ?? false,
+    };
+  }
+  return { ok: true, wamid: result.messageId ?? null };
+}
+
+/** The same, with no buttons — a plain automated session message. */
+export async function sendSessionText(msg: {
+  contact: Contact;
+  body: string;
+}): Promise<SendOutcome> {
+  return sendReply({ contact: msg.contact, body: msg.body, sentBy: null });
 }

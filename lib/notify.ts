@@ -620,6 +620,22 @@ export async function notifyCourseAccess(params: {
     // history for a purchase includes the course unlock.
     if (!(await claimNotification(payload, orderNumber))) return;
 
+    // The third route to the wire, and the one HELD_EVENTS was not actually
+    // checked on. Its own comment claimed all three were covered; sendOne and
+    // sendMany were, and this — the path every purchase takes — was not. So
+    // holding course_access would have changed nothing here.
+    //
+    // Claimed and logged first, like sendOne: the row should say "we chose not
+    // to send this" rather than leaving no trace of the decision.
+    if (isHeld("course_access")) {
+      await markNotificationResult(payload.event_id, {
+        status: "skipped",
+        error: "course_access is held: Meta will not approve a template for it",
+      });
+      console.warn("[Notify] course access held, not sent:", phone.digits);
+      return;
+    }
+
     const result = await deliver(payload, "course_access");
 
     if (!result.ok) {

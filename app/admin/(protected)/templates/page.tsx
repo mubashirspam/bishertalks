@@ -3,12 +3,20 @@ import { MessageSquare, AlertTriangle, Info } from "lucide-react";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import {
-  TEMPLATES,
-  DRAFT_TEMPLATES,
   TEMPLATE_LANGUAGE,
   variableCount,
   type TemplateDef,
 } from "@/lib/whatsapp-templates";
+import {
+  gatherTemplates,
+  countByFilter,
+  filterOf,
+  sendableProblems,
+  isTemplateFilter,
+  PURPOSE_LABELS,
+  type TemplatePurpose,
+} from "@/lib/whatsapp-registry";
+import TemplateFilters from "./TemplateFilters";
 import {
   fetchMetaTemplateStatus,
   STATUS_BADGE,
@@ -37,8 +45,13 @@ export const dynamic = "force-dynamic";
  * behind a Save button that would quietly desynchronise the code from what
  * Meta actually holds.
  */
-export default async function TemplatesPage() {
+export default async function TemplatesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ status?: string; purpose?: string }>;
+}) {
   await requirePageAccess("templates.view");
+  const params = await searchParams;
 
   return (
     <div>
@@ -55,27 +68,50 @@ export default async function TemplatesPage() {
       </div>
 
       <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={6} columns={2} /></>}>
-        <Body />
+        <Body status={params.status} purpose={params.purpose} />
       </Suspense>
     </div>
   );
 }
 
-async function Body() {
+async function Body({ status, purpose }: { status?: string; purpose?: string }) {
   const meta = await fetchMetaTemplateStatus();
 
-  const automated = Object.entries(TEMPLATES).map(([event, def]) => ({
-    event,
-    def,
-    live: meta.byName.get(def.name),
-  }));
-  const drafts = Object.entries(DRAFT_TEMPLATES).map(([key, def]) => ({
-    event: key,
-    def,
-    live: meta.byName.get(def.name),
-  }));
+  // Every registry, plus whatever Meta holds that no code sends. Before this
+  // the screen showed two registries of four, so the seven conversation-flow
+  // templates existed, were submitted, and appeared nowhere in the admin.
+  const all = gatherTemplates(meta);
 
-  const blocked = automated.filter((t) => t.live?.status !== "APPROVED").length;
+  const wantedStatus = isTemplateFilter(status) ? status : null;
+  const wantedPurpose = (
+    ["automatic", "flow", "campaign", "draft", "orphan"] as TemplatePurpose[]
+  ).includes(purpose as TemplatePurpose)
+    ? (purpose as TemplatePurpose)
+    : null;
+
+  // Each axis counted with the OTHER applied but not itself, so a chip's
+  // number is what clicking it would show rather than what is on screen now.
+  const statusCounts = countByFilter(
+    all.filter((e) => !wantedPurpose || e.purpose === wantedPurpose)
+  );
+  const purposeCounts = Object.fromEntries(
+    (["automatic", "flow", "campaign", "draft", "orphan"] as TemplatePurpose[]).map((p) => [
+      p,
+      all.filter(
+        (e) => e.purpose === p && (!wantedStatus || filterOf(e.status) === wantedStatus)
+      ).length,
+    ])
+  ) as Record<TemplatePurpose, number>;
+
+  const shown = all.filter(
+    (e) =>
+      (!wantedStatus || filterOf(e.status) === wantedStatus) &&
+      (!wantedPurpose || e.purpose === wantedPurpose)
+  );
+
+  // Only what something actually tries to send. A draft nobody sends and an
+  // orphan with no code behind it are not outages.
+  const broken = sendableProblems(all);
 
   return (
     <div className="space-y-10">
@@ -86,72 +122,88 @@ async function Body() {
         </p>
       )}
 
-      {!meta.error && blocked > 0 && (
+      {!meta.error && broken.length > 0 && (
         <p className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
             <strong>
-              {blocked} of {automated.length} automatic messages cannot be sent.
+              {broken.length} message{broken.length === 1 ? "" : "s"} cannot be
+              sent.
             </strong>{" "}
             A template that is not approved fails at send time — the order,
             payment and course access are unaffected, but the customer hears
-            nothing. The ones marked below are the ones going unsent.
+            nothing. Filter by status below to see which.
           </span>
         </p>
       )}
 
-      {/* ── Automatic ──────────────────────────────────────────────────── */}
-      <Section
-        title="Automatic WhatsApp"
-        blurb={
-          <>
-            Sent by the app itself through Meta&rsquo;s Cloud API, in Malayalam,
-            one per event. Status comes from Meta and is up to a minute old.
-          </>
-        }
-      >
-        <div className="space-y-4">
-          {automated.map(({ event, def, live }) => (
-            <TemplateCard
-              key={def.name}
-              event={event}
-              def={def}
-              status={live?.status ?? "NOT_SUBMITTED"}
-              language={live?.language}
-              rejectedReason={live?.rejectedReason}
-              unknown={!!meta.error}
-            />
-          ))}
-        </div>
-      </Section>
+      <TemplateFilters
+        statusCounts={statusCounts}
+        purposeCounts={purposeCounts}
+        total={all.length}
+        showing={shown.length}
+      />
 
-      {/* ── Drafts ─────────────────────────────────────────────────────── */}
       <Section
-        title="Drafts — written, not submitted"
+        title="WhatsApp templates"
         blurb={
           <>
-            Waiting in the code until the set is finished. Nothing sends these
-            and nothing has shown them to Meta. They go up together, by running
-            the submit script, once the wording is settled.
+            Every template in the code and every one Meta holds, together.
+            Status comes from Meta and is up to a minute old. A template only
+            sends when it says Approved — in review, rejected and never
+            submitted all mean the customer hears nothing.
           </>
         }
       >
-        {drafts.length === 0 ? (
-          <p className="text-sm text-neutral-400">No drafts.</p>
+        {shown.length === 0 ? (
+          <p className="text-sm text-neutral-400">Nothing matches those filters.</p>
         ) : (
           <div className="space-y-4">
-            {drafts.map(({ event, def, live }) => (
-              <TemplateCard
-                key={def.name}
-                event={event}
-                def={def}
-                status={live?.status ?? "NOT_SUBMITTED"}
-                language={live?.language}
-                rejectedReason={live?.rejectedReason}
-                unknown={!!meta.error}
-                draft
-              />
-            ))}
+            {shown.map((e) =>
+              e.def ? (
+                <TemplateCard
+                  key={e.name}
+                  event={e.key}
+                  def={e.def}
+                  status={e.status}
+                  language={e.language}
+                  rejectedReason={e.rejectedReason}
+                  unknown={!!meta.error}
+                  purpose={e.purpose}
+                />
+              ) : (
+                // An orphan has no definition to render — Meta holds it and no
+                // code sends it, so there is no wording of ours to show.
+                <div
+                  key={e.name}
+                  className="rounded-xl border border-neutral-200 bg-white px-4 py-3"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-neutral-900">{e.name}</p>
+                      <p className="mt-0.5 text-xs text-neutral-400">
+                        {PURPOSE_LABELS[e.purpose]} · {e.category} · {e.language}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${STATUS_BADGE[e.status]}`}
+                    >
+                      {STATUS_LABEL[e.status]}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-neutral-500">
+                    Meta holds this template. Nothing in the code sends it —
+                    usually a retired wording, kept because a deleted name is
+                    locked for 30 days.
+                  </p>
+                  {e.rejectedReason && (
+                    <p className="mt-1 text-xs text-red-700">
+                      {REJECTION_REASON[e.rejectedReason] ?? e.rejectedReason}
+                    </p>
+                  )}
+                </div>
+              )
+            )}
           </div>
         )}
       </Section>
@@ -270,7 +322,7 @@ function TemplateCard({
   language,
   rejectedReason,
   unknown,
-  draft,
+  purpose,
 }: {
   event: string;
   def: TemplateDef;
@@ -278,7 +330,7 @@ function TemplateCard({
   language?: string;
   rejectedReason?: string;
   unknown: boolean;
-  draft?: boolean;
+  purpose: TemplatePurpose;
 }) {
   let filled = def.body;
   def.example.forEach((v, i) => {
@@ -295,7 +347,7 @@ function TemplateCard({
         <div className="min-w-0">
           <p className="text-sm font-bold text-neutral-900">{def.name}</p>
           <p className="mt-0.5 text-xs text-neutral-400">
-            {draft ? "draft" : `on ${event}`} · {def.category} ·{" "}
+            {PURPOSE_LABELS[purpose]} · {event} · {def.category} ·{" "}
             {TEMPLATE_LANGUAGE} · {variableCount(def.body)} variables
             {def.buttons?.length ? ` · ${def.buttons.length} buttons` : ""}
           </p>
