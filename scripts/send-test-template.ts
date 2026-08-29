@@ -20,7 +20,12 @@
  * order's own number would message a customer the first time somebody forgot
  * the flag.
  */
-import { TEMPLATES, TEMPLATE_LANGUAGE, type TemplateDef } from "@/lib/whatsapp-templates";
+import {
+  TEMPLATES,
+  TEMPLATE_LANGUAGE,
+  customerLinkBase,
+  type TemplateDef,
+} from "@/lib/whatsapp-templates";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { upsertContact } from "@/lib/crm/contacts";
 import { sendTemplateMessage } from "@/lib/crm/send";
@@ -81,7 +86,9 @@ const o = order as {
   expected_delivery: string | null;
 };
 
-const base = process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
+// The guarded base, not the raw variable. A dry run of this very script is
+// what caught the second copy of that bug.
+const base = customerLinkBase();
 
 /**
  * The same shape lib/notify.ts builds, assembled here because that one is

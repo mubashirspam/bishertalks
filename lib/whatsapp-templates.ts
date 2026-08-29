@@ -72,6 +72,27 @@ export interface TemplateContext {
  */
 export const PUBLIC_BASE = "https://bishertalks.com";
 
+/** Loopback in any of the forms a dev server answers on. */
+const LOOPBACK = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1\])(:|\/|$)/i;
+
+/**
+ * The base for a link inside a customer's message.
+ *
+ * The one implementation, because there were two and the second was written
+ * by the person who had just fixed the first. `NEXT_PUBLIC_APP_URL` is
+ * localhost on every developer machine, a local run sends real messages, and
+ * four customers received a link only a developer could open.
+ *
+ * A configured non-local value wins, so staging links to itself. Only the
+ * loopback addresses are overridden — and they are overridden everywhere a
+ * customer-facing link is built.
+ */
+export function customerLinkBase(): string {
+  const configured = process.env.NEXT_PUBLIC_APP_URL?.trim();
+  if (!configured || LOOPBACK.test(configured)) return PUBLIC_BASE;
+  return configured.replace(/\/+$/, "");
+}
+
 /**
  * A button under the message.
  *
