@@ -31,7 +31,12 @@
  * question "why is this person marketable?" has an answer per contact rather
  * than a note in a commit message.
  *
- * Safe to re-run: the second run finds nothing to do.
+ * Safe to re-run, but not a no-op: it never rewrites a contact that already
+ * has a date, and it DOES pick up contacts created since the last run. That
+ * second half is not a nicety — `upsertContact` does not set the flag when it
+ * creates a contact from an order, so every new customer arrives without it
+ * and would be refused by the gate. Until that changes, this needs running
+ * periodically or the campaign refusals come straight back.
  */
 
 import { readFileSync } from "node:fs";
