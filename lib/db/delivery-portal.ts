@@ -554,7 +554,14 @@ export async function fetchPortalContacts(
       courierId,
       tracking,
       handover,
-      packing
+      packing,
+      // The end of the range. Omitting it here did not fail — `dateTo`
+      // defaults to undefined and portalQuery quietly treats the range as a
+      // single day — so the export returned the first day of whatever range
+      // was on screen and called it the answer. A dropped argument that
+      // type-checks is the kind this list of ten positional parameters
+      // invites.
+      dateTo
     )
       // `ordered_at` rather than the view's work_at: it is on both tables, so
       // the fallback below sorts the file the same way as the view does rather
