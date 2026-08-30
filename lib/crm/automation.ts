@@ -273,7 +273,7 @@ export async function releaseStale(): Promise<number> {
  * symptom was refusals piling up in the message log.
  */
 export async function listEvents(
-  filters: { status?: string } = {},
+  filters: { status?: string; from?: string; to?: string } = {},
   page = 0,
   perPage = 50
 ): Promise<{ rows: (AutomationEvent & { contact: { phone: string; display_name: string | null } | null })[]; count: number }> {
@@ -288,6 +288,10 @@ export async function listEvents(
     .range(from, from + perPage - 1);
 
   if (filters.status) q = q.eq("status", filters.status);
+  // Queued when, not due when: the question this screen answers is "what did
+  // the system decide to do, and when did it decide it".
+  if (filters.from) q = q.gte("created_at", filters.from);
+  if (filters.to) q = q.lt("created_at", filters.to);
 
   const { data, error, count } = await q;
   if (error) {

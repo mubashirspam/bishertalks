@@ -42,9 +42,18 @@ const STATUS_ACTIVE: Record<string, string> = {
 /**
  * One day, one status.
  *
- * A single date rather than a range: the portal is worked a day at a time, and
- * making someone fill two boxes to see today's parcels is friction on the most
- * common action there is.
+ * A range, with the single day kept as the common case.
+ *
+ * It was one date, on the reasoning that the portal is worked a day at a time
+ * and making somebody fill two boxes to see today is friction on the most
+ * frequent action there is. That is still true of a normal day — which is why
+ * Today and Yesterday are one tap and leave the second box empty — but it was
+ * never true of a backlog. Draining four days meant four page loads and a
+ * mental tally, and the answer to "how many went out this week" did not exist
+ * on the screen at all.
+ *
+ * Either end stands alone: `date` on its own is one day, `to` on its own is
+ * everything up to it.
  *
  * The day is the day the parcel was ASSIGNED, not the day it was ordered — the
  * same clock the list is sorted by, see migration 0046. So "Today" means the
@@ -96,6 +105,7 @@ export default function PortalFilters({
   const { navigate } = useNavigation();
 
   const date = params.get("date") ?? "";
+  const dateTo = params.get("to") ?? "";
   const status = params.get("status") ?? "";
   const agent = params.get("agent") ?? "";
   const courier = params.get("courier") ?? "";
@@ -113,6 +123,15 @@ export default function PortalFilters({
     next.delete("page"); // any filter change invalidates the current page
     navigate(`/admin/delivery-portal?${next.toString()}`);
   };
+
+  /** A quick chip is one day, so it clears any open range. */
+  const oneDay = (d: string) =>
+    date === d && !dateTo ? { date: null, to: null } : { date: d, to: null };
+
+  /** The last N days, inclusive of today — the shape a backlog is worked in. */
+  const lastDays = (n: number) => ({ date: istDaysAgo(n - 1), to: istToday() });
+
+  const rangeActive = (n: number) => date === istDaysAgo(n - 1) && dateTo === istToday();
 
   const chip = (active: boolean, activeClass: string) =>
     `px-3 py-1.5 rounded-lg border text-xs transition-all ${
@@ -248,26 +267,52 @@ export default function PortalFilters({
       <div className="flex flex-wrap items-center gap-2">
         <CalendarDays className="w-4 h-4 text-neutral-400" />
 
+        {/* Two inputs, either of which may stand alone: "since Monday" and
+            "up to Thursday" are both things people ask for, and demanding
+            both ends would turn each of them into a date somebody invents. */}
         <input
           type="date"
           value={date}
-          max={istToday()}
-          title="The day the parcel was assigned"
+          max={dateTo || istToday()}
+          title="From this day (the day the parcel was assigned)"
           onChange={(e) => push({ date: e.target.value || null })}
+          className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary-500 transition-colors cursor-pointer"
+        />
+        <span className="text-xs text-neutral-400">to</span>
+        <input
+          type="date"
+          value={dateTo}
+          min={date || undefined}
+          max={istToday()}
+          title="Up to this day, included"
+          onChange={(e) => push({ to: e.target.value || null })}
           className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary-500 transition-colors cursor-pointer"
         />
 
         <button
-          onClick={() => push({ date: date === istToday() ? null : istToday() })}
-          className={chip(date === istToday(), "border-primary-500 bg-primary-50 text-primary-700")}
+          onClick={() => push(oneDay(istToday()))}
+          className={chip(date === istToday() && !dateTo, "border-primary-500 bg-primary-50 text-primary-700")}
         >
           Today
         </button>
         <button
-          onClick={() => push({ date: date === istDaysAgo(1) ? null : istDaysAgo(1) })}
-          className={chip(date === istDaysAgo(1), "border-primary-500 bg-primary-50 text-primary-700")}
+          onClick={() => push(oneDay(istDaysAgo(1)))}
+          className={chip(date === istDaysAgo(1) && !dateTo, "border-primary-500 bg-primary-50 text-primary-700")}
         >
           Yesterday
+        </button>
+        {/* The ranges a backlog is actually drained in. */}
+        <button
+          onClick={() => push(rangeActive(7) ? { date: null, to: null } : lastDays(7))}
+          className={chip(rangeActive(7), "border-primary-500 bg-primary-50 text-primary-700")}
+        >
+          Last 7 days
+        </button>
+        <button
+          onClick={() => push(rangeActive(30) ? { date: null, to: null } : lastDays(30))}
+          className={chip(rangeActive(30), "border-primary-500 bg-primary-50 text-primary-700")}
+        >
+          Last 30 days
         </button>
 
         {/* Only rendered for someone who runs the queue — an agent has one
@@ -325,7 +370,7 @@ export default function PortalFilters({
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || status || agent || courier || tracking || handover || packing || sort === "oldest") && (
+        {(date || dateTo || status || agent || courier || tracking || handover || packing || sort === "oldest") && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"

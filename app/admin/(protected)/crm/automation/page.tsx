@@ -4,7 +4,7 @@ import { Bot, Info } from "lucide-react";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
 import { listEvents, queueSummary } from "@/lib/crm/automation";
-import { formatIST, timeAgo } from "@/lib/format-date";
+import { formatIST, timeAgo, istDayStartUTC, istDayEndUTC, istToday, istDaysAgo } from "@/lib/format-date";
 import CrmTabs from "../CrmTabs";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ const EVENT_LABELS: Record<string, string> = {
 export default async function AutomationPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; page?: string }>;
+  searchParams: Promise<{ status?: string; page?: string; date?: string; to?: string }>;
 }) {
   await requirePageAccess("crm.view");
   const params = await searchParams;
@@ -63,22 +63,49 @@ export default async function AutomationPage({
       <CrmTabs active="automation" />
 
       <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={8} columns={5} /></>}>
-        <Body status={params.status} page={Math.max(0, parseInt(params.page ?? "1") - 1)} />
+        <Body
+          status={params.status}
+          date={params.date}
+          to={params.to}
+          page={Math.max(0, parseInt(params.page ?? "1") - 1)}
+        />
       </Suspense>
     </div>
   );
 }
 
-async function Body({ status, page }: { status?: string; page: number }) {
+const isDate = (v?: string) => !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+
+async function Body({
+  status,
+  date,
+  to,
+  page,
+}: {
+  status?: string;
+  date?: string;
+  to?: string;
+  page: number;
+}) {
+  // IST calendar days against a UTC column, and the end is the start of the
+  // following day — otherwise the last day of a range keeps only its first
+  // instant, which is the way a date range usually breaks.
+  const window = {
+    from: isDate(date) ? istDayStartUTC(date!) : undefined,
+    to: isDate(to) ? istDayEndUTC(to!) : isDate(date) ? istDayEndUTC(date!) : undefined,
+  };
+
   const [summary, { rows, count }] = await Promise.all([
     queueSummary(),
-    listEvents({ status }, page, PER_PAGE),
+    listEvents({ status, ...window }, page, PER_PAGE),
   ]);
 
   const totalPages = Math.ceil(count / PER_PAGE);
   const link = (p: number) => {
     const sp = new URLSearchParams();
     if (status) sp.set("status", status);
+    if (date) sp.set("date", date);
+    if (to) sp.set("to", to);
     if (p > 1) sp.set("page", String(p));
     const qs = sp.toString();
     return `/admin/crm/automation${qs ? `?${qs}` : ""}`;
@@ -103,6 +130,38 @@ async function Body({ status, page }: { status?: string; page: number }) {
         </span>
       </p>
 
+      {/* When it was queued. The 700 that arrived in one run were a single
+          afternoon, and a screen with no clock could not show that. */}
+      <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-neutral-200 bg-white px-3.5 py-2.5">
+        <span className="text-xs font-medium text-neutral-500">Queued</span>
+        {[
+          { label: "Any", d: undefined, t: undefined },
+          { label: "Today", d: istToday(), t: undefined },
+          { label: "Last 7 days", d: istDaysAgo(6), t: istToday() },
+          { label: "Last 30 days", d: istDaysAgo(29), t: istToday() },
+        ].map((r) => {
+          const active = (date ?? "") === (r.d ?? "") && (to ?? "") === (r.t ?? "");
+          const sp = new URLSearchParams();
+          if (status) sp.set("status", status);
+          if (r.d) sp.set("date", r.d);
+          if (r.t) sp.set("to", r.t);
+          const qs = sp.toString();
+          return (
+            <Link
+              key={r.label}
+              href={`/admin/crm/automation${qs ? `?${qs}` : ""}`}
+              className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+                active
+                  ? "border-primary-500 bg-primary-50 text-primary-700"
+                  : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"
+              }`}
+            >
+              {r.label}
+            </Link>
+          );
+        })}
+      </div>
+
       <div className="flex flex-wrap gap-1.5">
         <Link
           href="/admin/crm/automation"
@@ -117,7 +176,12 @@ async function Body({ status, page }: { status?: string; page: number }) {
         {Object.entries(summary).map(([s, n]) => (
           <Link
             key={s}
-            href={`/admin/crm/automation?status=${s}`}
+            href={(() => {
+              const sp = new URLSearchParams({ status: s });
+              if (date) sp.set("date", date);
+              if (to) sp.set("to", to);
+              return `/admin/crm/automation?${sp.toString()}`;
+            })()}
             className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition ${
               status === s
                 ? "border-primary-500 bg-primary-50 text-primary-700"

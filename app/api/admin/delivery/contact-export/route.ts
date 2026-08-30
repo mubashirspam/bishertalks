@@ -99,9 +99,10 @@ export async function GET(request: NextRequest) {
         courierId,
         portalTracking(params.get("tracking") ?? undefined),
         isHandoverState(handover) ? handover : null,
-        portalPacking(params.get("packing") ?? undefined)
+        portalPacking(params.get("packing") ?? undefined),
+        params.get("to") || undefined
       ));
-      nameParts = [status ?? null, params.get("date")];
+      nameParts = [status ?? null, params.get("date"), params.get("to")];
     }
   } catch (e) {
     console.error("[Export] contact export failed:", e);

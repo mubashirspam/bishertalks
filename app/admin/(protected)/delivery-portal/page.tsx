@@ -30,6 +30,8 @@ const PER_PAGE = 100;
 
 interface Args {
   date?: string;
+  /** The last day of the range, inclusive. Absent means `date` is one day. */
+  dateTo?: string;
   /** A PORTAL_FILTERS value — "new" is the not-yet-entered to-do list. */
   status?: string;
   /** Which end of the queue is on top — it applies on top of the filters. */
@@ -91,6 +93,7 @@ export default async function DeliveryPortalPage({
 
   const args: Args = {
     date: params.date,
+    dateTo: params.to,
     status: params.status,
     sort: portalSort(params.sort),
     // Theirs, not the URL's. `?courier=` is a filter for someone who may see
@@ -170,7 +173,8 @@ async function PortalCount(args: Args) {
     args.courierId,
     args.tracking,
     args.handover,
-    args.packing
+    args.packing,
+    args.dateTo
   );
   return (
     <>
@@ -190,7 +194,8 @@ async function PortalRows(args: Args) {
     args.courierId,
     args.tracking,
     args.handover,
-    args.packing
+    args.packing,
+    args.dateTo
   );
 
   // Names only — the grid shows which courier a parcel is routed to, so an
@@ -233,6 +238,7 @@ async function PortalRows(args: Args) {
   const pageLink = (p: number) => {
     const sp = new URLSearchParams();
     if (args.date) sp.set("date", args.date);
+    if (args.dateTo) sp.set("to", args.dateTo);
     if (args.status) sp.set("status", args.status);
     // "newest" is the default, so it stays out of the URL — same as the
     // filter bar writes it, or Next would treat the two as different pages.

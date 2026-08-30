@@ -261,6 +261,13 @@ const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
 /** The portal's scope and filters — the same against the view or the table. */
 function portalQuery(
   table: "portal_orders" | "orders",
+  /**
+   * One day, or the start of a range — see `dateTo`.
+   *
+   * Kept as `date` rather than renamed to `dateFrom`: links to this screen get
+   * pasted into WhatsApp and stay in people's history, and a parameter rename
+   * would quietly widen every one of them to "all days".
+   */
   date: string | undefined,
   status: string | undefined,
   /** Whose parcels. null = every agent's, for an owner or manager. */
@@ -273,7 +280,15 @@ function portalQuery(
   /** A handover_state value (migration 0035), or null for all of them. */
   handover: string | null = null,
   /** Gift / signed / neither, or null for all of them. */
-  packing: PortalPacking | null = null
+  packing: PortalPacking | null = null,
+  /**
+   * The last day of the range, inclusive. Absent means `date` is a single day.
+   *
+   * A range because the portal is not always worked a day at a time: a backlog
+   * is drained across a week, and "everything from Monday to Thursday" was
+   * four page loads and a mental tally.
+   */
+  dateTo: string | undefined = undefined
 ) {
   let query = supabaseAdmin
     .from(table)
@@ -338,13 +353,22 @@ function portalQuery(
   //
   // Timestamps are UTC and the day is an IST calendar day — convert, or the
   // filter is 5h30m out and silently drops the early-morning parcels.
-  if (isDate(date)) {
+  if (isDate(date) || isDate(dateTo)) {
     // `work_at` exists only on the view. The fallback path keeps the old
     // column, because a degraded screen beats a thrown query.
     const column = table === "portal_orders" ? "work_at" : "created_at";
-    query = query
-      .gte(column, istDayStartUTC(date))
-      .lt(column, istDayEndUTC(date));
+
+    // Either end may stand alone: "since Monday" and "up to Thursday" are both
+    // things people ask for, and a range that demanded both would turn each of
+    // them into a date somebody had to invent.
+    //
+    // Both ends are IST calendar days and the column is UTC, so the end is the
+    // START of the following day, exclusive — otherwise the last day of a
+    // range is silently dropped except for its first instant.
+    if (isDate(date)) query = query.gte(column, istDayStartUTC(date));
+    if (isDate(dateTo)) query = query.lt(column, istDayEndUTC(dateTo));
+    // One day, given only as `date`: closed on both sides, as before.
+    else if (isDate(date)) query = query.lt(column, istDayEndUTC(date));
   }
 
   if (status === "new") {
@@ -386,7 +410,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   /** A handover_state value, or null for all of them. */
   handover: string | null = null,
   /** Gift / signed / neither, or null for all of them. */
-  packing: PortalPacking | null = null
+  packing: PortalPacking | null = null,
+  /** The last day of the range, inclusive. Absent means `date` is one day. */
+  dateTo: string | undefined = undefined
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
@@ -412,7 +438,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     courierId,
     tracking,
     handover,
-    packing
+    packing,
+    dateTo
   )
     .order("work_day", { ascending })
     .order("needs_entry", { ascending: false })
@@ -451,7 +478,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
       courierId,
       tracking,
       handover,
-      packing
+      packing,
+      dateTo
     )
       .order("created_at", { ascending })
       .range(from, to);
@@ -474,7 +502,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         courierId,
         tracking,
         handover,
-        packing
+        packing,
+        dateTo
       )
         .order("created_at", { ascending })
         .range(from, to);
@@ -512,7 +541,8 @@ export async function fetchPortalContacts(
   courierId: string | null = null,
   tracking: PortalTracking | null = null,
   handover: string | null = null,
-  packing: PortalPacking | null = null
+  packing: PortalPacking | null = null,
+  dateTo: string | undefined = undefined
 ): Promise<{ rows: ContactRow[]; truncated: boolean }> {
   const query = (table: "portal_orders" | "orders", from: number, to: number) =>
     portalQuery(
