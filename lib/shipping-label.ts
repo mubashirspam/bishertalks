@@ -1,4 +1,4 @@
-import { PdfDocument, wrapText, measureText } from "@/lib/pdf";
+import { PdfDocument, wrapText, measureText, printableOnly } from "@/lib/pdf";
 import { drawBarcode } from "@/lib/barcode";
 import { formatIST } from "@/lib/format-date";
 import type { CourierConfig } from "@/lib/couriers/types";
@@ -71,11 +71,14 @@ export interface LabelOrder {
   /**
    * Wrap it before it goes in the box (0027).
    *
-   * The flag belongs here; the message deliberately does not. This sheet is
+   * The flag belongs on the label; the message still does not. This sheet is
    * stuck to the outside of the parcel, and a private note to the recipient
    * printed where the courier and the whole household can read it is the one
-   * way to ruin a gift while getting every other detail right. The message is
-   * on the admin order page, for whoever writes the card.
+   * way to ruin a gift while getting every other detail right.
+   *
+   * The message now prints on a packing slip instead — its own page, headed
+   * DO NOT STICK ON PARCEL, which the packer reads at the bench. See
+   * drawPackingSlip().
    */
   is_gift?: boolean | null;
   /**
@@ -86,6 +89,12 @@ export interface LabelOrder {
    * comes back. Only ever true alongside is_gift.
    */
   is_signed?: boolean | null;
+  /**
+   * What to write on the card. Only ever set alongside is_gift.
+   *
+   * Never printed on the address label — see is_gift above.
+   */
+  gift_message?: string | null;
   /**
    * The order date — when it was paid (0043).
    *
@@ -208,9 +217,149 @@ export function buildLabelSheet(
   orders.forEach((order, i) => {
     if (i > 0) doc.addPage();
     drawLabel(doc, order, sender, printedAt, i + 1, orders.length);
+
+    // A parcel that needs something done to it before the box is taped shut
+    // gets a second page. Only gifts and signed copies — about ten parcels in
+    // a thousand — so this does not double the stack for a normal day's post.
+    //
+    // Its own page rather than a corner of the label, because the two sheets
+    // have opposite destinations: the label is stuck to the outside where the
+    // courier and the household read it, and this is read at the bench and
+    // thrown away or dropped in the box.
+    if (order.is_gift || order.is_signed) {
+      doc.addPage();
+      drawPackingSlip(doc, order, i + 1, orders.length);
+    }
   });
 
   return doc.build();
+}
+
+/**
+ * The instructions for a parcel that is not just a book in a box.
+ *
+ * Everything the person packing has to know and could not get from the
+ * address label: whether the copies need signing, whether it is wrapped, and
+ * the exact words to write on the card. Before this the message lived only on
+ * the admin order page, so packing one gift meant leaving the bench, finding
+ * the order and copying a line of Malayalam by hand.
+ *
+ * Deliberately unmistakable for a label: no address, no barcode, and the
+ * warning is the first thing on the page at a size nobody skims past. A gift
+ * message stuck to the outside of a parcel is worse than no gift message.
+ */
+function drawPackingSlip(
+  doc: PdfDocument,
+  o: LabelOrder,
+  index: number,
+  total: number
+): void {
+  let cy = MARGIN + 12;
+  const copies = Math.max(1, o.quantity ?? 1);
+
+  doc.text(LEFT, cy, "PACKING SLIP", { size: 15, bold: true });
+  cy += 15;
+  doc.text(LEFT, cy, "DO NOT STICK ON PARCEL", { size: 10, bold: true, gray: 0.35 });
+
+  cy += 8;
+  doc.line(LEFT, cy, RIGHT, cy, { gray: 0.4, width: 1.2 });
+
+  cy += 18;
+  doc.text(LEFT, cy, o.order_number, { size: 13, bold: true });
+  cy += 15;
+  doc.text(LEFT, cy, o.buyer_name?.trim() || "—", { size: 11, maxWidth: INNER_W });
+
+  // ── What to do, in the order it is done ──────────────────────────────────
+  cy += 24;
+  doc.text(LEFT, cy, "BEFORE PACKING", { size: 8, bold: true, gray: 0.5 });
+
+  const steps: string[] = [];
+  if (o.is_signed) {
+    steps.push(
+      copies > 1
+        ? `Get all ${copies} copies signed by Bisher`
+        : "Get the copy signed by Bisher"
+    );
+  }
+  if (o.is_gift) steps.push("Gift wrap before it goes in the box");
+  if (o.is_gift) {
+    steps.push(
+      o.gift_message?.trim()
+        ? "Write the message below on the card"
+        : "Include a blank card — no message was left"
+    );
+  }
+
+  for (const step of steps) {
+    cy += 17;
+    doc.text(LEFT, cy, `•  ${step}`, { size: 11, bold: true, maxWidth: INNER_W });
+  }
+
+  // ── The message, verbatim where it can be ────────────────────────────────
+  //
+  // Half the gift messages in this shop are Malayalam or carry an emoji, and
+  // the built-in PDF fonts have a glyph for neither — they print as a row of
+  // question marks. That is worse than printing nothing: it looks like the
+  // message rather than like a failure, and the card goes out copied from it.
+  //
+  // So what cannot be printed is named as such, with the order number already
+  // at the top of this slip to look it up by.
+  const raw = o.gift_message?.trim() ?? "";
+  const message = raw ? printableOnly(raw) : "";
+  const lostMost = !!raw && (!message || message.length < raw.length * 0.7);
+
+  if (raw && lostMost) {
+    cy += 22;
+    doc.text(LEFT, cy, "WRITE ON THE CARD", { size: 8, bold: true, gray: 0.5 });
+    cy += 17;
+    doc.text(LEFT, cy, "Message is in Malayalam or uses emoji.", {
+      size: 11,
+      bold: true,
+      maxWidth: INNER_W,
+    });
+    cy += 15;
+    doc.text(LEFT, cy, `Open ${o.order_number} in the admin to copy it.`, {
+      size: 10,
+      maxWidth: INNER_W,
+    });
+  } else if (message) {
+    cy += 22;
+    doc.text(LEFT, cy, "WRITE ON THE CARD", { size: 8, bold: true, gray: 0.5 });
+    cy += 6;
+    doc.line(LEFT, cy, RIGHT, cy, { gray: 0.75, width: 0.5 });
+
+    // Wrapped, never silently truncated: half a message is worse than none,
+    // because the card goes out wrong and nobody at the bench knows it did.
+    for (const line of wrapText(message, INNER_W, 12)) {
+      cy += 16;
+      if (cy > LABEL_4X6.height - MARGIN - 26) {
+        doc.text(LEFT, cy, "… message continues on the order page", {
+          size: 8,
+          gray: 0.45,
+        });
+        break;
+      }
+      doc.text(LEFT, cy, line, { size: 12, maxWidth: INNER_W });
+    }
+
+    cy += 8;
+    doc.line(LEFT, cy, RIGHT, cy, { gray: 0.75, width: 0.5 });
+
+    // A stray emoji dropped out of an otherwise English message. Worth one
+    // line, because the card should not silently lose a heart.
+    if (message.length < raw.length) {
+      cy += 12;
+      doc.text(LEFT, cy, "(an emoji could not be printed — check the order)", {
+        size: 8,
+        gray: 0.45,
+      });
+    }
+  }
+
+  doc.text(LEFT, LABEL_4X6.height - MARGIN, `Packing slip ${index} of ${total}`, {
+    size: 7.5,
+    gray: 0.5,
+  });
 }
 
 function drawLabel(

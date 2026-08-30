@@ -111,8 +111,37 @@ export function truncate(
 // from WhatsApp or an em dash would otherwise render as garbage.
 const FOLD: Record<string, string> = {
   "₹": "Rs.", "—": "-", "–": "-", "‘": "'", "’": "'", "“": '"', "”": '"',
-  "…": "...", " ": " ",
+  "…": "...", " ": " ", "•": "-",
 };
+
+/**
+ * Whether this string survives the fold above intact.
+ *
+ * Callers printing text somebody typed — a gift message, say — need to know
+ * before they print it. Half the gift messages in this shop carry an emoji or
+ * are written in Malayalam, and neither has a glyph in a built-in PDF font:
+ * they come out as a row of question marks, which is worse than not printing
+ * the message at all, because it looks like the message rather than a failure.
+ */
+export function isPrintable(s: string): boolean {
+  for (const c of s) {
+    const folded = FOLD[c] ?? c;
+    for (const f of folded) if (f.codePointAt(0)! > 0xff) return false;
+  }
+  return true;
+}
+
+/** The same string with anything unprintable removed. May come back empty. */
+export function printableOnly(s: string): string {
+  let out = "";
+  for (const c of s) {
+    const folded = FOLD[c] ?? c;
+    let ok = true;
+    for (const f of folded) if (f.codePointAt(0)! > 0xff) ok = false;
+    if (ok) out += folded;
+  }
+  return out.replace(/\s+/g, " ").trim();
+}
 
 function encodeText(s: string): string {
   let out = "";
