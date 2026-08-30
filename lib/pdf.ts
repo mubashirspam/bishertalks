@@ -1,3 +1,4 @@
+import { loadFont, shape, glyphWidth, type Font } from "@/lib/truetype";
 /**
  * A very small PDF writer — enough to lay out text and rules on a page, which
  * is all a shipping label needs.
@@ -44,7 +45,38 @@ function charWidth(c: string): number {
   return 0.53;
 }
 
+/**
+ * The faces that can carry Malayalam, loaded only when something needs them.
+ *
+ * Embedding costs 103KB per face in the output, so a normal day's labels —
+ * all Latin — should not pay it. `text()` records which faces a document
+ * actually used and `build()` embeds exactly those.
+ */
+const UNICODE_FACE = {
+  regular: "NotoSansMalayalam-Regular.ttf",
+  bold: "NotoSansMalayalam-Bold.ttf",
+} as const;
+
+/** Does this string need more than the built-in WinAnsi faces can draw? */
+function needsUnicode(s: string): boolean {
+  for (const c of s) {
+    const folded = FOLD[c] ?? c;
+    for (const f of folded) if (f.codePointAt(0)! > 0xff) return true;
+  }
+  return false;
+}
+
 export function measureText(text: string, size: number, bold = false): number {
+  // Measured from the embedded face when that is what will draw it. Using the
+  // Helvetica table for Malayalam would wrap and truncate against the wrong
+  // width, and a name cut in the wrong place is a parcel addressed to somebody
+  // who does not quite exist.
+  if (needsUnicode(text)) {
+    const font = loadFont(UNICODE_FACE[bold ? "bold" : "regular"]);
+    const glyphs = shape(font, text);
+    if (glyphs) return glyphWidth(font, glyphs) * size;
+  }
+
   let w = 0;
   for (const c of text) w += charWidth(c);
   // Bold is a touch wider across the board.
@@ -157,7 +189,11 @@ function encodeText(s: string): string {
 
 // ── Builder ─────────────────────────────────────────────────────────────────
 
+
+
 export class PdfDocument {
+  /** Which embedded faces this document has actually drawn with. */
+  private usedFaces = new Set<"regular" | "bold">();
   private pages: string[][] = [];
   private current: string[] = [];
   private readonly width: number;
@@ -183,6 +219,29 @@ export class PdfDocument {
     const { size = 10, bold = false, gray = 0, maxWidth } = opts;
     const body = maxWidth ? truncate(text, maxWidth, size, bold) : text;
     if (!body) return;
+
+    // Malayalam, or anything else outside WinAnsi, goes through the embedded
+    // face: shaped to glyph ids and written as a hex string, because
+    // Identity-H addresses glyphs rather than characters.
+    if (needsUnicode(body)) {
+      const face = bold ? "bold" : "regular";
+      const font = loadFont(UNICODE_FACE[face]);
+      const glyphs = shape(font, body);
+
+      // A character this font has no glyph for would draw as an empty box,
+      // which reads as a broken label rather than a missing font. Falling back
+      // gives the old row of question marks — no better, but no worse, and it
+      // keeps the failure recognisable.
+      if (glyphs) {
+        this.usedFaces.add(face);
+        const hex = glyphs.map((g) => g.toString(16).padStart(4, "0")).join("");
+        this.current.push(
+          `BT ${gray} g /${face === "bold" ? "F4" : "F3"} ${size} Tf ` +
+            `1 0 0 1 ${fmt(x)} ${fmt(this.height - y)} Tm <${hex}> Tj ET`
+        );
+        return;
+      }
+    }
 
     this.current.push(
       `BT ${gray} g /${bold ? "F2" : "F1"} ${size} Tf ` +
@@ -212,8 +271,14 @@ export class PdfDocument {
     };
 
     // 1 catalog, 2 pages, 3 regular font, 4 bold font — fixed, so page objects
-    // can reference them before they're written.
-    const firstPageObj = 5;
+    // can reference them before they're written. Each embedded face then takes
+    // four more (Type0, CID font, descriptor, the file itself), which is why
+    // the first page object is no longer a constant.
+    const faces = [...this.usedFaces].sort();
+    const faceIds = new Map<string, number>();
+    faces.forEach((face, i) => faceIds.set(face, 5 + i * 4));
+
+    const firstPageObj = 5 + faces.length * 4;
     const pageIds = this.pages.map((_, i) => firstPageObj + i * 2);
 
     push(`<< /Type /Catalog /Pages 2 0 R >>`);
@@ -224,11 +289,60 @@ export class PdfDocument {
     push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
     push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
 
+    for (const face of faces) {
+      const font = loadFont(UNICODE_FACE[face]);
+      const id = faceIds.get(face)!;
+      const name = font.postscriptName.replace(/[^A-Za-z0-9]/g, "");
+      const scale = 1000 / font.unitsPerEm;
+      const round = (n: number) => Math.round(n * scale);
+
+      // Identity-H: the string addresses glyph ids directly, so no encoding
+      // table has to agree with the font about what a character is.
+      push(
+        `<< /Type /Font /Subtype /Type0 /BaseFont /${name} ` +
+          `/Encoding /Identity-H /DescendantFonts [${id + 1} 0 R] >>`
+      );
+
+      // Every glyph's width, rather than the used ones: the array is 641
+      // numbers for this face and working out which glyphs a document touched
+      // would mean threading that back from every text() call.
+      const widths = font.advances.map(round).join(" ");
+      push(
+        `<< /Type /Font /Subtype /CIDFontType2 /BaseFont /${name} ` +
+          `/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> ` +
+          `/FontDescriptor ${id + 2} 0 R /DW 1000 /W [0 [${widths}]] ` +
+          `/CIDToGIDMap /Identity >>`
+      );
+
+      // Flags bit 3 (value 4) is "symbolic", which is what a font carrying a
+      // non-Latin script must claim; declaring it nonsymbolic invites a
+      // viewer to apply StandardEncoding over the top.
+      push(
+        `<< /Type /FontDescriptor /FontName /${name} /Flags 4 ` +
+          `/FontBBox [${font.bbox.map(round).join(" ")}] /ItalicAngle 0 ` +
+          `/Ascent ${round(font.ascent)} /Descent ${round(font.descent)} ` +
+          `/CapHeight ${round(font.ascent)} /StemV 80 /FontFile2 ${id + 3} 0 R >>`
+      );
+
+      const ttf = font.data.toString("latin1");
+      push(
+        `<< /Length ${font.data.length} /Length1 ${font.data.length} >>\n` +
+          `stream\n${ttf}\nendstream`
+      );
+    }
+
+    // Only the faces this document used are in the resource dictionary; a
+    // page referencing a font object that was never written is a broken PDF.
+    const fontRes =
+      `/F1 3 0 R /F2 4 0 R` +
+      (faceIds.has("regular") ? ` /F3 ${faceIds.get("regular")} 0 R` : "") +
+      (faceIds.has("bold") ? ` /F4 ${faceIds.get("bold")} 0 R` : "");
+
     for (const [i, ops] of this.pages.entries()) {
       const stream = ops.join("\n");
       push(
         `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${fmt(this.width)} ${fmt(this.height)}] ` +
-          `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${pageIds[i] + 1} 0 R >>`
+          `/Resources << /Font << ${fontRes} >> >> /Contents ${pageIds[i] + 1} 0 R >>`
       );
       push(`<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`);
     }

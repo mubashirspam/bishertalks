@@ -1,5 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  /**
+   * Ship the label fonts with the functions that read them.
+   *
+   * `public/` is served by the CDN; it is NOT part of a serverless function's
+   * filesystem. lib/truetype.ts opens these with fs at request time to embed
+   * Malayalam in a PDF, so without this the label route works locally and
+   * throws ENOENT the moment it is deployed — the worst shape of bug, because
+   * every check short of a real deploy passes.
+   */
+  outputFileTracingIncludes: {
+    '/api/admin/delivery/labels': ['./public/fonts/**'],
+    '/api/admin/delivery/address-sheet': ['./public/fonts/**'],
+  },
+
   images: {
     formats: ['image/avif', 'image/webp'],
     // Only hosts listed here may go through next/image. Course thumbnails are
