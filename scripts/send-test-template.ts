@@ -109,7 +109,7 @@ const context = {
         day: "numeric",
         month: "long",
       })
-    : "5–7 ദിവസം",
+    : "7–12 ദിവസം",
   addressUrl: `${base}/neuro-code/address?id=${o.order_number}`,
   trackingUrl: `${base}/neuro-code/track?id=${o.order_number}`,
   courseTitle: "Neuro Linguistic Programming",

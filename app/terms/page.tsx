@@ -214,7 +214,7 @@ export default function TermsPage() {
                 We currently ship <strong>within India only</strong>.
               </li>
               <li>
-                Standard delivery takes <strong>5–7 business days</strong> from dispatch.
+                Standard delivery takes <strong>7–12 days</strong> from dispatch.
                 Delivery to remote areas may take longer.
               </li>
               <li>

@@ -53,7 +53,7 @@ export interface TemplateContext {
   amount: string;
   /** "കണ്ണൂർ, Kerala" — pre-joined, never concatenated in a template. */
   addressShort: string;
-  /** A formatted date, or a phrase like "5–7 ദിവസം". */
+  /** A formatted date, or a phrase like "7–12 ദിവസം". */
   expectedDelivery: string;
   addressUrl: string;
   trackingUrl: string;
@@ -204,7 +204,7 @@ export const TEMPLATES: Record<OrderEvent, TemplateDef> = {
 ഓർഡർ ട്രാക്ക് ചെയ്യാൻ താഴെയുള്ള button ഉപയോഗിക്കൂ.
 
 ${SIGNATURE}`,
-    example: ["Asraf", "ORD-K3523P", "699", "കണ്ണൂർ, Kerala", "5–7 ദിവസം"],
+    example: ["Asraf", "ORD-K3523P", "699", "കണ്ണൂർ, Kerala", "7–12 ദിവസം"],
     params: (c) => [
       c.customerName,
       c.orderNumber,
@@ -558,7 +558,7 @@ ${SIGNATURE}`,
 പ്രതീക്ഷിക്കുന്ന ഡെലിവറി: {{5}}
 
 ${SIGNATURE}`,
-    example: ["Asraf", "ORD-K3523P", "699", "കണ്ണൂർ, Kerala", "5–7 ദിവസം"],
+    example: ["Asraf", "ORD-K3523P", "699", "കണ്ണൂർ, Kerala", "7–12 ദിവസം"],
     params: (c) => [
       c.customerName,
       c.orderNumber,

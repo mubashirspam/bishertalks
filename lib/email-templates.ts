@@ -110,7 +110,7 @@ export function purchaseEmail(
       </tr>
       <tr>
         <td style="font-size:13px;color:#666;padding:5px 0;">Expected</td>
-        <td align="right" style="font-size:13px;color:#16a34a;font-weight:600;padding:5px 0;">5–7 business days</td>
+        <td align="right" style="font-size:13px;color:#16a34a;font-weight:600;padding:5px 0;">7–12 days</td>
       </tr>
     </table>
   </td></tr>

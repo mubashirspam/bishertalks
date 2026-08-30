@@ -91,7 +91,7 @@ export type Campaign = {
   date: string;
   /** "1 Sept" — when a pre-order placed now should arrive. */
   arrivesBy: string;
-  /** The range as copy, e.g. "5–7". Never a bare number — see lib/preorder. */
+  /** The range as copy, e.g. "7–12". Never a bare number — see lib/preorder. */
   deliveryDays: string;
 };
 

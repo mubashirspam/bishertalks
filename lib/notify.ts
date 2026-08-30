@@ -188,7 +188,7 @@ function buildOrderEvent(
       // see doesn't change with the plumbing.
       expected_delivery:
         formatDate(order.expected_delivery) ??
-        (event === "shipped" ? "3–5 business days" : "5–7 business days"),
+        (event === "shipped" ? "3–5 days" : "7–12 days"),
       payment_link_url: order.payment_link_url,
     },
     links: {
@@ -226,7 +226,7 @@ function templateContext(payload: MakeEvent): TemplateContext {
     orderNumber: payload.order?.number ?? "",
     amount: String(payload.order?.amount ?? ""),
     addressShort: payload.order?.address.short || "—",
-    expectedDelivery: payload.order?.expected_delivery || "5–7 ദിവസം",
+    expectedDelivery: payload.order?.expected_delivery || "7–12 ദിവസം",
     addressUrl: payload.links.address ?? payload.links.site,
     trackingUrl: payload.links.tracking ?? payload.links.site,
     courseTitle: payload.course?.title ?? "",

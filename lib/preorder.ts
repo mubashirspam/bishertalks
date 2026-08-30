@@ -12,7 +12,7 @@ import { istDayEndUTC } from "@/lib/format-date";
  * disagreeing: a checkout that says one number and a WhatsApp that says
  * another is a support call per order.
  *
- *   how long delivery takes   5–7 days, now that printing is done
+ *   how long delivery takes   7–12 days
  *   what arrives immediately  the NLP course, which does not wait for a van
  *   how long this price lasts until the end of Saturday
  *
@@ -34,7 +34,7 @@ export type PreorderFacts = {
   day: string;
   /** "1 Sept" — when an order placed now should arrive. */
   arrivesBy: string;
-  /** The range as copy, e.g. "5–7" — never a bare number. */
+  /** The range as copy, e.g. "7–12" — never a bare number. */
   deliveryDays: string;
 };
 
@@ -47,21 +47,24 @@ export const EDITION_NUMBER = 4;
  * A reader counting business days will arrive at a different date than we
  * will. Calendar days are the honest unit here.
  *
- * It was 12 while the fourth edition was still on the press. Printing is done
- * — EDITION_DISPATCH_FROM has passed — so the wait is a courier's again, and
- * 5–7 is what the shop already tells people everywhere else: the WhatsApp
- * templates say "5–7 ദിവസം", and so does the message the team hand-sends from
- * the Orders screen. The page was the only thing still saying 12.
+ * It read 12 while the fourth edition was on the press, then 5–7 once printing
+ * finished and the wait was a courier's again. It is 7–12 now: what the shop
+ * is willing to promise, given what delivery actually takes.
+ *
+ * Widening a delivery promise is not a retreat. The number that matters is the
+ * one a customer measures us against on the day it passes, and a range nobody
+ * misses is worth more than an optimistic one that generates a message on day
+ * eight.
  *
  * Two numbers because a range needs both, and one of them has to be the one
  * every date calculation uses. That is the outer bound: `preorderArrivesBy`
  * promises a day the book will have arrived BY, and promising the optimistic
- * end of a range is how a delivery promise gets broken on the sixth day.
+ * end of a range is how a delivery promise gets broken on the eighth day.
  */
-export const PREORDER_DELIVERY_DAYS_MIN = 5;
-export const PREORDER_DELIVERY_DAYS = 7;
+export const PREORDER_DELIVERY_DAYS_MIN = 7;
+export const PREORDER_DELIVERY_DAYS = 12;
 
-/** "5–7", for the copy. En dash, not a hyphen — it is a range, not a minus. */
+/** "7–12", for the copy. En dash, not a hyphen — it is a range, not a minus. */
 export const PREORDER_DELIVERY_RANGE = `${PREORDER_DELIVERY_DAYS_MIN}–${PREORDER_DELIVERY_DAYS}`;
 
 /**
