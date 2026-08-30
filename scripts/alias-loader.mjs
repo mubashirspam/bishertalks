@@ -40,13 +40,38 @@ export async function resolve(specifier, context, next) {
     // that Next's own bundler sets and a plain Node run does not, so the
     // subpath comes back unresolved with the file sitting right there. Falling
     // back to the explicit file is enough for a script.
-    if (
-      e?.code === "ERR_MODULE_NOT_FOUND" &&
-      !specifier.startsWith(".") &&
-      !specifier.startsWith("@/") &&
-      !/\.[cm]?js$/.test(specifier)
-    ) {
-      return next(`${specifier}.js`, context);
+    // A directory import — `@/lib/couriers/adapters` meaning its index.ts.
+    // Next resolves those; Node does not.
+    if (e?.code === "ERR_UNSUPPORTED_DIR_IMPORT") {
+      for (const ext of ["/index.ts", "/index.tsx"]) {
+        const p = path.join(root, specifier.replace(/^@\//, "") + ext);
+        if (fs.existsSync(p)) return next(pathToFileURL(p).href, context);
+      }
+      // Relative directory imports resolve against the importing file.
+      if (context.parentURL) {
+        const from = path.dirname(new URL(context.parentURL).pathname);
+        for (const ext of ["/index.ts", "/index.tsx"]) {
+          const p = path.resolve(from, specifier + ext);
+          if (fs.existsSync(p)) return next(pathToFileURL(p).href, context);
+        }
+      }
+    }
+
+    if (e?.code === "ERR_MODULE_NOT_FOUND" && !/\.[cm]?[jt]sx?$/.test(specifier)) {
+      // Extensionless relative imports — `./delhivery` meaning `./delhivery.ts`.
+      // TypeScript writes them, Next resolves them, Node does not.
+      if (specifier.startsWith(".") && context.parentURL) {
+        const from = path.dirname(new URL(context.parentURL).pathname);
+        for (const ext of [".ts", ".tsx", ".js"]) {
+          const p = path.resolve(from, specifier + ext);
+          if (fs.existsSync(p)) return next(pathToFileURL(p).href, context);
+        }
+      }
+      // `next/server` and friends resolve through package "exports"
+      // conditions that Next's bundler sets and a plain Node run does not.
+      if (!specifier.startsWith(".") && !specifier.startsWith("@/")) {
+        return next(`${specifier}.js`, context);
+      }
     }
     throw e;
   }

@@ -10,6 +10,7 @@ import {
   portalPacking,
 } from "@/lib/db/delivery-portal";
 import { fetchStatusContacts, NO_COURIER } from "@/lib/db/courier-status";
+import { listCouriers } from "@/lib/db/couriers";
 import { isHandoverState } from "@/lib/delivery/handover";
 import {
   CONTACT_HEADERS,
@@ -133,7 +134,15 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const file = toXLSX([...CONTACT_HEADERS], rows.map(contactSheetRow), "Parcels");
+  // Names, not ids. Resolved once for the file rather than per row — there are
+  // four couriers and up to twenty thousand rows.
+  const courierNames = new Map((await listCouriers()).map((c) => [c.id, c.name]));
+
+  const file = toXLSX(
+    [...CONTACT_HEADERS],
+    rows.map((r) => contactSheetRow(r, courierNames)),
+    "Parcels"
+  );
 
   return new NextResponse(new Uint8Array(file), {
     headers: {
