@@ -10,7 +10,7 @@ import CourseContent from "./CourseContent";
 import CourseGate from "./CourseGate";
 import { ACCESS_COOKIE, verifyAccessToken } from "@/lib/access-cookie";
 import { hasCourseAccessByPhone } from "@/lib/db/access";
-import { getCourseBundle } from "@/lib/db/courses";
+import { getCourseBundle, getCachedProductPricing } from "@/lib/db/courses";
 
 export const dynamic = "force-dynamic";
 
@@ -236,9 +236,16 @@ export default async function CoursePage({
 
   // Course content + presentation come entirely from the DB. Fetched in
   // parallel with the access check — they don't depend on each other.
-  const [bundle, hasAccess] = await Promise.all([
+  // The gate's "buy the book" card quotes the BOOK's price, not this course's.
+  // It has to come from checkout_settings (migration 0048) like the checkout
+  // does — `meta.price` is the legacy `courses` column the book price was moved
+  // off, and reading it here showed ₹699 for weeks after the book went to ₹749.
+  // Cached, not live: this is a display path that runs on every visit, and the
+  // schedule is still resolved fresh on the way out.
+  const [bundle, hasAccess, pricing] = await Promise.all([
     getCourseBundle(slug),
     phone ? hasCourseAccessByPhone(phone, slug) : Promise.resolve(false),
+    getCachedProductPricing(),
   ]);
 
   const course = bundle?.course;
@@ -272,8 +279,8 @@ export default async function CoursePage({
           outline={outline}
           totalVideos={getTotalVideos(course)}
           totalPdfs={getTotalPdfs(course)}
-          price={meta?.price ?? null}
-          offerPrice={meta?.offer_price ?? null}
+          price={pricing.price}
+          offerPrice={pricing.offerPrice}
         />
       </>
     );
