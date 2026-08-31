@@ -1,4 +1,5 @@
 import { PdfDocument, A4, wrapText, measureText, truncate } from "@/lib/pdf";
+import { drawBarcode } from "@/lib/barcode";
 import { formatIST } from "@/lib/format-date";
 import {
   senderFromEnv,
@@ -9,7 +10,7 @@ import {
 } from "@/lib/shipping-label";
 
 /**
- * Addresses, ten to an A4 sheet — each one a miniature contractual docket.
+ * Addresses, eight to an A4 sheet — each one a miniature contractual docket.
  *
  * A denser sibling of `buildLabelSheet`, for a different job. That one prints
  * six parcel labels to be cut out and taped on; this one is what a courier
@@ -35,6 +36,25 @@ import {
  * That trade is the whole layout. Fifty parcels is five pages rather than four,
  * which is a sheet of paper against a phone number somebody can actually read.
  *
+ * ── Eight, not ten: the row the barcode cost ──────────────────────────────
+ *
+ * A cell now ends in a scannable barcode, and a barcode is the one thing on
+ * this sheet that cannot be shrunk to fit. Below about 20pt of bar height a
+ * scanner starts needing a second pass, and at that point the cell has a
+ * picture of a barcode rather than a barcode.
+ *
+ * So the fifth row was given up for it. 2x4 makes a cell ~202pt tall against
+ * ~162, and the whole 40pt of that goes into the strip at the foot — every
+ * other measurement in this file is unchanged, which is why the address block
+ * still holds exactly what it held before.
+ *
+ * What it buys is the part that matters for India Post. Their article number
+ * is minted before the parcel is posted and is what the booking office scans;
+ * printing it here means the sheet a partner carries is machine-readable
+ * rather than a list somebody types back in. For everything else the barcode
+ * is our own reference, which is what our screens are keyed by — either way
+ * the paper and the system agree without anybody reading a number aloud.
+ *
  * The heading, the numbers and the return address are all resolved PER PARCEL,
  * by courier: a Speed Post parcel prints India Post's contract and comes back
  * to the branch it was booked at, a KKR one prints its own heading and comes
@@ -44,7 +64,7 @@ import {
  */
 
 const COLS = 2;
-const ROWS = 5;
+const ROWS = 4;
 export const ADDRESSES_PER_PAGE = COLS * ROWS;
 
 const MARGIN_X = 14;
@@ -127,18 +147,44 @@ const MAX_ADDRESS_LINES = 3;
  * 82810 55512" — is the case that needs the smaller steps, and it is why the
  * size is computed rather than fixed.
  */
-const CONTACT_ROW = 58;
+const CONTACT_ROW = 98;
 const CONTACT_SIZES = [11.5, 10.5, 9.5, 8.5] as const;
 /** Keeps the two columns apart when the left one runs long. */
 const CONTACT_GUTTER = 10;
 
-const REF_DASH = 45;
-const REF_ROW = 35;
+const REF_DASH = 85;
+const REF_ROW = 75;
 const REF_SIZE = 9.5;
-const FROM_RULE = 30;
-const FROM_LINE_1 = 23;
-const FROM_LINE_2 = 14;
-const FROM_LINE_3 = 5;
+const FROM_RULE = 70;
+const FROM_LINE_1 = 63;
+const FROM_LINE_2 = 54;
+const FROM_LINE_3 = 45;
+
+/**
+ * The barcode strip, at the very foot of the cell.
+ *
+ * Also measured UP from the foot, like everything above it, so the strip sits
+ * on the bottom edge of the cell whatever happened higher up — which is where
+ * a scanner is pointed and where a cut-out docket is held.
+ *
+ * `BARCODE_ZONE` is the 40pt the fifth row was traded for; every offset above
+ * this block is exactly its old value plus that number, which is the whole of
+ * what changed when the sheet went from ten cells to eight.
+ *
+ * `BARCODE_INSET` is the quiet zone. Code 128 needs a clear margin of at least
+ * ten modules on each side or a scanner reads the cell border as part of the
+ * symbol — the single most common reason a barcode that looks perfect will not
+ * read. At this width a module is ~1.2pt, so 20pt is comfortably over the
+ * minimum on both sides.
+ */
+const BARCODE_ZONE = 40;
+const BARCODE_RULE = 41;
+const BARCODE_H = 21;
+/** The foot of the bars, so the number below has room to sit under them. */
+const BARCODE_BOTTOM = 17;
+const BARCODE_TEXT_ROW = 6;
+const BARCODE_TEXT_SIZE = 9;
+const BARCODE_INSET = 20;
 
 /**
  * FROM, at 8pt over up to three lines.
@@ -160,6 +206,11 @@ const MAX_FROM_LINES = 3;
 export type SenderFor<T> = (order: T) => SenderDetails;
 /** Resolves the heading and account numbers for one parcel — likewise. */
 export type HeaderFor<T> = (order: T) => SheetHeader;
+/**
+ * Resolves what this parcel's barcode should carry — or the empty string for
+ * a parcel that must not be given one. See `sheetBarcodeValue`.
+ */
+export type BarcodeFor<T> = (order: T) => string;
 
 export interface AddressSheet {
   pdf: Buffer;
@@ -181,7 +232,15 @@ export function buildAddressSheet<T extends LabelOrder>(
    */
   sender: SenderDetails | SenderFor<T> = senderFromEnv(),
   /** The masthead, same two forms and the same reasoning. */
-  header: SheetHeader | HeaderFor<T> = sheetHeaderFromEnv()
+  header: SheetHeader | HeaderFor<T> = sheetHeaderFromEnv(),
+  /**
+   * What each cell's barcode carries.
+   *
+   * A callback because the answer depends on the courier and not on the
+   * parcel alone — see `sheetBarcodeValue` for the default and
+   * `postalSheetBarcode` for the stricter rule an India Post parcel gets.
+   */
+  barcode: BarcodeFor<T> = sheetBarcodeValue
 ): AddressSheet {
   const senderOf: SenderFor<T> = typeof sender === "function" ? sender : () => sender;
   const headerOf: HeaderFor<T> = typeof header === "function" ? header : () => header;
@@ -206,7 +265,7 @@ export function buildAddressSheet<T extends LabelOrder>(
 
     const x = MARGIN_X + (slot % COLS) * CELL_W;
     const y = MARGIN_TOP + Math.floor(slot / COLS) * CELL_H;
-    drawAddress(doc, order, senderOf(order), headerOf(order), x, y);
+    drawAddress(doc, order, senderOf(order), headerOf(order), barcode(order), x, y);
   });
 
   return { pdf: doc.build(), pages };
@@ -217,6 +276,7 @@ function drawAddress(
   o: LabelOrder,
   sender: SenderDetails,
   header: SheetHeader,
+  barcodeValue: string,
   x: number,
   y: number
 ): void {
@@ -413,6 +473,107 @@ function drawAddress(
     const text =
       i === tops.length - 1 ? truncate(line, INNER_W, FROM_SIZE) : line;
     doc.text(left, y + CELL_H - tops[i], text, { size: FROM_SIZE, gray: 0.25 });
+  });
+
+  // -- Barcode -------------------------------------------------------------
+  drawCellBarcode(doc, barcodeValue, x, y);
+}
+
+/**
+ * The number this cell is scanned by, for a parcel going out with anyone but
+ * India Post.
+ *
+ * India Post's article number wins wherever there is one — it is what every
+ * scan from the booking counter to the doorstep is recorded against.
+ * Otherwise the courier reference, which is what the parcel is filed under on
+ * the courier's side and what our tracking sync matches on; failing that the
+ * order number, which always exists and is what a customer's query arrives as.
+ *
+ * Any of those three is a number that means something to somebody, which is
+ * the test a barcode has to pass.
+ */
+export function sheetBarcodeValue(o: LabelOrder): string {
+  return (
+    o.postal_barcode?.trim() ||
+    o.courier_reference?.trim() ||
+    o.order_number
+  );
+}
+
+/**
+ * The rule for a parcel going out by India Post: their article number, or
+ * nothing at all.
+ *
+ * No fallback, and that is the whole point of having a second function.
+ *
+ * The chain above is right for a courier that indexes on whatever we hand
+ * them. India Post does not: an article is registered, sorted and delivered
+ * against a number out of *their* allotment, and nothing else is a key in
+ * their system. Printing our order number in that strip would put a barcode on
+ * a Speed Post docket that scans cleanly, looks exactly like the real thing,
+ * and resolves to nothing at the counter — which is worse than an empty strip,
+ * because an empty strip is obviously empty and a wrong barcode is not.
+ *
+ * A parcel legitimately has no number until it has been on a booking file:
+ * numbers are allotted when the workbook is downloaded, and this sheet is
+ * often printed first. That is a sequence to follow, not an error — so the
+ * cell says so in words rather than pretending.
+ */
+export function postalSheetBarcode(o: LabelOrder): string {
+  return o.postal_barcode?.trim() ?? "";
+}
+
+/**
+ * The barcode strip at the foot of one cell.
+ *
+ * The human-readable number under it is not decoration and is not optional.
+ * This sheet is printed on office paper, folded, carried and photocopied, and
+ * a barcode that will not read has to leave something a person can type — a
+ * strip with only bars on it is a dead end at the counter.
+ *
+ * An empty `value` draws neither, and says why in its place. The rule and the
+ * space stay: every cell on the page is the same size whatever is in it, and a
+ * missing number must read as missing rather than as a printing fault.
+ */
+function drawCellBarcode(doc: PdfDocument, value: string, x: number, y: number): void {
+  const left = x + PAD_X;
+  const right = x + CELL_W - PAD_X;
+
+  doc.line(left, y + CELL_H - BARCODE_RULE, right, y + CELL_H - BARCODE_RULE, {
+    gray: 0.85,
+    width: 0.5,
+  });
+
+  if (!value) {
+    // Deliberately words and not bars. Whoever is holding this needs to know
+    // the parcel has not been on a booking file yet — that is a step still to
+    // do, not paper to throw away.
+    const note = "NO ARTICLE NUMBER YET";
+    doc.text(
+      x + (CELL_W - measureText(note, BARCODE_TEXT_SIZE, true)) / 2,
+      y + CELL_H - BARCODE_TEXT_ROW - 8,
+      note,
+      { size: BARCODE_TEXT_SIZE, bold: true, gray: 0.55 }
+    );
+    return;
+  }
+
+  const drawn = drawBarcode(doc, value, {
+    x: x + BARCODE_INSET,
+    y: y + CELL_H - BARCODE_BOTTOM - BARCODE_H,
+    width: CELL_W - BARCODE_INSET * 2,
+    height: BARCODE_H,
+  });
+
+  // Centred under the bars where one was drawn, and standing in for them where
+  // none could be — a value with nothing encodable in it is still a number the
+  // parcel is filed under.
+  const size = drawn ? BARCODE_TEXT_SIZE : BARCODE_TEXT_SIZE + 1;
+  const textY = y + CELL_H - (drawn ? BARCODE_TEXT_ROW : BARCODE_TEXT_ROW + 10);
+
+  doc.text(x + (CELL_W - measureText(value, size, true)) / 2, textY, value, {
+    size,
+    bold: true,
   });
 }
 

@@ -4,14 +4,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { portalScope } from "@/lib/delivery/scope";
 import { fetchAddressesForSheet } from "@/lib/db/delivery-portal";
-import { buildAddressSheet } from "@/lib/address-sheet";
+import {
+  buildAddressSheet,
+  sheetBarcodeValue,
+  postalSheetBarcode,
+} from "@/lib/address-sheet";
 import { listCouriers } from "@/lib/db/couriers";
 import { senderForCourier, sheetHeaderForCourier } from "@/lib/shipping-label";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import { istToday } from "@/lib/format-date";
 
 /**
- * The ticked parcels as a printable A4 sheet, ten addresses to a page.
+ * The ticked parcels as a printable A4 sheet, eight addresses to a page.
  *
  * The paper half of the Excel download. Same rows, same scope, same
  * permission — and one deliberate difference: **this route writes nothing.**
@@ -96,9 +100,17 @@ export async function POST(request: NextRequest) {
     (o) => senderForCourier(configOf(o)),
     // The masthead comes from the same place — an India Post page carries India
     // Post's contract numbers, a hand-over partner's carries none. The builder
-    // reports the page count rather than the caller dividing by ten,
+    // reports the page count rather than the caller dividing by eight,
     // because it starts a fresh page per courier and the two no longer agree.
-    (o) => sheetHeaderForCourier(configOf(o))
+    (o) => sheetHeaderForCourier(configOf(o)),
+    // And so does the barcode rule, for the same reason it is resolved per
+    // parcel rather than per run: an India Post docket may carry India Post's
+    // article number and nothing else, while every other courier falls back to
+    // the reference it files the parcel under. A page can hold both.
+    (o) =>
+      configOf(o)?.tracking === "india-post"
+        ? postalSheetBarcode(o)
+        : sheetBarcodeValue(o)
   );
 
   return new NextResponse(new Uint8Array(pdf), {

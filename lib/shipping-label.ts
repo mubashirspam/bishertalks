@@ -103,6 +103,30 @@ export interface LabelOrder {
    * the first thing they check against their bank statement is the date.
    */
   ordered_at: string;
+  /**
+   * India Post's article number, once one has been allotted to this parcel.
+   *
+   * When it is set it becomes the barcode on the label, in place of our own
+   * order number. That is not a cosmetic swap: a Speed Post article is
+   * tracked, sorted and delivered against this number, it is the number on the
+   * bulk booking file the parcel was posted on, and the counter scans the
+   * label to accept it. A label carrying our order number instead is a parcel
+   * the postal system cannot see.
+   *
+   * The order number does not disappear — it stays in the header, where the
+   * packer reads it. See lib/db/postal-barcodes.ts for where the number comes
+   * from and why it is never reused.
+   */
+  postal_barcode?: string | null;
+  /**
+   * The number this parcel is filed under on the courier's side (0024).
+   *
+   * Not printed on a 4x6 label — that one is stuck to the parcel and carries
+   * one barcode by design. It is here because the A4 address sheet falls back
+   * to it: a Delhivery parcel has no article number, and its reference is what
+   * the courier's own system and our tracking sync both match on.
+   */
+  courier_reference?: string | null;
 }
 
 export interface SenderDetails {
@@ -207,16 +231,54 @@ const contentsLine = (quantity: number, isGift: boolean, isSigned: boolean) =>
   (isSigned ? " — SIGNED" : "") +
   (isGift ? " — GIFT WRAPPED" : "");
 
-export function buildLabelSheet(
-  orders: LabelOrder[],
-  sender: SenderDetails = senderFromEnv()
+/**
+ * What this parcel's barcode carries, or "" for a parcel that must not be
+ * given one.
+ */
+export type LabelBarcodeFor<T = LabelOrder> = (order: T) => string;
+
+/**
+ * The default: the article number where there is one, our order number
+ * otherwise.
+ *
+ * Right for every courier that indexes on whatever we hand them — the order
+ * number is what our own screens, exports and audit trail are keyed by, so
+ * scanning it finds the order.
+ */
+export function labelBarcodeValue(o: LabelOrder): string {
+  return o.postal_barcode?.trim() || o.order_number;
+}
+
+/**
+ * The rule for a parcel going out by India Post: their article number, or
+ * nothing.
+ *
+ * No fallback, deliberately. An article is registered and sorted against a
+ * number from their own allotment; our order number is not a key in their
+ * system. A barcode carrying it would scan cleanly at the booking counter and
+ * resolve to nothing — which is worse than a blank space, because a blank
+ * space is visibly blank and a wrong barcode is not.
+ */
+export function postalLabelBarcode(o: LabelOrder): string {
+  return o.postal_barcode?.trim() ?? "";
+}
+
+// Generic over the row, like buildAddressSheet, so a caller can hand in rows
+// carrying more than the label draws — `courier_id`, in the one caller that
+// resolves the barcode rule per parcel — and still have it typed inside the
+// callback.
+export function buildLabelSheet<T extends LabelOrder>(
+  orders: T[],
+  sender: SenderDetails = senderFromEnv(),
+  /** Resolved per parcel, because the rule depends on the courier. */
+  barcodeFor: LabelBarcodeFor<T> = labelBarcodeValue
 ): Buffer {
   const doc = new PdfDocument(LABEL_4X6.width, LABEL_4X6.height);
   const printedAt = formatIST(new Date().toISOString());
 
   orders.forEach((order, i) => {
     if (i > 0) doc.addPage();
-    drawLabel(doc, order, sender, printedAt, i + 1, orders.length);
+    drawLabel(doc, order, sender, printedAt, barcodeFor(order), i + 1, orders.length);
 
     // A parcel that needs something done to it before the box is taped shut
     // gets a second page. Only gifts and signed copies — about ten parcels in
@@ -367,6 +429,7 @@ function drawLabel(
   o: LabelOrder,
   sender: SenderDetails,
   printedAt: string,
+  barcodeValue: string,
   index: number,
   total: number
 ): void {
@@ -479,15 +542,64 @@ function drawLabel(
   }
 
   // ── Barcode ──────────────────────────────────────────────────────────────
-  // The order number, not the courier's waybill. This is our label: the number
-  // on it is the one our own screens, exports and audit trail are keyed by, so
-  // scanning it finds the order. A partner that wants its own barcode issues
-  // its own label at the counter, and Delhivery's packing slip already carries
-  // theirs — a second barcode on the same parcel is how the wrong one gets
-  // scanned.
+  //
+  // The article number where the parcel has one, and our order number where it
+  // does not.
+  //
+  // The default is the order number, and the reason is that this is *our*
+  // label: the number on it is what our own screens, exports and audit trail
+  // are keyed by, so scanning it finds the order. A partner that wants its own
+  // barcode issues its own at the counter, and Delhivery's packing slip
+  // already carries theirs — a second barcode on the same parcel is how the
+  // wrong one gets scanned.
+  //
+  // India Post is the exception, and it is the one case where that reasoning
+  // inverts. There is no counter-printed label: the article number is minted
+  // from our own allotment before the parcel is posted, it is what went onto
+  // the bulk booking file, and it is what every scan from the booking office
+  // to the doorstep is recorded against. Printing our order number there would
+  // leave the parcel with no machine-readable identity in the system carrying
+  // it — so when a postal barcode is present it wins, and the order number
+  // stays in the header where the packer reads it.
+  const isArticle = !!barcodeValue && barcodeValue === o.postal_barcode?.trim();
+
+  // Named, because a bare thirteen-character code on a parcel is ambiguous to
+  // the person at the booking counter and to us six weeks later.
+  if (isArticle) {
+    doc.text(LEFT, BARCODE_RULE_Y - 4, "SPEED POST — ARTICLE NUMBER", {
+      size: 7,
+      bold: true,
+      gray: 0.4,
+    });
+  }
+
   doc.line(LEFT, BARCODE_RULE_Y, RIGHT, BARCODE_RULE_Y, { gray: 0, width: 1.5 });
 
-  const drawn = drawBarcode(doc, num, {
+  // Nothing to print, and nothing printed. An India Post parcel that has not
+  // been on a booking file has no number the postal system knows, and the
+  // space says so rather than being filled with one that scans to nothing.
+  // The order number is still in the header, which is what the packer reads.
+  if (!barcodeValue) {
+    const note = "NO ARTICLE NUMBER — NOT YET ON A BOOKING FILE";
+    const wrapped = wrapText(note, INNER_W, 9);
+    wrapped.slice(0, 2).forEach((line, i) => {
+      doc.text(
+        LEFT + (INNER_W - measureText(line, 9, true)) / 2,
+        BARCODE_TOP + 20 + i * 12,
+        line,
+        { size: 9, bold: true, gray: 0.5 }
+      );
+    });
+    doc.text(LEFT, PROVENANCE_Y, `Printed ${printedAt}`, { size: 6.5, gray: 0.5 });
+    const shortCount = `${index} of ${total}`;
+    doc.text(RIGHT - measureText(shortCount, 6.5), PROVENANCE_Y, shortCount, {
+      size: 6.5,
+      gray: 0.5,
+    });
+    return;
+  }
+
+  const drawn = drawBarcode(doc, barcodeValue, {
     x: LEFT + BARCODE_INSET,
     y: BARCODE_TOP,
     width: INNER_W - BARCODE_INSET * 2,
@@ -497,8 +609,8 @@ function drawLabel(
   // The number under the barcode is not decoration: it is what a packer reads
   // out when a scanner will not read the label at all.
   if (drawn) {
-    const centred = LEFT + (INNER_W - measureText(num, 13, true)) / 2;
-    doc.text(centred, BARCODE_TEXT_Y, num, { size: 13, bold: true });
+    const centred = LEFT + (INNER_W - measureText(barcodeValue, 13, true)) / 2;
+    doc.text(centred, BARCODE_TEXT_Y, barcodeValue, { size: 13, bold: true });
   }
 
   // ── Provenance, so a label found loose on a bench can be placed ──────────

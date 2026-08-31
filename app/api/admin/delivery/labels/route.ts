@@ -11,7 +11,13 @@ import {
   type DeliveryRow,
 } from "@/lib/db/delivery-query";
 import { markLabelsDownloaded } from "@/lib/db/delivery";
-import { buildLabelSheet, LABELS_PER_PAGE } from "@/lib/shipping-label";
+import {
+  buildLabelSheet,
+  labelBarcodeValue,
+  postalLabelBarcode,
+  LABELS_PER_PAGE,
+} from "@/lib/shipping-label";
+import { listCouriers } from "@/lib/db/couriers";
 import { istToday } from "@/lib/format-date";
 import { auditMany } from "@/lib/audit";
 
@@ -85,7 +91,50 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No shippable orders selected" }, { status: 400 });
   }
 
-  const pdf = buildLabelSheet(rows);
+  // The article number, where India Post has one for this parcel.
+  //
+  // Read from `orders` rather than added to DELIVERY_COLUMNS because the rows
+  // above come from the `portal_orders` view, which was defined before
+  // migration 0049 and does not carry the column. A second small query by
+  // order number is cheaper than a view migration, and it fails soft: a label
+  // is still a label without the barcode swap, and refusing to print a stack
+  // of them because one lookup failed would be the worse outcome.
+  const withBarcodes = await (async () => {
+    const numbers = rows.map((r) => r.order_number);
+    const { data, error } = await supabaseAdmin
+      .from("orders")
+      .select("order_number,postal_barcode")
+      .in("order_number", numbers)
+      .not("postal_barcode", "is", null);
+
+    if (error) {
+      console.error("[Labels] postal barcode lookup failed:", error.message);
+      return rows;
+    }
+
+    const byOrder = new Map(
+      (data ?? []).map((r) => {
+        const row = r as { order_number: string; postal_barcode: string };
+        return [row.order_number, row.postal_barcode];
+      })
+    );
+    if (!byOrder.size) return rows;
+
+    return rows.map((r) => ({ ...r, postal_barcode: byOrder.get(r.order_number) ?? null }));
+  })();
+
+  // The barcode rule is the courier's, not the label's. An India Post parcel
+  // carries their article number or no barcode at all — our order number is
+  // not a key in their system, and one printed there would scan cleanly and
+  // resolve to nothing at the booking counter. Every other courier keeps the
+  // order number, which is what our own screens are keyed by.
+  const configById = new Map((await listCouriers()).map((c) => [c.id, c.config]));
+
+  const pdf = buildLabelSheet(withBarcodes, undefined, (o) =>
+    (o.courier_id ? configById.get(o.courier_id) : null)?.tracking === "india-post"
+      ? postalLabelBarcode(o)
+      : labelBarcodeValue(o)
+  );
 
   // After the PDF exists, so a failed build never marks anything.
   const printed = rows.map((r) => r.order_number);
