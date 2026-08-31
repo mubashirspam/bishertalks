@@ -3,6 +3,7 @@ import Link from "@/components/admin/AdminLink";
 import { requirePageAccess } from "@/lib/admin-auth";
 import {
   fetchPortalPage,
+  withPostalBarcodes,
   portalSort,
   portalTracking,
   portalPacking,
@@ -198,6 +199,10 @@ async function PortalRows(args: Args) {
     args.dateTo
   );
 
+  // The article number for any of these parcels that has one. See
+  // withPostalBarcodes for why it is a second lookup and not a column.
+  const parcels = await withPostalBarcodes(rows);
+
   // Names only — the grid shows which courier a parcel is routed to, so an
   // agent can tell at a glance which ones they still have to hand over.
   const couriers = await listCouriers();
@@ -221,6 +226,13 @@ async function PortalRows(args: Args) {
   // the sweep scopes to `courier_id.eq.<target>`, so theirs were never in
   // range. Every one of the 674 parcels KKR had uploaded stayed "Not with
   // them", however many times it was pressed.
+  // The couriers whose parcels carry an India Post article number. Sent to the
+  // grid so the Allot button appears only where the number means something —
+  // a Delhivery parcel must never take one.
+  const postalCourierIds = couriers
+    .filter((c) => c.config?.tracking === "india-post")
+    .map((c) => c.id);
+
   const askable = (c: (typeof couriers)[number]) =>
     c.is_active && canTrack(c) && delhiveryReadiness(c.config).ready;
   const syncCourier = (chosen && askable(chosen) ? chosen : null) ?? couriers.find(askable);
@@ -258,11 +270,12 @@ async function PortalRows(args: Args) {
   return (
     <>
       <PortalGrid
-        rows={rows}
+        rows={parcels}
         startIndex={args.pageNum * PER_PAGE}
         courierNames={courierNames}
         courierId={args.courierId}
         syncCourierId={syncCourier?.id ?? null}
+        postalCourierIds={postalCourierIds}
         live={live}
         mayComplete={args.mayComplete}
       />

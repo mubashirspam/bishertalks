@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, RefreshCw, RefreshCcwDot, Undo2 } from "lucide-react";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import PortalExport from "./PortalExport";
+import PortalAllotArticles from "./PortalAllotArticles";
 import PortalAddressPdf from "./PortalAddressPdf";
 import {
   PORTAL_STATUS_STEPS,
@@ -36,6 +37,7 @@ export default function PortalGrid({
   courierNames,
   courierId,
   syncCourierId,
+  postalCourierIds,
   live,
   mayComplete,
 }: {
@@ -54,6 +56,14 @@ export default function PortalGrid({
    * people open the page in.
    */
   syncCourierId: string | null;
+  /**
+   * The couriers whose parcels carry an India Post article number.
+   *
+   * Ids rather than a flag per row, because it is a property of the courier:
+   * the same list decides where the number is shown and where the Allot button
+   * is offered, and a Delhivery parcel must never be able to take one.
+   */
+  postalCourierIds: string[];
   /**
    * Can we ask this courier where the parcels are?
    *
@@ -141,6 +151,13 @@ export default function PortalGrid({
 
   // ── Picking parcels for the courier sheet ─────────────────────────────────
 
+  /** Is this parcel one India Post carries? */
+  const isPostal = (r: PortalRow): boolean =>
+    !!r.courier_id && postalCourierIds.includes(r.courier_id);
+
+  /** Routed to India Post and still without an article number. */
+  const needsArticle = (r: PortalRow): boolean => isPostal(r) && !r.postal_barcode;
+
   /**
    * Can this parcel go on a sheet?
    *
@@ -148,6 +165,14 @@ export default function PortalGrid({
    * with the courier. A parcel that has been sheeted up already has its
    * Confirmed tick, and putting it on a second file would ask the courier to
    * create a second waybill for a parcel that already has one.
+   *
+   * Deliberately the only rule, including for India Post. A Speed Post parcel
+   * that is Confirmed without an article number gets no checkbox: its row says
+   * so in amber, and the way to give it one is to route it to Speed Post
+   * again from /admin/delivery, which allots on assignment. Keeping the tick
+   * for that case was tried and taken out — a checkbox on a Confirmed row
+   * reads as work still to do on a screen whose whole job is to say what is
+   * left.
    */
   const isNew = (r: PortalRow): boolean =>
     statusOf(r) === "confirmed" && !enteredOf(r);
@@ -574,6 +599,15 @@ export default function PortalGrid({
           )}
 
           <span className="ml-auto flex items-center gap-2">
+            {/* First in the bar because it comes first in the work: a Speed
+                Post parcel with no article number cannot be booked and its
+                label prints with an empty barcode. Only the ticked parcels
+                that actually need one are sent, so the button disappears the
+                moment there is nothing to do. */}
+            <PortalAllotArticles
+              orderNumbers={pickedRows.filter(needsArticle).map((r) => r.order_number)}
+              onDone={() => router.refresh()}
+            />
             <PortalAddressPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
             <PortalExport
               orderNumbers={pickedRows.map((r) => r.order_number)}
@@ -821,6 +855,33 @@ export default function PortalGrid({
                           className="text-amber-700 text-[11px] font-medium"
                         >
                           Not with them
+                        </span>
+                      )
+                    ) : isPostal(r) ? (
+                      // India Post's article number, which is a different kind
+                      // of thing from a reference: it comes out of a finite
+                      // allotment, it is what their booking file is keyed by,
+                      // and it is what every scan from the counter onwards is
+                      // recorded against. Its absence is a job to do — the
+                      // parcel cannot be booked or labelled without one — so
+                      // it says so rather than printing a dash.
+                      r.postal_barcode ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-mono text-neutral-800 font-semibold">
+                            {r.postal_barcode}
+                          </span>
+                          <CopyButton
+                            title="Copy article number"
+                            active={copied === `${r.order_number}:art`}
+                            onClick={() => copy(`${r.order_number}:art`, r.postal_barcode!)}
+                          />
+                        </div>
+                      ) : (
+                        <span
+                          title="No India Post article number yet — tick it and press Allot article numbers"
+                          className="text-amber-700 text-[11px] font-medium"
+                        >
+                          No article number
                         </span>
                       )
                     ) : r.courier_reference ? (

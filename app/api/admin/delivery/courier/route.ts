@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getCourier } from "@/lib/db/couriers";
 import { auditMany } from "@/lib/audit";
 import { ensureReferences } from "@/lib/db/courier-reference";
+import { allocateBarcodes } from "@/lib/db/postal-barcodes";
 import { serviceabilityFor, recordServiceability } from "@/lib/db/serviceability";
 import { canSendAutomatically } from "@/lib/couriers";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
@@ -220,6 +221,9 @@ export async function POST(request: NextRequest) {
   // is already written; these fill in what the parcel needs to be worked on,
   // and none of them may fail the assignment.
   let minted = 0;
+  /** Article numbers handed out on this run, and how many could not be. */
+  let articles = 0;
+  let articleShortfall = 0;
   let unserviceable: string[] = [];
 
   if (courierId && updated.length) {
@@ -270,6 +274,34 @@ export async function POST(request: NextRequest) {
       minted = await ensureReferences(updated, courier);
     } catch (e) {
       console.warn("[Courier] reference minting skipped:", e);
+    }
+
+    // ── India Post: the article number, at the same moment ─────────────────
+    //
+    // Same reasoning as the reference above, and for India Post it is the
+    // stronger case. Their article number is not a label we can print on
+    // demand — it comes out of a finite allotment and it is the only identity
+    // the postal system has for the parcel. Handing it out here means the
+    // number exists from the moment the parcel is routed, so the label, the
+    // address sheet and the booking workbook can all be printed, reprinted and
+    // printed again in any order, days apart, and carry the same number.
+    //
+    // It used to be allotted when the workbook was downloaded, which tied a
+    // permanent property of the parcel to one transient act — and since that
+    // download also confirms the batch, a parcel could only ever get its
+    // number once, on a file nobody could produce twice.
+    //
+    // Never fails the assignment. A parcel routed to Speed Post with the stock
+    // empty is still routed; it simply has no number yet, every screen says
+    // so, and the portal's Allot button picks it up once a range is loaded.
+    if (courier?.config.tracking === "india-post") {
+      try {
+        const result = await allocateBarcodes(courier.id, updated);
+        articles = result.allocated.length;
+        articleShortfall = result.shortfall;
+      } catch (e) {
+        console.warn("[Courier] article numbers not allotted:", e);
+      }
     }
   }
 
@@ -414,6 +446,11 @@ export async function POST(request: NextRequest) {
     skipped: count("skipped"),
     courier_name: courierName,
     references: minted,
+    // India Post only, and zero everywhere else. `article_shortfall` is what
+    // the screen warns on: the parcels are routed and postable, but nothing
+    // can be booked for them until a range is loaded.
+    articles,
+    article_shortfall: articleShortfall,
     // The ones this courier cannot deliver. Named, not just counted, so the
     // screen can offer to move them somewhere else. Includes both kinds: those
     // routed and then found unserviceable, and those a `require_serviceable`

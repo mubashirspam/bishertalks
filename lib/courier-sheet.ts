@@ -173,6 +173,15 @@ export interface CourierParcel {
   courier_id?: string | null;
   /** Gift wrap adds weight, so the declared parcel needs to know. */
   is_gift?: boolean | null;
+  /**
+   * India Post's article number, where one has already been allotted.
+   *
+   * Read rather than written here: a parcel that holds one keeps it, so a
+   * re-download reuses the number instead of spending a second — see
+   * allocateBarcodes() in lib/db/postal-barcodes.ts. Never set for a parcel
+   * going out with anyone else.
+   */
+  postal_barcode?: string | null;
 }
 
 /** Just the digits, and without the country code a phone box may have kept. */
@@ -340,16 +349,33 @@ export function buildCourierSheet(
    */
   codeFor: (parcel: CourierParcel) => string = () => "BISH"
 ): { rows: unknown[][]; references: string[] } {
+  const references = assignReferences(parcels, existing, codeFor);
+  const rows = parcels.map((p, i) => courierSheetRow(p, references[i]));
+
+  return { rows, references };
+}
+
+/**
+ * The reference each of these parcels goes out under, in the same order.
+ *
+ * Split out of `buildCourierSheet` because India Post's workbook needs the
+ * numbers without needing Delhivery's row layout, and the two must never
+ * assign them differently: whichever file a parcel leaves on, the reference
+ * reserved in the database has to be the one printed in it.
+ */
+export function assignReferences(
+  parcels: CourierParcel[],
+  existing: Iterable<string> = [],
+  codeFor: (parcel: CourierParcel) => string = () => "BISH"
+): string[] {
   const taken = new Set(existing);
-  const rows: unknown[][] = [];
   const references: string[] = [];
 
   for (const p of parcels) {
     const ref = courierReference(p, taken, codeFor(p));
     taken.add(ref);
     references.push(ref);
-    rows.push(courierSheetRow(p, ref));
   }
 
-  return { rows, references };
+  return references;
 }

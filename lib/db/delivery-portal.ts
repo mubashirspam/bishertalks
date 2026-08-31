@@ -199,6 +199,13 @@ export interface PortalRow {
   courier_entered_at: string | null;
   /** The number this parcel went to the courier under — see migration 0024. */
   courier_reference: string | null;
+  /**
+   * India Post's article number, where one has been allotted (0049).
+   *
+   * Merged in after the page query rather than selected with it — see
+   * `withPostalBarcodes` below.
+   */
+  postal_barcode?: string | null;
   /** Which logistics partner carries it, or null if undecided (0030). */
   courier_id: string | null;
   /** The derived state — see migration 0035 and lib/delivery/handover.ts. */
@@ -230,6 +237,55 @@ export interface PortalRow {
    */
   work_at?: string | null;
   work_at_is_assignment?: boolean | null;
+}
+
+/**
+ * Fill in each row's India Post article number.
+ *
+ * A second query rather than a column on the page query, and the reason is the
+ * view. `portal_orders` is `SELECT o.*`, which Postgres expanded to the column
+ * list as it stood when the view was created — so it carries every column
+ * `orders` had in 0028 and none added since. `postal_barcode` arrived in 0049
+ * and is not in it.
+ *
+ * The documented fix is to rebuild the view in the migration that adds the
+ * column, and that is still the right thing to do — see the note on
+ * fetchPortalPage. But migrations here are applied by hand, and adding
+ * `postal_barcode` to PORTAL_COLUMNS before somebody runs one would throw the
+ * view query on every load and drop the whole screen onto its degraded
+ * fallback, losing the handover filter for everyone.
+ *
+ * So: one extra lookup, keyed by order number, over the fifty rows already on
+ * the page. It cannot break the view, it needs nothing run by hand, and it
+ * fails soft — a lookup that errors leaves the numbers blank rather than
+ * taking the portal down with it.
+ */
+export async function withPostalBarcodes<T extends { order_number: string }>(
+  rows: T[]
+): Promise<(T & { postal_barcode: string | null })[]> {
+  const blank = rows.map((r) => ({ ...r, postal_barcode: null as string | null }));
+  if (!rows.length) return blank;
+
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select("order_number,postal_barcode")
+    .in("order_number", rows.map((r) => r.order_number))
+    .not("postal_barcode", "is", null);
+
+  if (error) {
+    console.error("[Portal] article number lookup failed:", error.message);
+    return blank;
+  }
+
+  const byOrder = new Map(
+    (data ?? []).map((r) => {
+      const row = r as { order_number: string; postal_barcode: string };
+      return [row.order_number, row.postal_barcode];
+    })
+  );
+  if (!byOrder.size) return blank;
+
+  return rows.map((r) => ({ ...r, postal_barcode: byOrder.get(r.order_number) ?? null }));
 }
 
 const PORTAL_COLUMNS =
@@ -639,10 +695,14 @@ export async function fetchPickedForCourierSheet(
   let query = supabaseAdmin
     .from("orders")
     .select(
-      "order_number,buyer_name,buyer_phone,address_line1,address_line2,city," +
+      "order_number,buyer_name,buyer_phone,buyer_email,address_line1,address_line2,city," +
         // courier_id, because the reference is coded per partner — see
         // referenceCode() in lib/couriers.
-        "district,state,pincode,amount_paise,quantity,courier_reference,courier_id,is_gift"
+        "district,state,pincode,amount_paise,quantity,courier_reference,courier_id,is_gift," +
+        // Allotted before this parcel was ever put on a sheet. A re-download
+        // must reuse it rather than spend a second number — see
+        // lib/db/postal-barcodes.ts.
+        "postal_barcode"
     )
     .in("order_number", orderNumbers.slice(0, limit))
     .eq("payment_status", "paid")
@@ -672,6 +732,119 @@ export async function fetchPickedForCourierSheet(
     // agent is standing in front of is otherwise a mystery.
     console.error(
       "[Portal] courier sheet query failed — is migration 0024 applied?",
+      error.message
+    );
+    throw new Error(error.message);
+  }
+  return (data ?? []) as unknown as CourierParcel[];
+}
+
+/**
+ * The couriers these order numbers are routed to.
+ *
+ * A cheap lookup — two columns against an indexed `in` — run before the real
+ * fetch so the route knows which kind of sheet it is building before it builds
+ * it. India Post and everyone else answer a different question about which
+ * parcels may go on a file, and that question has to be settled first.
+ *
+ * Carries no personal data on purpose: the order numbers came from a browser,
+ * and this runs before any scope check. All it learns is which partner a
+ * parcel belongs to; the scoped fetch afterwards is what decides whether the
+ * caller may see it.
+ */
+export async function routedCouriersFor(orderNumbers: string[]): Promise<Set<string>> {
+  if (!orderNumbers.length) return new Set();
+
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .select("courier_id")
+    .in("order_number", orderNumbers.slice(0, COURIER_SHEET_MAX))
+    .not("courier_id", "is", null);
+
+  if (error) {
+    console.error("[Portal] could not read routing for this batch:", error.message);
+    throw new Error(error.message);
+  }
+
+  return new Set(
+    (data ?? [])
+      .map((r) => (r as { courier_id: string | null }).courier_id)
+      .filter((id): id is string => !!id)
+  );
+}
+
+/**
+ * The parcels that can go on an India Post booking file.
+ *
+ * Deliberately NOT `fetchPickedForCourierSheet`, and the difference is one
+ * clause that matters more than it looks.
+ *
+ * That one refuses anything with a `courier_entered_at`, because for Delhivery
+ * the download IS the handover — a parcel that has been on a sheet is with the
+ * courier, and putting it on a second one would enter the same address twice.
+ *
+ * India Post cannot use that test. A Speed Post parcel is not "with them" until
+ * it carries an article number out of our allotment: that number is what their
+ * booking file is keyed by and what every scan afterwards is recorded against.
+ * `courier_entered_at` on such a parcel says only that somebody ticked it
+ * Confirmed — which is true of every parcel routed to Speed Post before this
+ * workbook existed, and of any parcel confirmed by hand on the grid.
+ *
+ * Gating on `courier_entered_at` therefore locked exactly the parcels that
+ * need numbers out of the only route that hands them out. They printed with an
+ * empty barcode strip, for ever, with a full allotment sitting unused.
+ *
+ * So the gate is the honest one: **routed to this courier, still Confirmed,
+ * and not yet holding an article number.** It keeps the property the other
+ * gate was protecting — a parcel can appear on exactly one booking file,
+ * because the first one gives it a number and the number is never returned —
+ * and it drops the part that was never true of India Post.
+ */
+export async function fetchPickedForPostalSheet(
+  orderNumbers: string[],
+  limit: number = COURIER_SHEET_MAX,
+  /** The partner asking. The guard, exactly as in the sibling above. */
+  courierId: string | null = null
+): Promise<CourierParcel[]> {
+  if (!orderNumbers.length) return [];
+
+  let query = supabaseAdmin
+    .from("orders")
+    .select(
+      "order_number,buyer_name,buyer_phone,buyer_email,address_line1,address_line2,city," +
+        "district,state,pincode,amount_paise,quantity,courier_reference,courier_id,is_gift," +
+        "postal_barcode"
+    )
+    .in("order_number", orderNumbers.slice(0, limit))
+    .eq("payment_status", "paid")
+    .not("address_line1", "is", null)
+    .not("courier_id", "is", null)
+    .eq("status", "confirmed")
+    // The whole difference, and it takes both halves.
+    //
+    // A parcel that has been on a booking file has two marks on it: the file
+    // gave it an article number, and downloading the file stamped
+    // courier_entered_at. Having BOTH is what "already booked" means, so
+    // missing EITHER puts it back in scope.
+    //
+    // One clause on its own is wrong in a way that strands parcels:
+    //   * `postal_barcode IS NULL` alone strands a parcel that took a number
+    //     from a download that then failed before it was stamped — it would
+    //     hold a number and never be offered a file again.
+    //   * `courier_entered_at IS NULL` alone — the Delhivery test — strands
+    //     every parcel confirmed by hand or routed to Speed Post before this
+    //     workbook existed, which was all of them.
+    .or("postal_barcode.is.null,courier_entered_at.is.null");
+
+  if (courierId) query = query.eq("courier_id", courierId);
+
+  const { data, error } = await query
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    console.error(
+      "[Portal] postal sheet query failed — is migration 0049 applied?",
       error.message
     );
     throw new Error(error.message);
@@ -786,7 +959,11 @@ export async function fetchAddressesForSheet(
       "order_number,buyer_name,buyer_phone,address_line1,address_line2,city," +
         // courier_id because the return address is per courier — the sheet
         // stamps each parcel with the address it would actually come back to.
-        "district,state,pincode,quantity,is_gift,is_signed,ordered_at,courier_id"
+        // postal_barcode and courier_reference because the foot of every cell
+        // is a barcode — the article number where India Post allotted one, the
+        // courier's reference otherwise. See sheetBarcodeValue().
+        "district,state,pincode,quantity,is_gift,is_signed,ordered_at,courier_id," +
+        "postal_barcode,courier_reference"
     )
     .in("order_number", orderNumbers.slice(0, limit))
     .eq("payment_status", "paid")
@@ -822,6 +999,10 @@ export interface AddressSheetRow {
   is_gift: boolean | null;
   is_signed: boolean | null;
   ordered_at: string;
+  /** India Post's article number, where one has been allotted. */
+  postal_barcode: string | null;
+  /** What the courier files this parcel under (0024). */
+  courier_reference: string | null;
   /** Whose return address goes on this one. Null for a parcel routed to nobody. */
   courier_id: string | null;
 }

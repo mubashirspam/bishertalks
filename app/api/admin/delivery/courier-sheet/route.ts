@@ -4,17 +4,29 @@ export const maxDuration = 60;
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { portalScope } from "@/lib/delivery/scope";
-import { fetchPickedForCourierSheet, takenReferences } from "@/lib/db/delivery-portal";
+import {
+  fetchPickedForCourierSheet,
+  fetchPickedForPostalSheet,
+  routedCouriersFor,
+  takenReferences,
+} from "@/lib/db/delivery-portal";
 import { listCouriers } from "@/lib/db/couriers";
 import { referenceCode } from "@/lib/couriers";
 import { markCourierEntered } from "@/lib/db/delivery";
 import {
   buildCourierSheet,
+  assignReferences,
   referenceCandidates,
   COURIER_SHEET_HEADERS,
   COURIER_SHEET_MAX,
 } from "@/lib/courier-sheet";
-import { toXLSX } from "@/lib/export";
+import {
+  buildPostalWorkbook,
+  articleProblems,
+  type PostalParcel,
+} from "@/lib/india-post/bulk-sheet";
+import { allocateBarcodes, barcodeStock } from "@/lib/db/postal-barcodes";
+import { toXLSX, toXLSXWorkbook } from "@/lib/export";
 import { istToday } from "@/lib/format-date";
 import { auditMany } from "@/lib/audit";
 
@@ -85,14 +97,36 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // A reference is coded for the partner carrying the parcel, and an owner can
+  // tick parcels routed to two of them, so the code is resolved per row rather
+  // than once for the file.
+  const couriers = await listCouriers();
+  const codeFor = (p: { courier_id?: string | null }) =>
+    referenceCode(couriers.find((c) => c.id === p.courier_id));
+
+  // ── Which kind of file, decided before the parcels are read ──────────────
+  //
+  // India Post takes a different workbook AND a different answer to "which
+  // parcels may go on one" — see fetchPickedForPostalSheet for why the two
+  // gates cannot be the same test. So the routing is resolved first, off a
+  // two-column lookup, and the right fetch is used rather than the wrong one
+  // being run and then filtered.
+  let routedTo: Set<string>;
+  try {
+    routedTo = await routedCouriersFor(orderNumbers);
+  } catch {
+    return NextResponse.json({ error: "Could not load parcels" }, { status: 500 });
+  }
+
+  const postalCourier = couriers.find(
+    (c) => routedTo.has(c.id) && c.config?.tracking === "india-post"
+  );
+
   let parcels;
   try {
-    parcels = await fetchPickedForCourierSheet(
-      orderNumbers,
-      null,
-      COURIER_SHEET_MAX,
-      courierId
-    );
+    parcels = postalCourier
+      ? await fetchPickedForPostalSheet(orderNumbers, COURIER_SHEET_MAX, courierId)
+      : await fetchPickedForCourierSheet(orderNumbers, null, COURIER_SHEET_MAX, courierId);
   } catch {
     return NextResponse.json({ error: "Could not load parcels" }, { status: 500 });
   }
@@ -100,20 +134,180 @@ export async function POST(request: NextRequest) {
   if (!parcels.length) {
     return NextResponse.json(
       {
-        error:
-          "None of those parcels can go on a sheet — they may already be with " +
-          "the courier. Refresh and try again.",
+        error: postalCourier
+          ? "None of those parcels can go on a booking file — they may already " +
+            "have an article number. Refresh and try again."
+          : "None of those parcels can go on a sheet — they may already be with " +
+            "the courier. Refresh and try again.",
       },
       { status: 400 }
     );
   }
 
-  // A reference is coded for the partner carrying the parcel, and an owner can
-  // tick parcels routed to two of them, so the code is resolved per row rather
-  // than once for the file.
-  const couriers = await listCouriers();
-  const codeFor = (p: { courier_id?: string | null }) =>
-    referenceCode(couriers.find((c) => c.id === p.courier_id));
+  const courierIds = [...new Set(parcels.map((p) => p.courier_id ?? ""))];
+
+  if (postalCourier) {
+    // Delhivery's sheet can carry two partners' parcels because the reference
+    // is coded per row. This one cannot: a bulk booking file is uploaded
+    // against one contractual account, and the article numbers on it come out
+    // of that account's own allotment.
+    if (courierIds.length > 1) {
+      return NextResponse.json(
+        {
+          error:
+            "An India Post file takes one partner's parcels at a time. " +
+            "Filter to Speed Post and download again.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // Refused here rather than by their uploader. India Post rejects the whole
+    // file over one bad row, naming a column and a row number — by which point
+    // every parcel in the batch has been packed and the agent is holding a
+    // hundred of them.
+    const bad = parcels
+      .map((p) => ({ order: p.order_number, problems: articleProblems(p as PostalParcel) }))
+      .filter((r) => r.problems.filter((x) => x !== "no article number").length);
+
+    if (bad.length) {
+      const shown = bad
+        .slice(0, 5)
+        .map((b) => `${b.order} (${b.problems.filter((x) => x !== "no article number").join(", ")})`)
+        .join("; ");
+      return NextResponse.json(
+        {
+          error:
+            `India Post would refuse this file: ${shown}` +
+            (bad.length > 5 ? ` — and ${bad.length - 5} more.` : ".") +
+            " Fix the address and download again.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // ── Enough numbers for the WHOLE batch, checked before any are spent ──
+    //
+    // A number leaves the stock the moment it is claimed and never goes back.
+    // Allocating first and refusing afterwards would therefore strand parcels:
+    // the ones that got a number would hold it, having never been on a file,
+    // and the shortfall would have eaten the allotment for nothing.
+    //
+    // So the count is checked first. It is advisory — two downloads at once
+    // could still race past it — but it turns the ordinary case, ticking more
+    // parcels than there are numbers, into a message that costs nothing.
+    const needing = parcels.filter((p) => !p.postal_barcode).length;
+
+    if (needing) {
+      const stock = await barcodeStock(postalCourier.id);
+      if (stock.unused < needing) {
+        return NextResponse.json(
+          {
+            error:
+              `${needing} of these parcels need an article number and only ` +
+              `${stock.unused} ${stock.unused === 1 ? "is" : "are"} left. ` +
+              `Nothing was spent — tick ${stock.unused} or fewer, or load the ` +
+              "next range India Post allotted under Couriers → Speed Post.",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Article numbers come out of a finite allotment and are never returned to
+    // it, so they are claimed only once the batch is known to be sound — and
+    // after this point a retry is free, because a parcel that already holds a
+    // number keeps it.
+    let allocated;
+    try {
+      allocated = await allocateBarcodes(postalCourier.id, parcels.map((p) => p.order_number));
+    } catch {
+      return NextResponse.json(
+        { error: "Could not allot article numbers — nothing was downloaded." },
+        { status: 500 }
+      );
+    }
+
+    if (allocated.shortfall > 0) {
+      return NextResponse.json(
+        {
+          error:
+            `${allocated.shortfall} of these parcels have no article number left. ` +
+            "Load the next range India Post allotted, under Couriers → Speed Post.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const barcodes = new Map(allocated.allocated.map((a) => [a.orderNumber, a.barcode]));
+
+    // Belt as well as braces, and not the same check as the shortfall above.
+    // A number can be claimed, then lost between claiming and attaching —
+    // another request reached the same parcel first, and ours was marked spent
+    // rather than reused. That path leaves the count satisfied and this parcel
+    // without a number, and a blank BARCODE NO is the one thing their uploader
+    // would take silently: the article would be booked under nothing.
+    //
+    // Retrying costs no numbers. The parcel that won the race is holding one,
+    // and allocateBarcodes hands back what an order already has.
+    const missing = parcels.filter((p) => !barcodes.get(p.order_number));
+    if (missing.length) {
+      return NextResponse.json(
+        {
+          error:
+            `${missing.length} parcel${missing.length === 1 ? "" : "s"} did not get an ` +
+            "article number — another download may have been running. Try again.",
+        },
+        { status: 409 }
+      );
+    }
+
+    let taken: string[];
+    try {
+      taken = await takenReferences(
+        parcels.flatMap((p) => referenceCandidates(p, codeFor(p)))
+      );
+    } catch {
+      return NextResponse.json({ error: "Could not check reference numbers" }, { status: 500 });
+    }
+
+    const references = assignReferences(parcels, taken, codeFor);
+    const refFor = new Map(parcels.map((p, i) => [p.order_number, references[i]]));
+    const onSheet = parcels.map((p) => p.order_number);
+
+    let confirmed: string[];
+    try {
+      confirmed = await markCourierEntered(onSheet, references);
+    } catch {
+      return NextResponse.json(
+        { error: "Could not confirm these parcels — nothing was downloaded. Try again." },
+        { status: 500 }
+      );
+    }
+
+    await auditMany(auth.staff, "order.courier_entered", "order", confirmed, {
+      entered: true,
+      via: "india-post-sheet",
+    });
+
+    const sheets = buildPostalWorkbook(
+      parcels.map((p) => ({ ...p, postal_barcode: barcodes.get(p.order_number) ?? "" })),
+      refFor
+    );
+    const file = toXLSXWorkbook(sheets);
+    const filename = `india-post-${istToday()}-${parcels.length}.xlsx`;
+
+    return new NextResponse(new Uint8Array(file), {
+      headers: {
+        "Content-Type":
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "Content-Disposition": `attachment; filename="${filename}"`,
+        "Cache-Control": "no-store",
+        "X-Parcel-Count": String(parcels.length),
+        "X-Confirmed": onSheet.join(","),
+      },
+    });
+  }
 
   // Ask the database which of this batch's reference numbers are already in
   // use, then let the builder pick around them. Almost always none of them
