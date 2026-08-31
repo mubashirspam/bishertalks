@@ -14,6 +14,7 @@ import {
   type Courier,
   type CourierHandoff,
 } from "@/lib/couriers";
+import BarcodeStock from "./BarcodeStock";
 
 /**
  * Add, rename, switch off and configure the couriers.
@@ -320,6 +321,17 @@ export default function CourierManager({
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
+
+              {/* India Post is the one partner with a consumable: it allots
+                  article numbers in blocks and each parcel spends one. Shown
+                  on the courier that carries them rather than on a screen of
+                  its own, because "how many are left" is a property of this
+                  partner and is read at the same moment as everything else
+                  about it. Keyed off the tracking integration, which is what
+                  makes a row India Post rather than its name. */}
+              {c.config.tracking === "india-post" && (
+                <BarcodeStock courierId={c.id} courierName={c.name} />
+              )}
 
               {/* Everything printed on this courier's address sheets, in the
                   order it prints. Per courier because it genuinely differs: a

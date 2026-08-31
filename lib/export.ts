@@ -49,6 +49,18 @@ function sheetXml(headers: string[], rows: unknown[][]): string {
     if (typeof v === "number" && Number.isFinite(v)) {
       return `<c r="${ref}"><v>${v}</v></c>`;
     }
+    // A real Excel boolean — `t="b"` over 1/0 — and not the word TRUE.
+    //
+    // This is a distinct cell type in the format and importers do tell them
+    // apart. India Post's bulk template stores every one of its flag columns
+    // this way (PRIORITY FLAG, ALT ADDRESS FLAG, PICKUP ADDRESS FLAG, ACK,
+    // REGISTRATION, OTP BASED DELIVERY), and their validator refused a file
+    // that sent the strings "TRUE"/"FALSE" instead: a non-empty string in
+    // PICKUP ADDRESS FLAG reads as truthy however it is spelled, so the upload
+    // came back demanding a pickup address for a batch that had none.
+    if (typeof v === "boolean") {
+      return `<c r="${ref}" t="b"><v>${v ? 1 : 0}</v></c>`;
+    }
     if (v == null || v === "") return "";
     // `t="inlineStr"` avoids needing a shared-strings part.
     return `<c r="${ref}" t="inlineStr"><is><t>${xmlEscape(String(v))}</t></is></c>`;
@@ -130,15 +142,53 @@ function zip(entries: ZipEntry[]): Buffer {
   return Buffer.concat([...chunks, cdBuf, end]);
 }
 
-/** Build a single-sheet .xlsx workbook. */
-export function toXLSX(headers: string[], rows: unknown[][], sheetName = "Sheet1"): Buffer {
+/** One tab of a workbook. */
+export interface XLSXSheet {
+  name: string;
+  headers: string[];
+  rows: unknown[][];
+}
+
+/**
+ * Build a multi-tab .xlsx workbook.
+ *
+ * Tabs exist because some importers demand them. India Post's bulk-booking
+ * template is four tabs — ArticleDetails, PickupAddress, AltAddress,
+ * Information — and their uploader reads the workbook, not the first sheet:
+ * a file carrying only the tab with the parcels on it is refused before a
+ * single row is looked at. So an empty tab here is not padding, it is a
+ * required part of the format.
+ */
+export function toXLSXWorkbook(sheets: XLSXSheet[]): Buffer {
   const b = (s: string) => Buffer.from(s, "utf8");
+  const list = sheets.length ? sheets : [{ name: "Sheet1", headers: [], rows: [] }];
+
+  const overrides = list
+    .map(
+      (_, i) =>
+        `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`
+    )
+    .join("");
+
+  const sheetTags = list
+    .map(
+      (s, i) =>
+        `<sheet name="${xmlEscape(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`
+    )
+    .join("");
+
+  const rels = list
+    .map(
+      (_, i) =>
+        `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`
+    )
+    .join("");
 
   return zip([
     {
       name: "[Content_Types].xml",
       data: b(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`),
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${overrides}</Types>`),
     },
     {
       name: "_rels/.rels",
@@ -148,13 +198,21 @@ export function toXLSX(headers: string[], rows: unknown[][], sheetName = "Sheet1
     {
       name: "xl/workbook.xml",
       data: b(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="${xmlEscape(sheetName)}" sheetId="1" r:id="rId1"/></sheets></workbook>`),
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${sheetTags}</sheets></workbook>`),
     },
     {
       name: "xl/_rels/workbook.xml.rels",
       data: b(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>`),
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`),
     },
-    { name: "xl/worksheets/sheet1.xml", data: b(sheetXml(headers, rows)) },
+    ...list.map((s, i) => ({
+      name: `xl/worksheets/sheet${i + 1}.xml`,
+      data: b(sheetXml(s.headers, s.rows)),
+    })),
   ]);
+}
+
+/** Build a single-sheet .xlsx workbook. */
+export function toXLSX(headers: string[], rows: unknown[][], sheetName = "Sheet1"): Buffer {
+  return toXLSXWorkbook([{ name: sheetName, headers, rows }]);
 }
