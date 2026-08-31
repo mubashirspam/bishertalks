@@ -2,8 +2,10 @@
 
 Everything outstanding, in the order it should be done.
 The site builds and `tsc` passes. Most of this is dashboard/config work — the
-exception is India Post, which still has real code missing (booking, labels,
-the carrier adapter seam).
+exception is India Post, where the API path still has code missing (booking,
+the office lookup). The **manual path is finished and works today**: the bulk
+booking workbook, the article-number stock, and labels carrying the article
+number. None of it needs their sandbox.
 
 Detail lives in [MAGIC_CHECKOUT.md](./MAGIC_CHECKOUT.md) and
 [MAKE_WHATSAPP.md](./MAKE_WHATSAPP.md).
@@ -39,14 +41,34 @@ Workings and the email to send: [docs/india-post-uat-outage.md](./docs/india-pos
       a waybill column and a place in the poller. Apply
       `0051_speed_post_tracking.sql`. It stays quiet ("not configured") until
       credentials work, then starts tracking on the next poll with no deploy.
-- [ ] **Still to build**: `booking.ts`, `label.ts`, `offices.ts`, the
-      barcode-stock admin, and routing tariff through the seam. None need a
-      reachable sandbox until final verification.
-- [ ] **One question left before booking** — the single-book article type.
-      A 380 g book is auto-classified `SP_INLAND_DOC` by weight, and a document
-      may not exceed **2 cm**; ours is 2.5. Their own document states both rules
-      explicitly and resolves neither. Needs their written answer — fold it into
-      the outage email.
+- [x] **The manual channel — done, and it does not need their sandbox.**
+      Speed Post parcels can be posted today, by the same three clicks the
+      Delhivery ones use:
+      * `lib/india-post/bulk-sheet.ts` builds their bulk domestic workbook,
+        column for column off `bulkdomesticone_28042026.xlsx` — four tabs, the
+        trailing space in `"LENGTH "` included. `/api/admin/delivery/courier-sheet`
+        emits it instead of Delhivery's whenever the batch's courier tracks as
+        `india-post`, so the existing Download Excel button already produces it.
+      * Article numbers are allotted to the batch from the stock at download,
+        and the same number is printed as the barcode on the 4×6 label — the
+        two files agree by construction, which is the whole point.
+      * `/admin/couriers` has the stock panel: upload the *Allocated Barcodes*
+        export from their Barcode Management System, or type a range. Every
+        number in their file is checked against our own check-digit arithmetic
+        and a single disagreement refuses the import.
+      * Migration **0049 is applied** and the first real allotment is loaded:
+        `CL669228099IN`–`CL669228448IN`, 36 numbers, verified digit for digit
+        against the physical stickers. 36 is under the low-stock threshold, so
+        the panel is amber — ask for the next block early.
+- [ ] **Still to build (the API path only)**: `booking.ts`, `label.ts` (LBL01),
+      `offices.ts`, and routing tariff through the seam. The manual channel
+      covers the work in the meantime; none of these need a reachable sandbox
+      until final verification.
+- [x] **The single-book article type — closed by packaging, not by asking.**
+      A thinner mailer took a one-book parcel from 2.5 cm to 2.0, inside the
+      2 cm document band their own rule classifies a 380 g article into. See
+      `COURIER_DEFAULTS.heightPerBookCm` and the note in
+      `lib/india-post/parcel.ts`.
 
       The other doubts are **closed**, all in favour of the existing code — see
       [docs/india-post-api-reference-findings.md](./docs/india-post-api-reference-findings.md).
@@ -62,11 +84,10 @@ Workings and the email to send: [docs/india-post-uat-outage.md](./docs/india-pos
       single-book article-type question — read `product_code`.
 - [ ] **Apply `supabase/migrations/0049_postal_barcodes.sql` by hand.**
       Migrations here are not run automatically.
-- [ ] **Build what is missing**: the adapter seam (India Post has no Send or
-      Sync button until `canSendAutomatically` / `canTrack` stop being
-      hard-coded to Delhivery), booking, labels, the office lookup, and the
-      barcode-stock admin. `tariff.ts` and `track.ts` are written but wired to
-      nothing.
+- [ ] **Build what is left**: `booking.ts`, `label.ts` and the office lookup.
+      The adapter seam, the barcode-stock admin and the manual booking sheet
+      are done. `tariff.ts` is still wired to nothing; `track.ts` now runs
+      behind the adapter.
 - [ ] **Deploy before configuring their event webhook** — the route 404s on the
       live site until it ships, and their Test button will fail against it.
 - [ ] **Set `SHIP_FROM_NAME` / `SHIP_FROM_ADDRESS` / `SHIP_FROM_PHONE`** — still

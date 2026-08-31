@@ -101,36 +101,58 @@ Customer Selfservice Portal, `app.indiapost.gov.in/customer-selfservice`.
       `postal_barcode_ranges`, `postal_barcodes`, `orders.postal_barcode`, the
       `claim_postal_serials` RPC and the `postal_barcode_stock` view.
       Unverified whether this has been applied — check before building on it.
-- [ ] **Load the allotted article range** once the migration is in. UAT is
-      `ET21433001XIN`–`ET21434000XIN`. There is no UI for this yet (§4), so
-      today it is an `INSERT` into `postal_barcode_ranges`.
+- [x] **Migration 0049 is applied.** Verified against the live database on
+      2026-08-30: `postal_barcode_ranges`, `postal_barcodes`,
+      `postal_barcode_stock` and `orders.postal_barcode` all exist and
+      `claim_postal_serials` answers.
+- [x] **First real allotment loaded**, 2026-08-30:
+      `CL669228099IN`–`CL669228448IN`, 36 numbers, serials 66922809–66922844.
+      Read off the physical barcode stickers. Stock reads 36 unused of 36
+      allotted — which is **below the 200 low-stock warning**, so the panel is
+      amber on purpose. Ask for the next block early.
+- [x] **The check digit is now verified against real barcodes.** All 36
+      stickers agree with `checkDigit()` character for character, and minting
+      the range from `articleNumber()` reproduces their list exactly. This was
+      the one silent failure in the integration — our arithmetic disagreeing
+      with theirs — and it is closed against real data rather than against the
+      specification's worked example. Note the prefix is **CL**, not the `ET`
+      the UAT documentation used; nothing in the code assumes either.
 
-## 4. Code still to build
+## 4. Code
 
 Written and working: `config`, `client`, `session`, `article-number`, `parcel`,
 `status`, the webhook route, `lib/db/postal-barcodes.ts`, and migration 0049.
 
-Written but **wired to nothing** — no route imports either:
-`lib/india-post/tariff.ts`, `lib/india-post/track.ts`.
+**The manual channel is finished** (2026-08-30) and none of it needs their
+sandbox. A Speed Post parcel can be posted today:
+
+| Piece | What it does |
+|---|---|
+| `lib/india-post/bulk-sheet.ts` | Their bulk domestic workbook, column for column off `bulkdomesticone_28042026.xlsx`. Four tabs, because their uploader reads the workbook and not the first sheet. Verified against the template header by header. |
+| `app/api/admin/delivery/courier-sheet/route.ts` | Emits that workbook instead of Delhivery's when the batch's courier tracks as `india-post`. Same button, same scoping, same "downloading is entering the batch" rule. Refuses a batch India Post would reject — bad pincode, short mobile, no state — before a number is spent. |
+| `lib/india-post/barcode-import.ts` + `/api/admin/couriers/barcodes` + `BarcodeStock.tsx` | Load an allotment from their *Allocated Barcodes* export. Every barcode in the file is recomputed against our check digit; one disagreement refuses the import. Low-stock warning under 200. |
+| `lib/xlsx-read.ts` | Reads .xlsx and .csv with no dependency, for that upload. |
+| `lib/shipping-label.ts` | The 4×6 label prints the article number as its barcode when the parcel has one, captioned SPEED POST — ARTICLE NUMBER. The order number stays in the header. |
+
+Still to build, all of it on the **API** path only:
 
 | # | Piece | Why it blocks |
 |---|---|---|
-| 4.1 | **Adapter seam** — `lib/couriers/adapters/{types,index,delhivery,india-post}.ts` | `INTEGRATED_SLUGS` / `TRACKED_INTEGRATIONS` in `lib/couriers/types.ts:142,158` are still `["delhivery"]`, so `canSendAutomatically` and `canTrack` return **false** for `speed-post` and no Send or Sync button ever appears. Every route still imports `lib/delhivery/*` directly; `cron/courier-poll/route.ts:73` is hard-coded to `getCourierBySlug("delhivery")`. |
-| 4.2 | **`lib/india-post/booking.ts`** | Missing entirely. Nothing can put a parcel into India Post. This is the gate. `POST /process-articles-file/{customerId}`, multipart JSON file — the JSON-body endpoint the approach document describes is not offered. |
-| 4.3 | **`lib/india-post/label.ts`** | Missing. `POST /v1/label/create/domestic`. The counter scans *their* barcode; our 4×6 thermal label is our own paperwork and does not replace it. |
-| 4.4 | **`lib/india-post/offices.ts`** | Missing, but **confirmed buildable** (2026-08-27): the portal's API reference lists **PIN Code Search** as a category with one endpoint. It supplies the 8-digit `booking_office_id` that booking requires. Read the exact path and response shape off that page before writing it. |
-| 4.5 | **Barcode stock UI** on `/admin/couriers` | The DB side is done; `CourierManager.tsx` has zero references to it and there is no admin API route. Today a range can only be added by SQL. Needs a low-stock warning under ~200 unused. |
-| 4.6 | **Wire tariff and tracking** | `courier-charges` and `courier-sync` / the poller must go through the adapter so Speed Post parcels are priced and polled at all. |
-| 4.7 | **`orders.postal_barcode` is read by nothing** | Allocation writes it; nothing displays or books from it yet. |
+| 4.1 | ~~Adapter seam~~ | **Done** — commit `08d575c`. `capabilitiesFor()` decides; `TRACKED_INTEGRATIONS` includes `india-post`. `capabilities.book` stays false until 4.2 exists. |
+| 4.2 | **`lib/india-post/booking.ts`** | Missing. Nothing can put a parcel into India Post *over the API* — the workbook above is the manual equivalent. `POST /process-articles-file/{customerId}`, multipart JSON file. |
+| 4.3 | **`lib/india-post/label.ts`** | Missing. `POST /v1/label/create/domestic`. Our 4×6 label now carries their article number, so this is no longer blocking a parcel — it is what makes their own label available. |
+| 4.4 | **`lib/india-post/offices.ts`** | Missing, but **confirmed buildable** (2026-08-27): the portal's API reference lists **PIN Code Search**. It supplies the 8-digit `booking_office_id`, which the workbook currently leaves blank exactly as their own sample row does. |
+| 4.5 | ~~Barcode stock UI~~ | **Done** — upload or type a range on `/admin/couriers`. |
+| 4.6 | **Wire tariff** | `courier-charges` still imports `lib/delhivery/charges` directly, so a Speed Post parcel is priced as a Delhivery one. |
+| 4.7 | ~~`orders.postal_barcode` is read by nothing~~ | **Done** — it is on the workbook and on the label. |
 
 ## 5. Answers needed from India Post, in writing
 
-- [ ] **The single-book article type.** One book is 380 g at 25 × 15 × 2.5 cm.
-      Under 500 g makes it `SP_INLAND_DOC`, whose height limit is 2 cm. Ours is
-      2.5. Either get the packed height to 2.0, or get written agreement to book
-      an under-500 g article as `SP_INLAND_PARCEL`. **Not an option: declaring
-      2 cm.** It is a false declaration and the parcel is measured at the
-      counter anyway. The smoke script's step 2 answers which way they price it.
+- [x] ~~The single-book article type~~ — **closed by packaging**, 2026-08-27.
+      A thinner mailer took the packed height from 2.5 cm to 2.0, inside the
+      document band their weight rule classifies a 380 g article into. No
+      agreement from them was needed. `bandFailures()` still checks it, because
+      packaging can drift back.
 - [x] ~~Where the post-office / pincode lookup lives~~ — answered by the portal
       itself: **PIN Code Search**, in the Customer Integrations API reference.
 - [ ] **`sender_company` / `receiver_company`** are marked mandatory but their
