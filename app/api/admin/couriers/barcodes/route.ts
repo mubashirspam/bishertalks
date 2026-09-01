@@ -121,7 +121,7 @@ async function uploadedFile(request: NextRequest, staff: Staff) {
     return NextResponse.json(
       {
         error:
-          "No article numbers in that file — they look like ET21433001XIN. " +
+          "No article numbers in that file — they look like ET214330016IN. " +
           "Check it is the Allocated Barcodes export and not the booking template.",
       },
       { status: 400 }

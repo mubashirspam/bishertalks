@@ -19,6 +19,25 @@ import { inflateRawSync } from "node:zlib";
  * person can act on is "that is not a spreadsheet", not "no barcodes found".
  */
 
+/**
+ * Element names, with or without a namespace prefix.
+ *
+ * Excel writes `<row>`, `<c>`, `<v>`; other writers of the same format —
+ * ClosedXML and the .NET stacks built on it, which is what came back from the
+ * portal-export tooling — declare the spreadsheet namespace with a prefix and
+ * write `<x:row>`, `<x:c>`, `<x:v>` instead. Both are the same document to an
+ * XML parser and neither is unusual, so every tag here is matched through
+ * `tag()` rather than spelled literally. Matching only the bare form reads a
+ * perfectly valid workbook as an empty one, and the caller then reports the
+ * file as having no article numbers in it — an error about the wrong thing,
+ * pointed at the one person who cannot fix it.
+ */
+const NS = "(?:[A-Za-z_][\\w.-]*:)?";
+const tag = (name: string, rest = "") => new RegExp(`<${NS}${name}\\b${rest}`, "g");
+
+/** The `<t>` runs that carry text, in a shared string or an inline one. */
+const TEXT_RUN = tag("t", "[^>]*>([\\s\\S]*?)</" + NS + "t>");
+
 interface ZipEntry {
   name: string;
   data: Buffer;
@@ -94,12 +113,10 @@ function sharedStrings(files: Map<string, Buffer>): string[] {
   if (!xml) return [];
 
   const out: string[] = [];
-  for (const si of xml.matchAll(/<si>([\s\S]*?)<\/si>/g)) {
+  for (const si of xml.matchAll(new RegExp(`<${NS}si\\b[^>]*>([\\s\\S]*?)</${NS}si>`, "g"))) {
     // A single <si> can be split across several <t> runs when part of the text
     // is styled differently; joining them is what the reader sees as one cell.
-    const text = [...si[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)]
-      .map((t) => t[1])
-      .join("");
+    const text = [...si[1].matchAll(TEXT_RUN)].map((t) => t[1]).join("");
     out.push(unescapeXml(text));
   }
   return out;
@@ -124,17 +141,22 @@ export function readXLSX(buf: Buffer, maxRowsPerSheet = 20_000): XLSXReadSheet[]
   const workbook = files.get("xl/workbook.xml")?.toString("utf8") ?? "";
   const rels = files.get("xl/_rels/workbook.xml.rels")?.toString("utf8") ?? "";
 
+  // Id and Target are read out of the tag separately because their order in it
+  // is not fixed: Excel writes Id first, ClosedXML writes Type, Target, Id. One
+  // pattern spanning both attributes matches only one of those two files.
   const target = new Map<string, string>();
-  for (const m of rels.matchAll(/Id="([^"]+)"[^>]*Target="([^"]+)"/g)) {
-    target.set(m[1], m[2].replace(/^\/?(xl\/)?/, ""));
+  for (const m of rels.matchAll(tag("Relationship", "([^>]*?)/?>"))) {
+    const id = /\bId="([^"]+)"/.exec(m[1])?.[1];
+    const path = /\bTarget="([^"]+)"/.exec(m[1])?.[1];
+    if (id && path) target.set(id, path.replace(/^\/?(xl\/)?/, ""));
   }
 
   const sheets: XLSXReadSheet[] = [];
 
-  for (const m of workbook.matchAll(/<sheet\b([^>]*)\/?>/g)) {
+  for (const m of workbook.matchAll(tag("sheet", "([^>]*?)/?>"))) {
     const attrs = m[1];
     const name = unescapeXml(/name="([^"]*)"/.exec(attrs)?.[1] ?? "");
-    const rid = /r:id="([^"]*)"/.exec(attrs)?.[1] ?? "";
+    const rid = /[\w.-]+:id="([^"]*)"/.exec(attrs)?.[1] ?? "";
     const path = target.get(rid);
     if (!path) continue;
 
@@ -164,7 +186,7 @@ export function readXLSX(buf: Buffer, maxRowsPerSheet = 20_000): XLSXReadSheet[]
 function parseSheet(xml: string, strings: string[], maxRows: number): string[][] {
   const rows: string[][] = [];
 
-  for (const r of xml.matchAll(/<row\b[^>]*>([\s\S]*?)<\/row>/g)) {
+  for (const r of xml.matchAll(new RegExp(`<${NS}row\\b([^>]*?)(?:/>|>([\\s\\S]*?)</${NS}row>)`, "g"))) {
     if (rows.length >= maxRows) break;
 
     const cells: string[] = [];
@@ -180,7 +202,9 @@ function parseSheet(xml: string, strings: string[], maxRows: number): string[][]
     // header reading "7" instead of "PRIORITY FLAG", and — the reason this is
     // worth a paragraph — an article number in the cell after a blank one
     // silently not being read at all by the allotment importer.
-    for (const c of r[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    for (const c of (r[2] ?? "").matchAll(
+      new RegExp(`<${NS}c\\b([^>]*?)(?:/>|>([\\s\\S]*?)</${NS}c>)`, "g")
+    )) {
       const attrs = c[1];
       const inner = c[2] ?? "";
 
@@ -193,9 +217,9 @@ function parseSheet(xml: string, strings: string[], maxRows: number): string[][]
       let value = "";
 
       if (type === "inlineStr") {
-        value = [...inner.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => t[1]).join("");
+        value = [...inner.matchAll(TEXT_RUN)].map((t) => t[1]).join("");
       } else {
-        const v = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1] ?? "";
+        const v = new RegExp(`<${NS}v\\b[^>]*>([\\s\\S]*?)</${NS}v>`).exec(inner)?.[1] ?? "";
         value =
           type === "s"
             ? strings[Number(v)] ?? ""
