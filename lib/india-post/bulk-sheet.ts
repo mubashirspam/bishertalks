@@ -346,6 +346,62 @@ const ADDRESS_LINE_MAX = 50;
 const ADDRESS_LINES = 2;
 
 /**
+ * The same fifty, for the name and city columns:
+ *
+ *   ReceiverName must be a maximum of 50 characters in length at row 57
+ *
+ * Both fields their validator has ever named cap at fifty, so fifty is what
+ * the rest are held to. City is the guess in that — nothing has been refused
+ * for it — but no city this shop ships to is within twenty characters of the
+ * limit, so being wrong low costs nothing and being wrong high costs the file.
+ */
+const NAME_MAX = 50;
+const CITY_MAX = 50;
+
+/**
+ * A field cut to their limit, on a word boundary where there is one.
+ *
+ * Unlike an address, an over-long name is not refused. The two are different
+ * problems: an address that does not fit loses a landmark the delivery
+ * depends on, while a name over fifty characters is almost always an address
+ * typed into the name box at checkout — row 57 was "Jacob Jarom, Crisbells,
+ * K V Nagar, Kakankayhumukku, Thirumul" — and the parcel still arrives,
+ * because the address it needs is in the address columns.
+ *
+ * Backing off to a boundary only when one is reasonably near the end: a name
+ * whose first word is forty-nine characters long should be cut at fifty
+ * rather than reduced to nothing.
+ */
+function clipField(text: string, max: number): string {
+  const trimmed = (text ?? "").trim().replace(/\s+/g, " ");
+  if (trimmed.length <= max) return trimmed;
+
+  const cut = trimmed.slice(0, max);
+  const boundary = Math.max(cut.lastIndexOf(" "), cut.lastIndexOf(","));
+
+  return (boundary >= max * 0.6 ? cut.slice(0, boundary) : cut).replace(/[\s,]+$/, "");
+}
+
+/**
+ * The customer's email, but only when it is one.
+ *
+ *   ReceiverEmailID must be a valid email address at row 39
+ *
+ * The value there was "k" — somebody's finger on the way past the field.
+ * Checkout does not require an email for a cash order and does not validate
+ * what it is given, so the column carries whatever was typed.
+ *
+ * Blanked rather than refused, and this is the right way round: the column is
+ * optional to them (most rows on our files are already empty and pass), it is
+ * not used to deliver anything, and holding a parcel back over it would be
+ * refusing to post a book because of a typo in a field nobody reads.
+ */
+function receiverEmail(raw: string | null | undefined): string {
+  const email = (raw ?? "").trim();
+  return /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/.test(email) ? email : "";
+}
+
+/**
  * Pack an address into their two fifty-character lines.
  *
  * Word boundaries, because breaking mid-word turns a road name into two
@@ -375,12 +431,24 @@ export function splitAddressLines(text: string): { lines: string[]; overflow: st
 
     // Longer than a whole line on its own. Split it and push the remainder
     // back onto the queue rather than losing the tail.
+    //
+    // Both fullness checks are needed and both must come before the loop can
+    // end. This used to `break` once the lines were full, which left the
+    // remainder of the word sitting in `words[i]` where nothing ever read it:
+    // a 110-character run with no spaces packed into 50 + 50 and reported no
+    // overflow at all, so the caller accepted a silently truncated address —
+    // the one outcome this function exists to prevent.
     if (word.length > ADDRESS_LINE_MAX) {
       flush();
+      if (lines.length >= ADDRESS_LINES) {
+        return { lines: lines.slice(0, ADDRESS_LINES), overflow: rest(words, i) };
+      }
       lines.push(word.slice(0, ADDRESS_LINE_MAX));
       words[i] = word.slice(ADDRESS_LINE_MAX);
+      if (lines.length >= ADDRESS_LINES) {
+        return { lines, overflow: rest(words, i) };
+      }
       i--;
-      if (lines.length >= ADDRESS_LINES) break;
       continue;
     }
 
@@ -392,7 +460,7 @@ export function splitAddressLines(text: string): { lines: string[]; overflow: st
 
     flush();
     if (lines.length >= ADDRESS_LINES) {
-      return { lines: lines.slice(0, ADDRESS_LINES), overflow: words.slice(i).join(" ") };
+      return { lines: lines.slice(0, ADDRESS_LINES), overflow: rest(words, i) };
     }
     current = word;
   }
@@ -402,6 +470,126 @@ export function splitAddressLines(text: string): { lines: string[]; overflow: st
   return {
     lines: lines.slice(0, ADDRESS_LINES),
     overflow: lines.length > ADDRESS_LINES ? lines.slice(ADDRESS_LINES).join(" ") : "",
+  };
+}
+
+/** Whatever is left unplaced, from word `i` on. */
+const rest = (words: string[], i: number) => words.slice(i).filter(Boolean).join(" ");
+
+/**
+ * How the post office writes a long address itself.
+ *
+ * The hundred characters are spent mostly on words that carry no information:
+ * *Opposite*, *Apartments*, *Building*, *Road*. Abbreviating them is what a
+ * counter clerk does by hand to a long address, it is how most of these
+ * addresses are already written by the people who live at them, and it costs
+ * nothing a postman needs — unlike cutting the tail off, which is where the
+ * landmark is.
+ *
+ * In two tiers, and applied one tier at a time only while the address still
+ * does not fit. The first tier is words that cannot be part of a name. The
+ * second reaches into words that sometimes are — *Nagar* and *Colony* appear
+ * inside place names — so it is only used when tier one was not enough, and
+ * an address that already fits is never touched at all.
+ *
+ * Nothing here is destructive: every abbreviation is one a delivery office
+ * reads back without ambiguity. The moment shortening would mean *losing*
+ * something, this stops and the parcel is refused instead.
+ */
+const ADDRESS_SHORTHAND: ReadonlyArray<ReadonlyArray<readonly [RegExp, string]>> = [
+  [
+    [/\bapartments?\b/gi, "Apts"],
+    [/\bbuildings?\b/gi, "Bldg"],
+    [/\bopposite\b/gi, "Opp"],
+    [/\bbehind\b/gi, "Beh"],
+    [/\bbeside\b/gi, "Bsd"],
+    [/\bnear\b/gi, "Nr"],
+    [/\broads?\b/gi, "Rd"],
+    [/\bstreets?\b/gi, "St"],
+    [/\bfloor\b/gi, "Flr"],
+    [/\bnumber\b/gi, "No"],
+    [/\bhouse\s+no\.?\b/gi, "H.No"],
+    [/\bdoor\s+no\.?\b/gi, "D.No"],
+    [/\bpost\s+office\b/gi, "PO"],
+    [/\bopp\.\s*/gi, "Opp "],
+  ],
+  [
+    [/\bnagar\b/gi, "Ngr"],
+    [/\bcolony\b/gi, "Cly"],
+    [/\bsociety\b/gi, "Soc"],
+    [/\bextension\b/gi, "Extn"],
+    [/\bjunction\b/gi, "Jn"],
+    [/\bhospital\b/gi, "Hosp"],
+    [/\bstation\b/gi, "Stn"],
+    [/\bmarket\b/gi, "Mkt"],
+    [/\bdistrict\b/gi, "Dist"],
+    [/\bvillage\b/gi, "Vill"],
+    [/\bsector\b/gi, "Sec"],
+    [/\bphase\b/gi, "Ph"],
+    [/\bblock\b/gi, "Blk"],
+    [/\binstitute\b/gi, "Inst"],
+  ],
+];
+
+/** Doubled spaces and stacked commas, which cost the same as letters. */
+const tidyAddress = (text: string) =>
+  text
+    .replace(/\s+/g, " ")
+    .replace(/\s*,\s*/g, ", ")
+    .replace(/(?:,\s*){2,}/g, ", ")
+    .replace(/^[,\s]+|[,\s]+$/g, "");
+
+export interface PackedAddress {
+  /** Their two lines, in order. */
+  lines: string[];
+  /** What did not fit. Empty when the address is postable. */
+  overflow: string;
+  /** The address as it will actually be written on the sheet. */
+  text: string;
+  /** Whether abbreviating is what made it fit. */
+  shortened: boolean;
+}
+
+/**
+ * An address, packed into their two lines, shortened only as far as it must be.
+ *
+ * The one place that decides what goes in ReceiverAddrline1 and 2 — the row
+ * builder and the pre-flight check both call it, because a check that
+ * validates a different string from the one written into the file is not a
+ * check.
+ *
+ * Tries the address as given first. Only if that does not fit does it tidy the
+ * punctuation, then apply each tier of shorthand, stopping at the first form
+ * that fits. An address still too long after all of it comes back with its
+ * `overflow` set and is refused by the caller.
+ */
+export function packReceiverAddress(street: string): PackedAddress {
+  const original = (street ?? "").trim();
+  const attempts = [original];
+
+  let text = tidyAddress(original);
+  if (text !== original) attempts.push(text);
+
+  for (const tier of ADDRESS_SHORTHAND) {
+    for (const [pattern, short] of tier) text = text.replace(pattern, short);
+    text = tidyAddress(text);
+    if (text !== attempts[attempts.length - 1]) attempts.push(text);
+  }
+
+  for (const attempt of attempts) {
+    const packed = splitAddressLines(attempt);
+    if (!packed.overflow) {
+      return { ...packed, text: attempt, shortened: attempt !== original };
+    }
+  }
+
+  // Nothing fit. Report against the shortest form, so the number of characters
+  // we ask somebody to cut is the number they actually have to cut.
+  const shortest = attempts[attempts.length - 1];
+  return {
+    ...splitAddressLines(shortest),
+    text: shortest,
+    shortened: shortest !== original,
   };
 }
 
@@ -483,12 +671,13 @@ export function articleRow(
   // Their city column is one field and checkout collects town and district
   // separately — which for most of Kerala are the same word. The town if we
   // have it, the district if that is all there is.
-  const city = (p.city?.trim() || p.district?.trim() || "").slice(0, 60);
+  const city = clipField(p.city?.trim() || p.district?.trim() || "", CITY_MAX);
 
   // Repacked across their two fifty-character lines rather than taken as
   // checkout stored them: 14% of this shop's `address_line1` values are longer
   // than 50 on their own, and their validator refuses the whole file for one.
-  const { lines } = splitAddressLines(receiverStreet(p) || courierAddress(p));
+  // Abbreviated too, where that is what makes it fit — see packReceiverAddress.
+  const { lines } = packReceiverAddress(receiverStreet(p) || courierAddress(p));
   const [line1 = "", line2 = ""] = lines;
 
   return [
@@ -502,25 +691,28 @@ export function articleRow(
     d.priorityFlag,                                // H
     d.deliveryInstruction,                         // I
     d.instructionRts,                              // J
-    sender.name,                                   // K
+    clipField(sender.name, NAME_MAX),              // K
     sender.company,                                // L
     sender.line1.slice(0, ADDRESS_LINE_MAX),       // M
     sender.line2.slice(0, ADDRESS_LINE_MAX),       // N
-    sender.city,                                   // O
+    clipField(sender.city, CITY_MAX),              // O
     sender.state,                                  // P
     sender.pincode ? Number(sender.pincode) : "",  // Q
-    sender.email,                                  // R
+    // Held to the same test as the customer's, and for a worse case: this one
+    // comes from an environment variable, so a typo in it is on every row of
+    // every file rather than one.
+    receiverEmail(sender.email),                   // R
     "",                                            // S — no alternate contact
     "",                                            // T — KYC, not collected
     "",                                            // U — tax reference, none
-    (p.buyer_name ?? "").trim().slice(0, 60),      // V
+    clipField(p.buyer_name ?? "", NAME_MAX),       // V
     "",                                            // W — customers have no company
     line1,                                         // X
     line2,                                         // Y
     city,                                          // Z
     (p.state ?? "").trim(),                        // AA
     pincode ? Number(pincode) : "",                // AB
-    (p.buyer_email ?? "").trim(),                  // AC
+    receiverEmail(p.buyer_email),                  // AC
     "",                                            // AD
     "",                                            // AE
     "",                                            // AF
@@ -544,47 +736,22 @@ export function articleRow(
 }
 
 /**
- * Everything that would stop India Post accepting this row, in words a person
- * can act on.
+ * Everything about the *sender* that would stop India Post accepting the file.
  *
- * Checked here rather than left to their uploader because their refusal names
- * a column and a row number in a file of a hundred, and the parcel it belongs
- * to has already been packed by then.
+ * Separate from the per-parcel checks because the two need opposite handling.
+ * These are settings for the whole account: if the sender mobile is missing,
+ * every row is bad, no subset of the batch is postable, and the fix is one
+ * environment variable rather than eight addresses. So a problem here refuses
+ * the download outright — where a bad address only takes its own parcel out.
+ *
+ * Each of these has already refused a real upload. Their validator takes one
+ * pass per file and answers with the first thing it objects to, so checking
+ * them here turns what would be a round trip per missing field into one
+ * message before anything is downloaded.
  */
-export function articleProblems(
-  p: PostalParcel,
-  sender: PostalSender = postalSenderFromEnv()
-): string[] {
+export function senderProblems(sender: PostalSender = postalSenderFromEnv()): string[] {
   const problems: string[] = [];
-  const size = parcelSize(Math.max(1, p.quantity || 1), !!p.is_gift);
 
-  if (!p.postal_barcode) problems.push("no article number");
-  if (!(p.buyer_name ?? "").trim()) problems.push("no name");
-  if (!/^\d{6}$/.test((p.pincode ?? "").replace(/\D/g, ""))) problems.push("pincode is not six digits");
-  if (phoneDigits(p.buyer_phone).length !== 10) problems.push("mobile is not ten digits");
-
-  const street = receiverStreet(p);
-  if (!street) problems.push("no address");
-  else if (splitAddressLines(street).overflow) {
-    // Their two lines hold a hundred characters between them and there is no
-    // third. Named rather than trimmed — the tail of a long address is the
-    // landmark or the floor the delivery depends on.
-    problems.push(
-      `address is ${street.length} characters, and only 100 fit — shorten it`
-    );
-  }
-
-  if (!(p.state ?? "").trim()) problems.push("no state");
-  if (size.weightGrams < 1) problems.push("no weight");
-
-  // Mandatory, and settings for the whole file rather than properties of the
-  // parcel — so they report against every row, which is what makes it obvious
-  // that the fix is one setting and not eight addresses.
-  //
-  // Each of these has already refused a real upload. Their validator takes one
-  // pass per file and answers with the first thing it objects to, so checking
-  // them here turns what would be a round trip per missing field into one
-  // message before anything is downloaded.
   if (sender.mobile.length !== 10) {
     problems.push("no sender mobile — set INDIA_POST_SENDER_PHONE");
   }
@@ -601,6 +768,55 @@ export function articleProblems(
   if (!/^\d{6}$/.test(sender.pincode)) {
     problems.push("sender pincode is not six digits — set INDIA_POST_SENDER_PINCODE");
   }
+
+  return problems;
+}
+
+/**
+ * Everything about THIS PARCEL that would stop India Post accepting its row,
+ * in words a person can act on.
+ *
+ * Checked here rather than left to their uploader because their refusal names
+ * a column and a row number in a file of a hundred, and the parcel it belongs
+ * to has already been packed by then.
+ *
+ * One parcel's problems only. The caller leaves a parcel that has any off the
+ * file and out of the batch, rather than refusing the download — see the note
+ * in the courier-sheet route. Sender-wide problems are senderProblems().
+ */
+export function articleProblems(p: PostalParcel): string[] {
+  const problems: string[] = [];
+  const size = parcelSize(Math.max(1, p.quantity || 1), !!p.is_gift);
+
+  if (!p.postal_barcode) problems.push("no article number");
+  if (!(p.buyer_name ?? "").trim()) problems.push("no name");
+  if (!/^\d{6}$/.test((p.pincode ?? "").replace(/\D/g, ""))) problems.push("pincode is not six digits");
+  if (phoneDigits(p.buyer_phone).length !== 10) problems.push("mobile is not ten digits");
+
+  const street = receiverStreet(p);
+  if (!street) problems.push("no address");
+  else {
+    // Their two lines hold fifty characters each and there is no third, so the
+    // limit an address actually runs into is not a hundred characters — it is
+    // wherever the second line's word boundary falls. An 87-character address
+    // can fail with only 82 of the hundred used.
+    //
+    // So the message names the overflow rather than the length. "86 characters
+    // and only 100 fit" is both wrong and unactionable; the words that did not
+    // fit, and the count to cut, are neither.
+    const packed = packReceiverAddress(street);
+    if (packed.overflow) {
+      const cut = packed.overflow.length + 1;
+      problems.push(
+        `cut ${cut} character${cut === 1 ? "" : "s"} from the address — ` +
+          `"${packed.overflow}" does not fit their two 50-character lines` +
+          (packed.shortened ? ", even abbreviated" : "")
+      );
+    }
+  }
+
+  if (!(p.state ?? "").trim()) problems.push("no state");
+  if (size.weightGrams < 1) problems.push("no weight");
 
   return problems;
 }
