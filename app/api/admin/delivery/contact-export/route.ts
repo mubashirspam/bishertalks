@@ -23,7 +23,8 @@ import { istToday } from "@/lib/format-date";
 
 /**
  * A filtered list of parcels, as a spreadsheet. Name, mobile, reference,
- * order number, pincode — and nothing else.
+ * order number, pincode, our status and the courier's own last scan — and
+ * nothing else. Still no street address; see lib/delivery/contacts.ts.
  *
  * Read-only in the strongest sense: it ticks nothing, reserves no reference
  * and hands no parcel to anybody. That is what separates it from

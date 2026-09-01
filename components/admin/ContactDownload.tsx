@@ -20,7 +20,7 @@ import { Download, Loader2 } from "lucide-react";
 export default function ContactDownload({
   mode = "portal",
   label = "Download Excel",
-  title = "Download the filtered parcels — name, mobile, reference, order number, pincode",
+  title = "Download the filtered parcels — name, mobile, reference, order number, pincode, courier status and waybill",
 }: {
   /** Which scope the API should read. See the route for what each may see. */
   mode?: "portal" | "breakdown";

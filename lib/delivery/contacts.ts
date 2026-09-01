@@ -4,8 +4,10 @@ import { STATUS_LABELS as ORDER_STATUS_LABELS } from "@/lib/types/order";
  * The columns a parcel list gets downloaded as.
  *
  * Name, mobile, reference, order number, pincode — plus the order date, its
- * status and which courier has it, which is what turns a list of people into
- * something you can reconcile against a courier's own sheet.
+ * status and which courier has it, and what that courier last scanned, under
+ * which waybill. That is what turns a list of people into something you can
+ * reconcile against a courier's own sheet: our status and theirs, side by side,
+ * with the number to quote when the two disagree.
  *
  * Still deliberately not everything. This is the file somebody opens next to a
  * courier's own form, or sends
@@ -44,12 +46,27 @@ export interface ContactRow {
   status: string;
   /** Resolved to a name in the sheet — an id in a spreadsheet helps nobody. */
   courier_id: string | null;
+  /**
+   * The courier's own last word on the parcel, and when they said it.
+   *
+   * Our `status` above is what this business calls the parcel; this is what the
+   * courier's network last scanned — "Pending — Aluva_AJNagar_D (Kerala)". They
+   * disagree far more often than they agree: only Dispatched, In transit and
+   * Delivered move an order, so a parcel sitting at a branch reads Confirmed
+   * here and Pending there. Both belong in the file, because reconciling them
+   * is the entire reason somebody downloads it.
+   */
+  courier_last_scan: string | null;
+  courier_last_scan_at: string | null;
+  /** The courier's number for it. Empty means nothing is tracking this parcel. */
+  tracking_number: string | null;
 }
 
 /** The columns to select for a ContactRow, for any query that builds one. */
 export const CONTACT_COLUMNS =
   "order_number,buyer_name,buyer_phone,courier_reference,pincode," +
-  "ordered_at,status,courier_id";
+  "ordered_at,status,courier_id,courier_last_scan,courier_last_scan_at," +
+  "tracking_number";
 
 /** Headings, in the order asked for. */
 export const CONTACT_HEADERS = [
@@ -61,6 +78,15 @@ export const CONTACT_HEADERS = [
   "Order Date",
   "Status",
   "Courier",
+  // Appended rather than slotted in beside Reference ID, deliberately: people
+  // have formulas and saved filters pointing at the eight columns above, and
+  // moving those breaks a file nobody thinks of as an interface.
+  "Courier Status",
+  // Its own column rather than glued onto the line above. On screen the scan
+  // and its time read as one thing; in a spreadsheet a date buried in a text
+  // cell is a date nobody can sort by, which is most of what a date is for.
+  "Status Updated",
+  "Waybill",
 ];
 
 /**
@@ -89,7 +115,29 @@ export function contactSheetRow(
     r.ordered_at ? istDay(r.ordered_at) : "",
     STATUS_LABELS[r.status] ?? r.status,
     r.courier_id ? (courierNames.get(r.courier_id) ?? "Unknown courier") : "Not routed",
+    // Said plainly rather than left blank. A parcel with no scan and a parcel
+    // the courier has never acknowledged look identical in an empty cell, and
+    // they need chasing in completely different ways.
+    r.courier_last_scan ?? (r.tracking_number ? "No scan yet" : "Not tracked"),
+    // With the time, unlike Order Date: a day tells you nothing about whether a
+    // parcel has moved since you last looked, which is the question being asked
+    // of this column.
+    r.courier_last_scan_at ? istMoment(r.courier_last_scan_at) : "",
+    r.tracking_number ?? "",
   ];
+}
+
+/** "29 Aug 2026, 11:49 pm" in IST — a scan time, where the hour is the point. */
+function istMoment(iso: string): string {
+  return new Date(iso).toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
 }
 
 /** "29 Aug 2026" in IST. Stored timestamps are UTC and 5h30m is a whole day. */
