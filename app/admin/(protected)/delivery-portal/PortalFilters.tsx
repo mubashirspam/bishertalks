@@ -35,6 +35,7 @@ const STATUS_ACTIVE: Record<string, string> = {
   confirmed: "border-neutral-500 bg-neutral-100 text-neutral-800",
   processing: "border-amber-500 bg-amber-50 text-amber-700",
   shipped: "border-purple-500 bg-purple-50 text-purple-700",
+  out_for_delivery: "border-teal-500 bg-teal-50 text-teal-700",
   delivered: "border-green-600 bg-green-50 text-green-700",
   returned: "border-rose-500 bg-rose-50 text-rose-700",
 };

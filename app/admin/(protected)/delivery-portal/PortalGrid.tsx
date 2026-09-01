@@ -482,6 +482,9 @@ export default function PortalGrid({
   const STEP_TONE: Record<PortalStatusStep, string> = {
     processing: "bg-amber-500 border-amber-500",
     shipped: "bg-purple-500 border-purple-500",
+    // Between shipped's purple and delivered's green, because that is where it
+    // sits in the journey — one scan short of done.
+    out_for_delivery: "bg-teal-500 border-teal-500",
     delivered: "bg-green-600 border-green-600",
   };
 

@@ -24,12 +24,19 @@ import { CONTACT_COLUMNS, type ContactRow } from "@/lib/delivery/contacts";
  *
  * "Confirmed" is the odd one out and the reason this isn't just a status list:
  * it means the agent has entered the address into the courier's system, which
- * is recorded on `courier_entered_at` (migration 0016). The other three are
+ * is recorded on `courier_entered_at` (migration 0016). The other four are
  * fulfilment statuses the customer also sees.
  */
 export const PORTAL_STATUS_STEPS = [
   "processing",
   "shipped",
+  // Out for delivery was missing here, and its absence was doing real damage:
+  // it is a status a Delhivery scan sets on its own (statusFromScan reads their
+  // "Dispatched" as exactly this), so parcels arrived in a state the portal had
+  // no column for. `reached()` found no index for it and ticked nothing, which
+  // drew a parcel out on the van today as less far along than one merely
+  // shipped, and no filter chip could select the pile at all.
+  "out_for_delivery",
   "delivered",
 ] as const satisfies readonly OrderStatus[];
 
@@ -39,6 +46,10 @@ export type PortalStatusStep = (typeof PORTAL_STATUS_STEPS)[number];
 export const PORTAL_STEP_LABELS: Record<PortalStatusStep, string> = {
   processing: "Packed",
   shipped: "Shipped",
+  // "On the van" rather than the customer-facing "Out for Delivery": this is a
+  // column heading in a grid that already has four of them, and it is the
+  // courier's own word for the scan an agent is ticking against.
+  out_for_delivery: "On the van",
   delivered: "Delivered",
 };
 
@@ -79,6 +90,7 @@ export const PORTAL_FILTER_LABELS: Record<PortalFilter, string> = {
   confirmed: "Confirmed",
   processing: "Packed",
   shipped: "Shipped",
+  out_for_delivery: "On the van",
   delivered: "Delivered",
   returned: "Returned",
 };
@@ -91,6 +103,7 @@ export const PORTAL_STATUS_LABELS: Record<string, string> = {
   confirmed: "Confirmed",
   processing: "Packed",
   shipped: "Shipped",
+  out_for_delivery: "Out for delivery",
   delivered: "Delivered",
   returned: "Returned",
 };

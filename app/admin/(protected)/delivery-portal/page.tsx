@@ -152,7 +152,7 @@ export default async function DeliveryPortalPage({
       />
 
       <StaleWhileRevalidating>
-        <Suspense fallback={<SkeletonTable rows={12} columns={12} />}>
+        <Suspense fallback={<SkeletonTable rows={12} columns={13} />}>
           <PortalRows {...args} />
         </Suspense>
       </StaleWhileRevalidating>
