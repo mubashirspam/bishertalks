@@ -289,12 +289,15 @@ export default function PortalGrid({
   }, [live, courierId, rows.length]);
 
   /** The sheet has been downloaded: those parcels are now with the courier. */
-  function sheetDownloaded(confirmed: string[]) {
+  function sheetDownloaded(confirmed: string[], skipped: string[] = []) {
     setEntered((e) => ({
       ...e,
       ...Object.fromEntries(confirmed.map((n) => [n, true])),
     }));
-    setPicked(new Set());
+    // The parcels India Post would have refused stay ticked. They are still
+    // unconfirmed and still need an address shortened, and clearing them would
+    // mean hunting for them again in a list of three hundred.
+    setPicked(new Set(skipped));
     setCapped(false);
     // Their place in the "not yet entered first" ordering has changed, and on
     // a New filter they have left the list entirely.

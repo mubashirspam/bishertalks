@@ -23,6 +23,7 @@ import {
 import {
   buildPostalWorkbook,
   articleProblems,
+  senderProblems,
   type PostalParcel,
 } from "@/lib/india-post/bulk-sheet";
 import { allocateBarcodes, barcodeStock } from "@/lib/db/postal-barcodes";
@@ -162,25 +163,67 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Refused here rather than by their uploader. India Post rejects the whole
-    // file over one bad row, naming a column and a row number — by which point
-    // every parcel in the batch has been packed and the agent is holding a
-    // hundred of them.
-    const bad = parcels
-      .map((p) => ({ order: p.order_number, problems: articleProblems(p as PostalParcel) }))
-      .filter((r) => r.problems.filter((x) => x !== "no article number").length);
+    // ── The whole file's problems, which no subset of it can escape ────────
+    //
+    // A missing sender mobile is wrong on every row at once. Refused outright,
+    // because there is no batch that would work and the fix is one setting.
+    const senderIssues = senderProblems();
+    if (senderIssues.length) {
+      return NextResponse.json(
+        {
+          error:
+            "India Post would refuse any file until this is set: " +
+            `${senderIssues.join(", ")}.`,
+        },
+        { status: 400 }
+      );
+    }
 
-    if (bad.length) {
-      const shown = bad
+    // ── One parcel's problems, which only that parcel need pay for ─────────
+    //
+    // Checked here rather than left to their uploader: India Post rejects the
+    // whole file over one bad row, naming a column and a row number, by which
+    // point every parcel in the batch has been packed.
+    //
+    // A bad row used to refuse the download outright. That made one unfixable
+    // address — a landmark that genuinely will not fit in fifty characters —
+    // hold up the other thirty-nine parcels, and the agent's only way out was
+    // to untick it by hand after reading the message. So the batch is split
+    // instead: the sound parcels go on the file and are confirmed, and the bad
+    // ones are left exactly as they were.
+    //
+    // Left as they were is the important half. They keep their place in the
+    // queue, unconfirmed and not entered with the courier, so they come back
+    // on the next download once the address is fixed. Nothing about them is
+    // written, and — because numbers are claimed further down for the parcels
+    // actually going on the file — no article number is spent on them.
+    //
+    // "no article number" is not a reason to skip: numbers are allotted below,
+    // after this, and every parcel here is expected to be without one.
+    const problemFor = new Map<string, string[]>();
+    for (const p of parcels) {
+      const problems = articleProblems(p as PostalParcel).filter(
+        (x) => x !== "no article number"
+      );
+      if (problems.length) problemFor.set(p.order_number, problems);
+    }
+
+    const skipped = parcels.filter((p) => problemFor.has(p.order_number));
+    parcels = parcels.filter((p) => !problemFor.has(p.order_number));
+
+    // Every one of them. There is no file to download, so this is the one case
+    // that still answers with the problems rather than a spreadsheet.
+    if (!parcels.length) {
+      const shown = skipped
         .slice(0, 5)
-        .map((b) => `${b.order} (${b.problems.filter((x) => x !== "no article number").join(", ")})`)
+        .map((b) => `${b.order_number} (${problemFor.get(b.order_number)!.join(", ")})`)
         .join("; ");
       return NextResponse.json(
         {
           error:
-            `India Post would refuse this file: ${shown}` +
-            (bad.length > 5 ? ` — and ${bad.length - 5} more.` : ".") +
-            " Fix the address and download again.",
+            `India Post would refuse every parcel on this file: ${shown}` +
+            (skipped.length > 5 ? ` — and ${skipped.length - 5} more.` : ".") +
+            " Fix the addresses and download again.",
         },
         { status: 400 }
       );
@@ -305,6 +348,17 @@ export async function POST(request: NextRequest) {
         "Cache-Control": "no-store",
         "X-Parcel-Count": String(parcels.length),
         "X-Confirmed": onSheet.join(","),
+        // Left off the file and left alone. URI-encoded because the reasons
+        // carry quotes and em dashes, and a header is ASCII.
+        "X-Skipped": skipped.map((p) => p.order_number).join(","),
+        "X-Skipped-Why": encodeURIComponent(
+          JSON.stringify(
+            skipped.slice(0, 5).map((p) => ({
+              order: p.order_number,
+              problems: problemFor.get(p.order_number) ?? [],
+            }))
+          )
+        ),
       },
     });
   }
