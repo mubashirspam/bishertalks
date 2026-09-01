@@ -327,6 +327,79 @@ const PORTAL_TABLE_COLUMNS = PORTAL_COLUMNS.replace("handover_state,", "");
 
 const isDate = (s?: string): s is string => /^\d{4}-\d{2}-\d{2}$/.test(s ?? "");
 
+/** Which column a typed search is actually looking in. */
+export type PortalSearchKind = "order" | "phone" | "name";
+
+export interface PortalSearch {
+  kind: PortalSearchKind;
+  /** Normalised for the column it hits — digits only for a phone, and so on. */
+  term: string;
+  /** What was typed, to put back in the box and into the link. */
+  raw: string;
+}
+
+/** What the hint beside the box says it is looking in. */
+export const PORTAL_SEARCH_LABELS: Record<PortalSearchKind, string> = {
+  order: "order number",
+  phone: "mobile",
+  name: "name",
+};
+
+/**
+ * One box, three columns, decided by what was typed.
+ *
+ * An agent looking for a parcel has one of three things in hand: the order
+ * number a customer quoted on WhatsApp, the mobile they rang from, or their
+ * name. Asking which field it is before they can type it is a question with an
+ * obvious answer, so it is not asked — the three are told apart by shape:
+ *
+ *   9847 123456     digits, and nothing else            -> mobile
+ *   ORD-RT6T9E      letters AND digits together         -> order number
+ *   Jacob Jarom     letters, no digits                  -> name
+ *
+ * Deliberately one column rather than all three at once. The base query
+ * already spends this query's one `or` on the scope — see portalQuery — and
+ * stacking a second is the kind of thing that works until PostgREST changes
+ * its mind. It is also more precise: a search for "Jacob" cannot be diluted by
+ * an order number that happens to contain those letters.
+ *
+ * Returns null for anything too short to narrow with, so an empty box and a
+ * stray keystroke do not both mean "one row of three hundred".
+ */
+export function portalSearch(raw: string | null | undefined): PortalSearch | null {
+  // LIKE wildcards and PostgREST's own separators, stripped rather than
+  // escaped: none of them appear in a name, a mobile or an order number, so
+  // there is nothing to preserve and one less quoting rule to get wrong.
+  const typed = (raw ?? "")
+    .trim()
+    .replace(/[%_*(),\\]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (typed.length < 2) return null;
+
+  const digits = typed.replace(/\D/g, "");
+
+  // A mobile may be typed with spaces, dashes or a +91 on the front, and is
+  // stored as ten bare digits (normalizePhone) — so the search is the digits.
+  //
+  // Any digits will do, not four or more. A shorter threshold sent "100" to
+  // the order-number column instead, which is neither what the rule above
+  // says nor what somebody typing three digits of a phone number expects.
+  if (digits.length > 0 && !/[A-Za-z]/.test(typed)) {
+    const national =
+      digits.length === 12 && digits.startsWith("91") ? digits.slice(2) : digits;
+    return { kind: "phone", term: national, raw: typed };
+  }
+
+  // Letters and digits together is an order number — ORD-RT6T9E, or the
+  // RT6T9E half of it that people actually quote.
+  if (digits.length > 0) {
+    return { kind: "order", term: typed.toUpperCase().replace(/\s/g, ""), raw: typed };
+  }
+
+  return { kind: "name", term: typed, raw: typed };
+}
+
 /** The portal's scope and filters — the same against the view or the table. */
 function portalQuery(
   table: "portal_orders" | "orders",
@@ -357,7 +430,9 @@ function portalQuery(
    * is drained across a week, and "everything from Monday to Thursday" was
    * four page loads and a mental tally.
    */
-  dateTo: string | undefined = undefined
+  dateTo: string | undefined = undefined,
+  /** One order number, mobile or name to narrow to — see portalSearch. */
+  search: PortalSearch | null = null
 ) {
   let query = supabaseAdmin
     .from(table)
@@ -376,6 +451,20 @@ function portalQuery(
 
   if (agentId) query = query.eq("assigned_agent_id", agentId);
   if (courierId) query = query.eq("courier_id", courierId);
+
+  // Narrows within the filters rather than replacing them: somebody who has
+  // filtered to a courier and searches a name means "that name, among these
+  // parcels". A search that ignored the filters would answer a question nobody
+  // asked — and would show a partner login somebody else's customer.
+  //
+  // Wrapped in % both ways because people quote the tail of an order number
+  // and the last four digits of a mobile far more often than the whole thing.
+  if (search) {
+    const pattern = `%${search.term}%`;
+    if (search.kind === "order") query = query.ilike("order_number", pattern);
+    else if (search.kind === "phone") query = query.ilike("buyer_phone", pattern);
+    else query = query.ilike("buyer_name", pattern);
+  }
 
   // An empty string counts as no waybill: an agent saving a blank tracking box
   // stores "", which is not the same as the courier having given us a number.
@@ -481,7 +570,17 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   /** Gift / signed / neither, or null for all of them. */
   packing: PortalPacking | null = null,
   /** The last day of the range, inclusive. Absent means `date` is one day. */
-  dateTo: string | undefined = undefined
+  dateTo: string | undefined = undefined,
+  /**
+   * One order number, mobile or name — see portalSearch.
+   *
+   * Last, like every filter added since, and passed by BOTH callers on this
+   * page. `fetchPortalPage` is memoised on its arguments, so a count that
+   * omits an argument the grid passes is not a stale count, it is a second
+   * query answering a different question — the header would say 312 above a
+   * grid showing 1.
+   */
+  search: PortalSearch | null = null
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
@@ -508,7 +607,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     tracking,
     handover,
     packing,
-    dateTo
+    dateTo,
+    search
   )
     .order("work_day", { ascending })
     .order("needs_entry", { ascending: false })
@@ -548,7 +648,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
       tracking,
       handover,
       packing,
-      dateTo
+      dateTo,
+      search
     )
       .order("created_at", { ascending })
       .range(from, to);
@@ -572,7 +673,8 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         tracking,
         handover,
         packing,
-        dateTo
+        dateTo,
+        search
       )
         .order("created_at", { ascending })
         .range(from, to);
@@ -611,7 +713,16 @@ export async function fetchPortalContacts(
   tracking: PortalTracking | null = null,
   handover: string | null = null,
   packing: PortalPacking | null = null,
-  dateTo: string | undefined = undefined
+  dateTo: string | undefined = undefined,
+  /**
+   * The search box, if anything is in it.
+   *
+   * Carried into the export for the same reason every other filter is: the
+   * button says "download what I filtered", and a file that quietly ignored
+   * the box would hand somebody three hundred rows when the screen in front
+   * of them showed one.
+   */
+  search: PortalSearch | null = null
 ): Promise<{ rows: ContactRow[]; truncated: boolean }> {
   const query = (table: "portal_orders" | "orders", from: number, to: number) =>
     portalQuery(
@@ -630,7 +741,8 @@ export async function fetchPortalContacts(
       // was on screen and called it the answer. A dropped argument that
       // type-checks is the kind this list of ten positional parameters
       // invites.
-      dateTo
+      dateTo,
+      search
     )
       // `ordered_at` rather than the view's work_at: it is on both tables, so
       // the fallback below sorts the file the same way as the view does rather

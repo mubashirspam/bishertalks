@@ -1,7 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowDownUp, CalendarDays, Gift, Truck, X } from "lucide-react";
+import { ArrowDownUp, CalendarDays, Gift, Search, Truck, X } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
 import {
   PORTAL_FILTERS,
@@ -11,6 +12,8 @@ import {
   PORTAL_PACKING,
   PORTAL_PACKING_LABELS,
   PORTAL_PACKING_HINTS,
+  PORTAL_SEARCH_LABELS,
+  portalSearch,
 } from "@/lib/db/delivery-portal";
 import type { DeliveryAgent } from "@/lib/db/staff";
 import {
@@ -114,6 +117,25 @@ export default function PortalFilters({
   const handover = params.get("handover") ?? "";
   const packing = params.get("packing") ?? "";
   const sort = params.get("sort") === "oldest" ? "oldest" : "newest";
+  const q = params.get("q") ?? "";
+
+  // The box is typed into before it is submitted, so it holds its own value —
+  // pushing a URL per keystroke would be a page load per letter.
+  const [typed, setTyped] = useState(q);
+
+  // Resynced from the URL, so Clear, the back button and a pasted link all
+  // reach the input. Adjusted during render rather than from an effect: an
+  // effect paints the stale value first and then corrects it, which on Clear
+  // is a visible flash of the search somebody just cleared.
+  const [syncedTo, setSyncedTo] = useState(q);
+  if (syncedTo !== q) {
+    setSyncedTo(q);
+    setTyped(q);
+  }
+
+  // The same parser the query uses, so the hint under the box cannot claim to
+  // be searching one column while the server searches another.
+  const parsed = portalSearch(typed);
 
   const push = (changes: Record<string, string | null>) => {
     const next = new URLSearchParams(params.toString());
@@ -143,6 +165,58 @@ export default function PortalFilters({
 
   return (
     <div className="bg-white border border-neutral-200 rounded-2xl p-3.5 shadow-sm mb-4">
+      {/* Finding ONE parcel, above the filters that choose a pile of them.
+          It is the thing somebody reaches for mid-phone-call — "he's asking
+          about his order" — and it narrows within everything below rather
+          than replacing it, which is why it sits with them rather than in the
+          page header. */}
+      <div className="flex flex-wrap items-center gap-2 pb-3 mb-3 border-b border-neutral-100">
+        <Search className="w-4 h-4 text-neutral-400" />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            push({ q: typed.trim() || null });
+          }}
+          className="flex items-center gap-2"
+        >
+          <input
+            type="search"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder="Order number, mobile or name"
+            aria-label="Search by order number, mobile or name"
+            title="Type an order number, a mobile or a name, then press Enter"
+            className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs w-64 focus:outline-none focus:border-primary-500 transition-colors"
+          />
+          <button
+            type="submit"
+            className="px-3 py-1.5 rounded-lg border border-neutral-300 text-xs text-neutral-700 hover:border-neutral-400 hover:text-neutral-900 transition-all"
+          >
+            Search
+          </button>
+        </form>
+
+        {/* Which column it landed on, said before the search is run rather
+            than guessed afterwards from the rows that come back. */}
+        {parsed && (
+          <span className="text-xs text-neutral-400">
+            by {PORTAL_SEARCH_LABELS[parsed.kind]}
+          </span>
+        )}
+        {!parsed && typed.trim() && (
+          <span className="text-xs text-neutral-400">keep typing…</span>
+        )}
+
+        {q && (
+          <button
+            onClick={() => push({ q: null })}
+            className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
+          >
+            <X className="w-3 h-3" /> Clear search
+          </button>
+        )}
+      </div>
+
       {/* The courier comes first because it decides what this screen *is* —
           a live view of a courier's own tracking, or the spreadsheet you copy
           addresses out of. Everything below narrows within that. */}
@@ -371,7 +445,7 @@ export default function PortalFilters({
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || dateTo || status || agent || courier || tracking || handover || packing || sort === "oldest") && (
+        {(date || dateTo || status || agent || courier || tracking || handover || packing || q || sort === "oldest") && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"

@@ -7,9 +7,11 @@ import {
   portalSort,
   portalTracking,
   portalPacking,
+  portalSearch,
   type PortalSort,
   type PortalTracking,
   type PortalPacking,
+  type PortalSearch,
 } from "@/lib/db/delivery-portal";
 import { listDeliveryAgents } from "@/lib/db/staff";
 import { portalScope } from "@/lib/delivery/scope";
@@ -54,6 +56,13 @@ interface Args {
    * `courierId` below.
    */
   agentId: string | null;
+  /**
+   * One order number, mobile or name to narrow to, or null for everything.
+   *
+   * A filter like the rest, and in the URL like the rest, so a link to "that
+   * customer's parcel" is something someone can paste into WhatsApp.
+   */
+  search: PortalSearch | null;
   /** Whether the filters came from the URL (shareable) or from who they are. */
   seesEveryone: boolean;
   /** May they tick Delivered? False for a partner login — see the grid. */
@@ -105,6 +114,10 @@ export default async function DeliveryPortalPage({
     handover: isHandoverState(params.handover) ? params.handover : null,
     packing: portalPacking(params.packing),
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
+    // Not gated on `seesEveryone`: a partner searching their own queue is
+    // narrowing rows they were already being shown, and the scope above still
+    // pins them to their own courier whatever they type.
+    search: portalSearch(params.q),
     agentId: seesEveryone ? picked : null,
     seesEveryone,
     mayComplete: can(staff, "delivery.complete"),
@@ -175,7 +188,8 @@ async function PortalCount(args: Args) {
     args.tracking,
     args.handover,
     args.packing,
-    args.dateTo
+    args.dateTo,
+    args.search
   );
   return (
     <>
@@ -196,7 +210,8 @@ async function PortalRows(args: Args) {
     args.tracking,
     args.handover,
     args.packing,
-    args.dateTo
+    args.dateTo,
+    args.search
   );
 
   // The article number for any of these parcels that has one. See
@@ -242,7 +257,12 @@ async function PortalRows(args: Args) {
   if (!rows.length) {
     return (
       <div className="bg-white border border-neutral-200 rounded-2xl p-12 text-center text-neutral-500 shadow-sm">
-        No parcels here.
+        {args.search
+          ? // Naming the search, because the likeliest reason for no rows is
+            // that it is narrowing inside a date filter somebody forgot was on.
+            `No parcel here matches “${args.search.raw}”. It may be outside the
+             dates or the filters above.`
+          : "No parcels here."}
       </div>
     );
   }
@@ -259,6 +279,7 @@ async function PortalRows(args: Args) {
     if (args.tracking) sp.set("tracking", args.tracking);
     if (args.handover) sp.set("handover", args.handover);
     if (args.packing) sp.set("packing", args.packing);
+    if (args.search) sp.set("q", args.search.raw);
     // Only when it's a filter someone chose. An agent's own id is who they
     // are, not where they are, and has no business in a shareable link.
     if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);

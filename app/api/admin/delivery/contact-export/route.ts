@@ -8,6 +8,7 @@ import {
   fetchPortalContacts,
   portalTracking,
   portalPacking,
+  portalSearch,
 } from "@/lib/db/delivery-portal";
 import { fetchStatusContacts, NO_COURIER } from "@/lib/db/courier-status";
 import { listCouriers } from "@/lib/db/couriers";
@@ -102,7 +103,10 @@ export async function GET(request: NextRequest) {
         portalTracking(params.get("tracking") ?? undefined),
         isHandoverState(handover) ? handover : null,
         portalPacking(params.get("packing") ?? undefined),
-        params.get("to") || undefined
+        params.get("to") || undefined,
+        // The search box counts as a filter here too: the button downloads
+        // what the screen is showing, and the screen is showing the search.
+        portalSearch(params.get("q"))
       ));
       nameParts = [status ?? null, params.get("date"), params.get("to")];
     }
