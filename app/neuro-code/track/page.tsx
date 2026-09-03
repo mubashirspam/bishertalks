@@ -13,6 +13,7 @@ import { publicTracking } from "@/lib/couriers";
 import ReferralShare from "@/components/ReferralShare";
 import { getReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
 import OrderDetails, { type DetailsOrder } from "./OrderDetails";
+import ArticleNumber from "./ArticleNumber";
 
 /** The course that comes with the book. Same pair lib/notify.ts sends. */
 const BONUS_COURSE = { title: "Neuro Linguistic Programming", slug: "nlp" };
@@ -24,7 +25,8 @@ async function getOrder(id: string): Promise<Order | null> {
       `order_number, buyer_name, city, state, status, payment_status,
        amount_paise, tracking_number, courier_name, courier_id, expected_delivery,
        created_at, ordered_at, address_line1, address_line2, pincode,
-       label_downloaded_at, shipped_at, delivered_at`
+       label_downloaded_at, shipped_at, delivered_at, returned_at,
+       postal_barcode, courier_entered_at`
     )
     .eq("order_number", id)
     .single();
@@ -89,7 +91,11 @@ function stepDates(order: Order): Record<OrderStatus, string | null> {
     // customer who abandoned checkout on Monday and paid on Friday should not
     // be told their order was confirmed on Monday.
     confirmed: order.ordered_at,
-    processing: order.label_downloaded_at,
+    // The print, or failing that the moment the parcel went onto a courier's
+    // file. A Speed Post parcel is never printed from the master queue — its
+    // batch is confirmed straight onto a booking sheet — so reading only
+    // `label_downloaded_at` left the step it has demonstrably reached undated.
+    processing: order.label_downloaded_at ?? order.courier_entered_at,
     shipped: order.shipped_at,
     out_for_delivery: null,
     delivered: order.delivered_at,
@@ -155,7 +161,27 @@ export default async function TrackPage({
     );
   }
 
-  const currentStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
+  // How far the stepper has come.
+  //
+  // Normally the status decides, and for a Delhivery parcel it is the whole
+  // answer — their scans walk the order through the queue on their own.
+  //
+  // India Post has no such feed here, so a posted parcel can sit at
+  // 'confirmed' for its whole journey and the stepper shows step one of five:
+  // a page telling a customer nothing has happened since they paid, about a
+  // parcel already in the postal system. `courier_entered_at` is the fact that
+  // fixes it — the agent recorded this parcel onto the courier's file, which
+  // is packed and handed over however the status column reads.
+  //
+  // It advances to Packed and no further, deliberately. Being on a booking
+  // file is not the same as the post office having accepted it, and "Shipped"
+  // is a claim only a real handover or a scan should make.
+  const statusStep = STATUS_STEPS.indexOf(order.status as OrderStatus);
+  const packedStep = STATUS_STEPS.indexOf("processing");
+  const currentStep =
+    order.courier_entered_at && statusStep < packedStep && statusStep >= 0
+      ? packedStep
+      : statusStep;
   const isCancelled = order.status === "cancelled";
   const dates = stepDates(order);
 
@@ -170,6 +196,43 @@ export default async function TrackPage({
   // costs the link and nothing else.
   const courier = order.courier_id ? await getCourier(order.courier_id) : null;
   const courierTracking = publicTracking(courier, order.tracking_number);
+
+  // ── The India Post case ──────────────────────────────────────────────────
+  //
+  // These parcels used to show the customer nothing at all. The shipping card
+  // below was gated on `tracking_number || courier_name`, and a Speed Post
+  // parcel has neither: the number it carries is an *article* number in its
+  // own column, and nobody types a courier name for a parcel the system
+  // routed. So a paid, labelled, posted parcel rendered as "Order Confirmed"
+  // and four grey steps — a page that reads as though nothing has happened
+  // since the money left, which is exactly the message it should not send.
+  //
+  // The number alone is not the fix, because an allotted article number is not
+  // yet a trackable one. It is minted from our own stock before the parcel is
+  // handed over, so between allotment and posting it looks up to nothing on
+  // India Post's site. Showing it as "track this" during that window trades
+  // one confusion for a worse one — the customer tries it, gets "no
+  // information", and now distrusts the number as well as the page.
+  //
+  // So the two states are told apart, and the parcel being *with* India Post
+  // is what separates them: the agent's Confirmed tick, or any status from
+  // shipped onwards.
+  const isPostal = courier?.config.tracking === "india-post";
+  const postalNumber = isPostal ? order.postal_barcode?.trim() || null : null;
+  const postalPosted =
+    !!order.courier_entered_at ||
+    ["shipped", "out_for_delivery", "delivered", "returned"].includes(order.status);
+
+  // The carrier's number for this parcel, whatever kind it is. India Post's
+  // article number stands in where no waybill has been recorded, which is
+  // every postal parcel until one is.
+  const parcelNumber = order.tracking_number?.trim() || postalNumber;
+  const numberLabel = postalNumber && !order.tracking_number ? "Article no." : "Tracking #";
+
+  // A routed parcel always has something worth saying, even before a number
+  // exists — at minimum which courier is carrying it.
+  const showShipping = !!(parcelNumber || order.courier_name || courier);
+  const courierLabel = courier?.name || order.courier_name;
 
   // The order date the customer will check against their bank statement.
   const date = new Date(order.ordered_at).toLocaleDateString("en-IN", {
@@ -249,23 +312,25 @@ export default async function TrackPage({
           )}
         </div>
 
-        {/* Shipping info (if shipped+) */}
-        {(order.tracking_number || order.courier_name) && (
+        {/* Who is carrying it, and under what number */}
+        {showShipping && (
           <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-6 mb-5 shadow-sm dark:shadow-none">
             <h2 className="font-semibold text-sm text-neutral-700 dark:text-neutral-300 mb-4 flex items-center gap-2">
               <Truck className="w-4 h-4 text-primary-600 dark:text-primary-400" /> Shipping Details
             </h2>
             <div className="space-y-3 text-sm">
-              {order.courier_name && (
+              {courierLabel && (
                 <div className="flex justify-between">
                   <span className="text-neutral-500 dark:text-neutral-400">Courier</span>
-                  <span className="text-neutral-900 dark:text-white">{order.courier_name}</span>
+                  <span className="text-neutral-900 dark:text-white">{courierLabel}</span>
                 </div>
               )}
-              {order.tracking_number && (
-                <div className="flex justify-between">
-                  <span className="text-neutral-500 dark:text-neutral-400">Tracking #</span>
-                  <span className="text-neutral-900 dark:text-white font-mono">{order.tracking_number}</span>
+              {parcelNumber && (
+                <div className="flex justify-between gap-3">
+                  <span className="text-neutral-500 dark:text-neutral-400">{numberLabel}</span>
+                  {/* Copyable, because tracking an India Post parcel means
+                      typing this into their site by hand — see ArticleNumber. */}
+                  <ArticleNumber value={parcelNumber} />
                 </div>
               )}
               {order.expected_delivery && (
@@ -279,6 +344,55 @@ export default async function TrackPage({
                 </div>
               )}
             </div>
+
+            {/* ── India Post, in plain words ──────────────────────────────
+                The confusion this page created was never really about a
+                missing number. It was silence: a customer whose parcel had
+                genuinely been posted saw a stepper stuck on "Order Confirmed"
+                and concluded nothing had happened. What ends that is saying
+                what is true — where the parcel is, and why this page will not
+                move on its own the way a Delhivery one does.
+
+                No link is offered. India Post publish no address that carries
+                a consignment number into their form — it is typed, behind a
+                CAPTCHA — so a button would land people on a blank page having
+                promised them their parcel. The number and where to type it is
+                the honest version, and the copy button is what makes it work. */}
+            {isPostal && (
+              <div className="mt-5 rounded-xl border border-amber-200 dark:border-amber-500/25 bg-amber-50 dark:bg-amber-500/10 px-4 py-3">
+                {postalPosted ? (
+                  <>
+                    <p className="text-amber-900 dark:text-amber-300 text-sm font-semibold">
+                      Your parcel is with India Post.
+                    </p>
+                    <p className="text-amber-800 dark:text-amber-200/80 text-xs mt-1.5 leading-relaxed">
+                      India Post don&apos;t send us live updates the way a
+                      courier does, so the steps above move only when we hear
+                      something. To see exactly where it is right now, copy the
+                      article number above and track it at{" "}
+                      <span className="font-semibold">indiapost.gov.in</span> →
+                      Track Consignment.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-amber-900 dark:text-amber-300 text-sm font-semibold">
+                      Being prepared for India Post.
+                    </p>
+                    <p className="text-amber-800 dark:text-amber-200/80 text-xs mt-1.5 leading-relaxed">
+                      {postalNumber
+                        ? "Your parcel has its article number and is being packed. " +
+                          "The number starts working on India Post's website once " +
+                          "the parcel is handed over at the post office — we'll " +
+                          "message you on WhatsApp when that happens."
+                        : "Your parcel is being packed and will go out by India Post. " +
+                          "We'll message you on WhatsApp with the article number " +
+                          "once it has been posted."}
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
             {/* Straight to the courier, where every scan lives. Ours is the
                 summary; theirs answers "which city is it in right now". */}

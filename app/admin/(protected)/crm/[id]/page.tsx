@@ -7,6 +7,7 @@ import { getContact, windowState, formatWindow } from "@/lib/crm/contacts";
 import { listThread } from "@/lib/crm/messages";
 import { crmFieldsFor } from "@/lib/crm/tags";
 import { pendingFor } from "@/lib/crm/automation";
+import { quickReplies } from "@/lib/crm/quick-replies";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import ThreadClient from "./ThreadClient";
 import CrmPanel from "./CrmPanel";
@@ -40,6 +41,23 @@ export default async function ThreadPage({
   ]);
 
   const win = windowState(contact.last_inbound_at);
+
+  // The canned messages, filled in here rather than in the browser: they carry
+  // the site URL and the customer's course login number, and building them on
+  // the server keeps that logic — and NEXT_PUBLIC_APP_URL's localhost guard —
+  // in one place instead of shipping a second copy into the bundle.
+  //
+  // The tracking chip points at their most recent order; `ordersFor` sorts
+  // newest first. With no orders at all it is omitted, not broken.
+  const replyInput = {
+    name: contact.display_name,
+    phone: contact.phone,
+    orderNumber: orders[0]?.order_number ?? null,
+  };
+  const cannedReplies = {
+    ml: quickReplies(replyInput, "ml"),
+    en: quickReplies(replyInput, "en"),
+  };
 
   return (
     <div>
@@ -105,6 +123,7 @@ export default async function ThreadPage({
           }}
           canReply={can(staff, "crm.reply")}
           canConsent={can(staff, "crm.consent")}
+          quickReplies={cannedReplies}
         />
 
         {/* ── Where they are, and what happens next ─────────────────────── */}

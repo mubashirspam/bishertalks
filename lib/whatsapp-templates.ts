@@ -640,15 +640,26 @@ export interface CampaignTemplateDef {
  * Templates a campaign may use. Not order events — nothing sends these
  * automatically, and nothing sends them at all until Meta approves them.
  *
- * Both are MARKETING, submitted that way on purpose. A nudge to finish a
- * payment is a nudge to buy however carefully it is worded, and Meta has
- * already rejected one of this account's templates for reading as promotion
- * when it was submitted as utility. Arguing the category costs a rejection;
- * accepting it costs a fraction of a rupee.
+ * Two pairs of the same two messages, in both categories, and the split is the
+ * point.
  *
- * Both carry their own opt-out line in the body, in Malayalam. Meta expects a
- * way out of a marketing message, and retrofitting one later means a second
- * review round on a template that is already live.
+ * The `_1` pair is MARKETING. That was submitted deliberately — a nudge to
+ * finish a payment is a nudge to buy however carefully it is worded — and it
+ * was the right call for that copy. What it missed is that the gate refuses a
+ * MARKETING template to anyone without `marketing_opt_in_at`, and this
+ * particular audience can never have it: opt-in is earned by tapping a button
+ * on a message we already delivered, and these people never got one. Correct
+ * category, unreachable audience.
+ *
+ * The `_2` pair is UTILITY, with the copy rewritten so the category is
+ * honest — about one order, not about the book. See the note on
+ * `payment_reminder_2`.
+ *
+ * The MARKETING pair carries its own Malayalam opt-out line, because Meta
+ * expects a way out of a marketing message. The UTILITY pair deliberately does
+ * not: a "reply STOP to stop these" line on a transaction notice is itself a
+ * signal that the message is a broadcast, and it is the kind of thing a
+ * reviewer reads as marketing wearing a utility label.
  */
 export const CAMPAIGN_TEMPLATES: Record<string, CampaignTemplateDef> = {
   /**
@@ -727,6 +738,93 @@ ${SIGNATURE}`,
         example: `${PUBLIC_BASE}/neuro-code`,
       },
       { type: "QUICK_REPLY", text: "കൂടുതൽ അറിയാൻ" },
+      { type: "QUICK_REPLY", text: "സഹായം വേണം" },
+    ],
+  },
+
+  /**
+   * The same two messages again, as UTILITY — and the reason the pair above
+   * is still here.
+   *
+   * The MARKETING pair could not be sent. The gate refuses a MARKETING
+   * template to anyone without `marketing_opt_in_at`, opt-in is only earned by
+   * tapping a button on a message we already delivered, and somebody who never
+   * finished paying has had no such message. One campaign refused 50 of 50
+   * before the halt was added; two more stopped at 5. It was not a bad list,
+   * it was a category that could never clear the gate for this audience.
+   *
+   * A category is not a setting you flip. Meta reads the words, and the old
+   * copy — "thanks for showing interest, tap to know more about the book" — is
+   * promotion however it is filed; submitting it as UTILITY buys an
+   * INCORRECT_CATEGORY rejection, which this account has already collected
+   * five of on `course_access`. So the copy is rewritten rather than
+   * relabelled: it names the order, states what happened to it, and offers to
+   * continue it. Nothing about the book, no reason to buy, no offer.
+   *
+   * New names rather than an edit, because both `_1` templates are approved
+   * and live at Meta as MARKETING, and an approved template's category is not
+   * ours to rewrite. The old pair stays until these are approved; the day they
+   * are, point the campaigns at these and the `_1` names can go.
+   *
+   * **No payment link in the template.** A utility notice that also carries a
+   * buy link reads as the promotion it was supposed to stop being. The link is
+   * sent only when the customer taps to ask for it — see `payment:send_link`
+   * in lib/crm/flow-table.ts. That tap is also an inbound message, which opens
+   * the 24-hour window, so the reply that carries the link is a free session
+   * message rather than a second template.
+   */
+  payment_reminder_2: {
+    name: "payment_reminder_2",
+    category: "UTILITY",
+    // The order number is back, and it is what makes this utility rather than
+    // a nudge: the message is about one transaction the customer began. It was
+    // dropped from the `_1` copy when that copy stopped mentioning it — Meta
+    // requires variables to run 1..n with none skipped, so an unmentioned
+    // variable could not stay.
+    body: `ഹായ് {{1}} 🙏
+
+നിങ്ങൾ തുടങ്ങിയ ഓർഡർ {{2}} ഇതുവരെ പൂർത്തിയായിട്ടില്ല.
+
+Payment പൂർത്തിയാക്കിയാൽ മാത്രമേ ഓർഡർ confirm ആകൂ. ഓർഡർ ഇപ്പോഴും നിങ്ങൾക്കായി കാത്തിരിക്കുന്നു.
+
+ഓർഡർ പൂർത്തിയാക്കാനുള്ള link വേണമെങ്കിൽ താഴെയുള്ള button ഉപയോഗിക്കൂ.
+
+${SIGNATURE}`,
+    example: ["Asraf", "ORD-K3523P"],
+    params: (c) => [c.customerName, c.orderNumber],
+    // Quick replies only. A URL button here would be the payment link the
+    // template is specifically not carrying.
+    buttons: [
+      { type: "QUICK_REPLY", text: "ലിങ്ക് അയക്കൂ" },
+      { type: "QUICK_REPLY", text: "സഹായം വേണം" },
+    ],
+  },
+
+  /**
+   * Payment attempted and refused, as UTILITY.
+   *
+   * Says the one thing the customer actually needs and the `_1` copy dropped:
+   * if the bank took the money it is coming back. Somebody whose card was
+   * charged on a failed order is not wondering about the book, they are
+   * wondering where their money went, and answering that is what makes this a
+   * service message rather than a sales one.
+   */
+  payment_failed_2: {
+    name: "payment_failed_2",
+    category: "UTILITY",
+    body: `ഹായ് {{1}} 🙏
+
+നിങ്ങളുടെ ഓർഡർ {{2}} ന്റെ payment പൂർത്തിയായില്ല. നിങ്ങൾ ചെയ്തതിൽ തെറ്റൊന്നും ഇല്ല.
+
+തുക ബാങ്കിൽ നിന്ന് കുറഞ്ഞിട്ടുണ്ടെങ്കിൽ അത് 5–7 പ്രവൃത്തി ദിവസത്തിനുള്ളിൽ തിരികെ ലഭിക്കും.
+
+വീണ്ടും ശ്രമിക്കാനുള്ള link വേണമെങ്കിൽ താഴെയുള്ള button ഉപയോഗിക്കൂ.
+
+${SIGNATURE}`,
+    example: ["Asraf", "ORD-K3523P"],
+    params: (c) => [c.customerName, c.orderNumber],
+    buttons: [
+      { type: "QUICK_REPLY", text: "ലിങ്ക് അയക്കൂ" },
       { type: "QUICK_REPLY", text: "സഹായം വേണം" },
     ],
   },

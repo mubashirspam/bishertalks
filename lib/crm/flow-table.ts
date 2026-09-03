@@ -86,6 +86,9 @@ export const BUTTON_TITLES: Record<string, string> = {
   // customer taps and nothing happens.
   "payment:more_details": "കൂടുതൽ അറിയാൻ",
   "payment:need_help": "സഹായം വേണം",
+  // The UTILITY pair's "yes, send it" button. The templates deliberately do
+  // not carry the payment link; this is how the customer asks for it.
+  "payment:send_link": "ലിങ്ക് അയക്കൂ",
   "delivery:received": "Received",
   "delivery:not_received": "Not Received",
   "delivery:need_help": "Need Help",
@@ -219,6 +222,36 @@ export const FLOW_ACTIONS: Record<string, FlowAction> = {
     },
     tag: "support_needed",
     hold: true,
+  },
+
+  /**
+   * "Yes, send me the link."
+   *
+   * The whole reason the UTILITY templates carry no URL button. A utility
+   * notice that also carries a buy link is a promotion with a receipt stapled
+   * to it; asking first keeps the template about the order and puts the link
+   * in a message the customer requested.
+   *
+   * It costs nothing extra to send. The tap is an inbound message, so it opens
+   * the 24-hour window and this reply goes out as a session message rather
+   * than a second billable template.
+   *
+   * Deliberately NOT `optIn: true`. Tapping this says "I want to finish my
+   * order", not "I want offers" — and consent harvested through a utility
+   * message is the weakest kind there is. `intro:buy_now` sets opt-in because
+   * the customer tapped it on a message that was openly marketing; this one
+   * was not. One line to change if that call ever looks wrong.
+   */
+  "payment:send_link": {
+    reply: {
+      body:
+        `ഈ link വഴി ഓർഡർ പൂർത്തിയാക്കാം:\n\n${ORDER_URL}\n\n` +
+        "Payment കഴിഞ്ഞാൽ ഉടൻ confirmation message ലഭിക്കും.",
+      buttons: ["payment:need_help"],
+    },
+    // Same stage the other "I am buying" taps set, so the People screen counts
+    // them with everyone else who is mid-order rather than inventing a stage.
+    stage: "ordering",
   },
 
   // ── neuro_order_receipt ───────────────────────────────────────────────
@@ -363,6 +396,11 @@ export const TEMPLATE_BUTTON_PAYLOADS: Record<string, string[]> = {
   course_order_confirmation_v2: ["paid:need_help"],
   payment_reminder_1: ["payment:more_details", "payment:need_help"],
   payment_failed_1: ["payment:more_details", "payment:need_help"],
+  // The UTILITY pair. Two buttons, not three: a utility message asks one
+  // question, and "കൂടുതൽ അറിയാൻ" — tell me more about the book — is the
+  // promotional third that would undo the category.
+  payment_reminder_2: ["payment:send_link", "payment:need_help"],
+  payment_failed_2: ["payment:send_link", "payment:need_help"],
   neuro_delivery_confirmed: [
     "delivery:received",
     "delivery:not_received",

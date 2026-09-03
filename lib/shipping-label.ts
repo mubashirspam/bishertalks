@@ -1,5 +1,6 @@
 import { PdfDocument, wrapText, measureText, printableOnly } from "@/lib/pdf";
 import { drawBarcode } from "@/lib/barcode";
+import { indiaPostEmblem, INDIA_POST_FORM, INDIA_POST_VIEWBOX } from "@/lib/india-post-logo";
 import { formatIST } from "@/lib/format-date";
 import type { CourierConfig } from "@/lib/couriers/types";
 
@@ -238,6 +239,28 @@ const contentsLine = (quantity: number, isGift: boolean, isSigned: boolean) =>
 export type LabelBarcodeFor<T = LabelOrder> = (order: T) => string;
 
 /**
+ * What the strip above the barcode calls this parcel — "" for no strip.
+ *
+ * The label used to say "SPEED POST — ARTICLE NUMBER", hard-coded, and that
+ * was wrong in the way that matters at a counter: these parcels are not Speed
+ * Post articles, they are posted under a contractual account, and the words
+ * the counter expects are the ones already on the account's paperwork. Those
+ * live in the courier's `sheet_title` — "INDIA POST PARCEL CONTRACTUAL" — and
+ * the A4 sheet has been printing them as its masthead all along. This is that
+ * same string reaching the label.
+ *
+ * A resolver rather than a constant because it is the courier's, not the
+ * label's: a second postal account books under a different heading, and a
+ * label claiming the wrong contract is one the counter should refuse.
+ */
+export type LabelCaptionFor<T = LabelOrder> = (order: T) => string;
+
+/** The caption for a parcel going out under an India Post contract. */
+export function postalLabelCaption(config: CourierConfig | null | undefined): string {
+  return sheetHeaderForCourier(config).title;
+}
+
+/**
  * The default: the article number where there is one, our order number
  * otherwise.
  *
@@ -263,22 +286,79 @@ export function postalLabelBarcode(o: LabelOrder): string {
   return o.postal_barcode?.trim() ?? "";
 }
 
+/**
+ * The return address for one parcel, or one address for the whole run.
+ *
+ * A function because a batch can span couriers, and the return address is the
+ * carrying courier's: a Speed Post parcel comes back to the branch it was
+ * booked at, a Mubashir Logistic one comes back to Wayanad. One address across
+ * both sends a failed parcel to a building that never had it — which is the
+ * same reasoning `SenderFor` in lib/address-sheet.ts already carries, and this
+ * is that rule reaching the 4x6 label.
+ *
+ * A plain `SenderDetails` is still accepted, because most callers print one
+ * courier's parcels and have nothing to resolve.
+ */
+export type LabelSenderFor<T = LabelOrder> = (order: T) => SenderDetails;
+
 // Generic over the row, like buildAddressSheet, so a caller can hand in rows
-// carrying more than the label draws — `courier_id`, in the one caller that
-// resolves the barcode rule per parcel — and still have it typed inside the
-// callback.
+// carrying more than the label draws — `courier_id`, in the callers that
+// resolve the barcode rule or the sender per parcel — and still have it typed
+// inside the callback.
+export interface LabelSheetOptions<T extends LabelOrder> {
+  /** One address for the run, or one per parcel. See LabelSenderFor. */
+  sender?: SenderDetails | LabelSenderFor<T>;
+  /** Resolved per parcel, because the rule depends on the courier. */
+  barcodeFor?: LabelBarcodeFor<T>;
+  /** The contract heading over the barcode. "" prints no strip at all. */
+  captionFor?: LabelCaptionFor<T>;
+  /**
+   * Print the bench instructions for gifts and signed copies.
+   *
+   * On by default, because the master queue is where a batch is printed to be
+   * packed and the slip is the only place the gift message appears.
+   *
+   * Off for the delivery portal. That screen belongs to whoever is moving
+   * parcels that are already packed, and a run of fifty labels there was
+   * coming out with extra pages they had to pull off the stack and throw away
+   * — while the private message on them went through a courier partner's
+   * printer, which is the one place it should never be.
+   */
+  packingSlips?: boolean;
+}
+
 export function buildLabelSheet<T extends LabelOrder>(
   orders: T[],
-  sender: SenderDetails = senderFromEnv(),
-  /** Resolved per parcel, because the rule depends on the courier. */
-  barcodeFor: LabelBarcodeFor<T> = labelBarcodeValue
+  options: LabelSheetOptions<T> = {}
 ): Buffer {
+  const {
+    sender = senderFromEnv(),
+    barcodeFor = labelBarcodeValue,
+    captionFor = () => "",
+    packingSlips = true,
+  } = options;
   const doc = new PdfDocument(LABEL_4X6.width, LABEL_4X6.height);
   const printedAt = formatIST(new Date().toISOString());
+  const senderFor: LabelSenderFor<T> =
+    typeof sender === "function" ? sender : () => sender;
+
+  // Registered once for the whole run and written to the file once, however
+  // many labels stamp it. Defining it costs nothing if no parcel is postal —
+  // an unstamped form is never written. See PdfDocument.defineForm.
+  doc.defineForm(INDIA_POST_FORM, INDIA_POST_VIEWBOX, indiaPostEmblem());
 
   orders.forEach((order, i) => {
     if (i > 0) doc.addPage();
-    drawLabel(doc, order, sender, printedAt, barcodeFor(order), i + 1, orders.length);
+    drawLabel(
+      doc,
+      order,
+      senderFor(order),
+      printedAt,
+      barcodeFor(order),
+      i + 1,
+      orders.length,
+      captionFor(order)
+    );
 
     // A parcel that needs something done to it before the box is taped shut
     // gets a second page. Only gifts and signed copies — about ten parcels in
@@ -288,7 +368,7 @@ export function buildLabelSheet<T extends LabelOrder>(
     // have opposite destinations: the label is stuck to the outside where the
     // courier and the household read it, and this is read at the bench and
     // thrown away or dropped in the box.
-    if (order.is_gift || order.is_signed) {
+    if (packingSlips && (order.is_gift || order.is_signed)) {
       doc.addPage();
       drawPackingSlip(doc, order, i + 1, orders.length);
     }
@@ -431,7 +511,8 @@ function drawLabel(
   printedAt: string,
   barcodeValue: string,
   index: number,
-  total: number
+  total: number,
+  caption = ""
 ): void {
   let cy = MARGIN + 10;
 
@@ -534,9 +615,12 @@ function drawLabel(
   const from = [sender.name, sender.address, sender.phone && `Ph ${sender.phone}`]
     .filter(Boolean)
     .join(", ");
+  // Stops short of the contract strip below rather than of the rule itself:
+  // the emblem stands 15pt above the rule, and a fourth line of return address
+  // would have been drawn straight through it.
   let fy = DESPATCH_TOP + 37;
   for (const line of wrapText(`FROM: ${from}`, INNER_W, 8)) {
-    if (fy > BARCODE_RULE_Y - 5) break;
+    if (fy > BARCODE_RULE_Y - 17) break;
     doc.text(LEFT, fy, line, { size: 8, gray: 0.45 });
     fy += 9.5;
   }
@@ -565,11 +649,33 @@ function drawLabel(
 
   // Named, because a bare thirteen-character code on a parcel is ambiguous to
   // the person at the booking counter and to us six weeks later.
-  if (isArticle) {
-    doc.text(LEFT, BARCODE_RULE_Y - 4, "SPEED POST — ARTICLE NUMBER", {
+  //
+  // The words are the courier's contract heading — "INDIA POST PARCEL
+  // CONTRACTUAL" — and not the "SPEED POST" this once said. These parcels are
+  // booked against a contract, not bought as Speed Post articles at the
+  // window, and the counter reads that line to decide which queue the parcel
+  // is in. India Post's emblem sits at the right of the same strip: it is the
+  // first thing recognised across a counter, and putting it beside the words
+  // rather than up in the header keeps the whole postal identity — mark,
+  // contract, barcode — in one block that reads as a unit.
+  if (isArticle && caption) {
+    const emblemW = 26;
+    const emblemH = 13;
+    // Bottom of the emblem just clear of the rule, so the two never touch.
+    doc.drawForm(
+      INDIA_POST_FORM,
+      RIGHT - emblemW,
+      BARCODE_RULE_Y - emblemH - 2,
+      emblemW,
+      emblemH
+    );
+
+    doc.text(LEFT, BARCODE_RULE_Y - 4, caption.toUpperCase(), {
       size: 7,
       bold: true,
       gray: 0.4,
+      // Stops long contract wording running under the emblem.
+      maxWidth: INNER_W - emblemW - 6,
     });
   }
 

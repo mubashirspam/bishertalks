@@ -16,7 +16,7 @@ import { NEXT_EDITION_PRICE, editionDispatchDayLabelMl } from "@/lib/preorder";
  * These links are pasted into a real customer's chat by hand, so a localhost
  * URL from a dev environment would be sent to someone who can't open it.
  */
-function siteUrl(): string {
+export function siteUrl(): string {
   const url = process.env.NEXT_PUBLIC_APP_URL || "";
   return !url || /localhost|127\.0\.0\.1/.test(url) ? "https://bishertalks.com" : url;
 }
@@ -25,8 +25,15 @@ function courseUrl(): string {
   return `${siteUrl()}/courses/${BOOK_BONUS_COURSE_SLUG}`;
 }
 
-/** The 10 digits the customer types to get into the course. */
-function loginPhone(phone: string | null | undefined): string {
+/**
+ * The 10 digits the customer types to get into the course.
+ *
+ * Exported for `lib/crm/quick-replies.ts`, which sends the same course link
+ * by hand from the CRM thread and has to quote the same number. Two copies of
+ * this would drift the first time somebody's phone arrived with a country code
+ * one of them did not strip.
+ */
+export function loginPhone(phone: string | null | undefined): string {
   const digits = (phone ?? "").replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
 }

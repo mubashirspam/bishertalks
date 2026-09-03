@@ -7,6 +7,7 @@ import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import PortalExport from "./PortalExport";
 import PortalAllotArticles from "./PortalAllotArticles";
 import PortalAddressPdf from "./PortalAddressPdf";
+import PortalLabelPdf from "./PortalLabelPdf";
 import {
   PORTAL_STATUS_STEPS,
   PORTAL_STEP_LABELS,
@@ -109,6 +110,15 @@ export default function PortalGrid({
   const [copied, setCopied] = useState<string | null>(null);
   /** What's typed in each row's tracking box, before it's saved. */
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  /**
+   * Rows whose article number is being typed by hand, and what is in the box.
+   *
+   * Absent means the cell is showing its usual "No article number" prompt —
+   * the editor is opened deliberately, because typing a number into a parcel
+   * is a different act from correcting a tracking ID and should not be one
+   * stray click away.
+   */
+  const [articleEdit, setArticleEdit] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   /**
    * A pending undo waiting on "yes, really".
@@ -377,6 +387,48 @@ export default function PortalGrid({
     }
   }
 
+  /**
+   * Type in an article number the allotment did not provide.
+   *
+   * For the parcel booked at the window, or booked while the stock was empty:
+   * the number exists on a counter receipt and nowhere else, and until it is
+   * here the label's barcode prints blank. Every rule about what may be
+   * entered — the check digit, the collisions, the confirmed-parcel refusal —
+   * is on the server; this only shows what it said.
+   */
+  async function saveArticle(row: PortalRow, value: string) {
+    const typed = value.trim().toUpperCase();
+    if (!typed) return;
+
+    setSaving((s) => ({ ...s, [row.order_number]: true }));
+    setError(null);
+
+    try {
+      const res = await fetch("/api/admin/delivery/article-number", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: row.order_number, article_number: typed }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Update failed (${res.status})`);
+
+      // Refreshed rather than patched into an overrides map: the number
+      // changes what several other cells say about this parcel — whether it
+      // still needs allotting, whether it can go on a sheet — and re-reading
+      // the row is cheaper than keeping all of that in step by hand.
+      setArticleEdit((a) => {
+        const next = { ...a };
+        delete next[row.order_number];
+        return next;
+      });
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setSaving((s) => ({ ...s, [row.order_number]: false }));
+    }
+  }
+
   /** What's in this row's box: what's been typed, else what's saved. */
   const draftOf = (row: PortalRow): string =>
     row.order_number in drafts ? drafts[row.order_number] : (trackingOf(row) ?? "");
@@ -614,7 +666,14 @@ export default function PortalGrid({
               orderNumbers={pickedRows.filter(needsArticle).map((r) => r.order_number)}
               onDone={() => router.refresh()}
             />
+            {/* Two paper options, and they are not alternatives: the A4 sheet
+                is ten addresses to be cut up on an office printer, this is one
+                4x6 label per page for a thermal roll. The label is what goes
+                on the parcel and carries the scannable barcode, so it sits
+                nearer the Excel button — but the sheet stays for whoever has
+                no label printer that morning. */}
             <PortalAddressPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
+            <PortalLabelPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
             <PortalExport
               orderNumbers={pickedRows.map((r) => r.order_number)}
               onDone={sheetDownloaded}
@@ -882,12 +941,70 @@ export default function PortalGrid({
                             onClick={() => copy(`${r.order_number}:art`, r.postal_barcode!)}
                           />
                         </div>
+                      ) : r.order_number in articleEdit ? (
+                        // Typing one in by hand. Uppercased as it is typed
+                        // because that is the only form the format allows, and
+                        // correcting it afterwards is a refusal nobody needs.
+                        <span className="flex items-center gap-1">
+                          <input
+                            autoFocus
+                            value={articleEdit[r.order_number]}
+                            onChange={(e) =>
+                              setArticleEdit((a) => ({
+                                ...a,
+                                [r.order_number]: e.target.value.toUpperCase(),
+                              }))
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void saveArticle(r, articleEdit[r.order_number]);
+                              if (e.key === "Escape")
+                                setArticleEdit((a) => {
+                                  const next = { ...a };
+                                  delete next[r.order_number];
+                                  return next;
+                                });
+                            }}
+                            placeholder="CX054909015IN"
+                            maxLength={13}
+                            disabled={!!saving[r.order_number]}
+                            className="w-[104px] px-1.5 py-0.5 rounded border border-amber-300 font-mono text-[11px] focus:border-amber-500 focus:outline-none disabled:opacity-50"
+                          />
+                          <button
+                            onClick={() => void saveArticle(r, articleEdit[r.order_number])}
+                            disabled={!!saving[r.order_number]}
+                            title="Save this article number"
+                            className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-40"
+                          >
+                            Save
+                          </button>
+                        </span>
                       ) : (
-                        <span
-                          title="No India Post article number yet — tick it and press Allot article numbers"
-                          className="text-amber-700 text-[11px] font-medium"
-                        >
-                          No article number
+                        // Editable only while the parcel is unconfirmed. Once
+                        // it is on a booking file India Post holds, the number
+                        // there and the number here have to agree — so the
+                        // prompt goes back to being a statement of fact.
+                        <span className="flex items-center gap-1.5">
+                          <span
+                            title={
+                              enteredOf(r)
+                                ? "No article number, and this parcel is already confirmed with the courier"
+                                : "No India Post article number yet — tick it and press Allot article numbers, or type one in"
+                            }
+                            className="text-amber-700 text-[11px] font-medium"
+                          >
+                            No article number
+                          </span>
+                          {!enteredOf(r) && (
+                            <button
+                              onClick={() =>
+                                setArticleEdit((a) => ({ ...a, [r.order_number]: "" }))
+                              }
+                              title="Type in a number from a counter receipt"
+                              className="text-[11px] font-semibold text-neutral-500 underline underline-offset-2 hover:text-neutral-800"
+                            >
+                              Enter
+                            </button>
+                          )}
                         </span>
                       )
                     ) : r.courier_reference ? (

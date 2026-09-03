@@ -82,6 +82,16 @@ export interface Order {
   /** The partner's most recent scan, in their own wording. */
   courier_last_scan: string | null;
   courier_last_scan_at: string | null;
+  /**
+   * India Post's article number, once one has been allotted (0049).
+   *
+   * Kept apart from `tracking_number` on purpose — see the migration. It is
+   * minted from our own allotment before the parcel is posted, so an order can
+   * hold one while India Post has still never seen the parcel. The customer's
+   * tracking page reads it, and says which of those two states it is in rather
+   * than offering a number that would look up to nothing.
+   */
+  postal_barcode: string | null;
   /** The delivery agent carrying this parcel, or null for New (0019). */
   assigned_agent_id: string | null;
   assigned_at: string | null;

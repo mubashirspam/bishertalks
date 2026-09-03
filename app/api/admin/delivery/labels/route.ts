@@ -15,6 +15,7 @@ import {
   buildLabelSheet,
   labelBarcodeValue,
   postalLabelBarcode,
+  postalLabelCaption,
   LABELS_PER_PAGE,
 } from "@/lib/shipping-label";
 import { listCouriers } from "@/lib/db/couriers";
@@ -130,11 +131,20 @@ export async function POST(request: NextRequest) {
   // order number, which is what our own screens are keyed by.
   const configById = new Map((await listCouriers()).map((c) => [c.id, c.config]));
 
-  const pdf = buildLabelSheet(withBarcodes, undefined, (o) =>
-    (o.courier_id ? configById.get(o.courier_id) : null)?.tracking === "india-post"
-      ? postalLabelBarcode(o)
-      : labelBarcodeValue(o)
-  );
+  const configOf = (o: { courier_id: string | null }) =>
+    (o.courier_id ? configById.get(o.courier_id) : null) ?? null;
+
+  const pdf = buildLabelSheet(withBarcodes, {
+    barcodeFor: (o) =>
+      configOf(o)?.tracking === "india-post" ? postalLabelBarcode(o) : labelBarcodeValue(o),
+    // Same rule as the portal's label route: the contract heading, and only
+    // for a parcel actually going out under one.
+    captionFor: (o) =>
+      configOf(o)?.tracking === "india-post" ? postalLabelCaption(configOf(o)) : "",
+    // Packing slips kept, deliberately — unlike the portal's route. This is
+    // the queue a batch is printed from to be packed, and the slip is the only
+    // place a gift message is printed at all.
+  });
 
   // After the PDF exists, so a failed build never marks anything.
   const printed = rows.map((r) => r.order_number);

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Send, Lock, Ban, RotateCcw, AlertCircle, Check, CheckCheck, Paperclip } from "lucide-react";
+import type { QuickReply, ReplyLanguage } from "@/lib/crm/quick-replies";
 
 /**
  * The conversation, and the box under it.
@@ -36,18 +37,28 @@ export default function ThreadClient({
   window: win,
   canReply,
   canConsent,
+  quickReplies,
 }: {
   contact: { id: string; phone: string; optedOut: boolean; marketingOptIn: boolean };
   messages: ThreadMessage[];
   window: { open: boolean; label: string; everWrote: boolean };
   canReply: boolean;
   canConsent: boolean;
+  /**
+   * The canned messages, already filled in for this contact, in both
+   * languages. Built on the server because they carry the site URL and the
+   * customer's login number — see lib/crm/quick-replies.ts.
+   */
+  quickReplies: Record<ReplyLanguage, QuickReply[]>;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Malayalam first, because most of these conversations are in Malayalam.
+  const [lang, setLang] = useState<ReplyLanguage>("ml");
   const endRef = useRef<HTMLDivElement>(null);
+  const boxRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -62,6 +73,25 @@ export default function ThreadClient({
       body: JSON.stringify({ action: "mark_read", contact_id: contact.id }),
     }).catch(() => {});
   }, [contact.id]);
+
+  /**
+   * Drop a canned message into the box.
+   *
+   * Fills rather than sends, and that is deliberate — see the note on
+   * lib/crm/quick-replies.ts. Appends to whatever is already typed instead of
+   * replacing it, so tapping a chip can never destroy a half-written reply;
+   * two chips in a row give two paragraphs, which is usually what was wanted.
+   */
+  function insert(body: string) {
+    setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${body}` : body));
+    // Back to the box with the caret at the end, ready to edit.
+    requestAnimationFrame(() => {
+      const box = boxRef.current;
+      if (!box) return;
+      box.focus();
+      box.setSelectionRange(box.value.length, box.value.length);
+    });
+  }
 
   async function send() {
     const body = text.trim();
@@ -223,8 +253,49 @@ export default function ThreadClient({
             <p className="mb-1.5 px-1 text-[11px] text-green-700">
               Free reply open · {win.label}
             </p>
+
+            {/* ── Canned messages ──────────────────────────────────────
+                Fill the box, never send. The language toggle sits with them
+                because it only governs these — a hand-typed reply is in
+                whatever language the agent is already typing. */}
+            {!!quickReplies[lang].length && (
+              <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                <div className="mr-0.5 flex overflow-hidden rounded-md border border-neutral-200">
+                  {(["ml", "en"] as const).map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setLang(code)}
+                      aria-pressed={lang === code}
+                      className={`px-2 py-1 text-[10px] font-bold uppercase tracking-wide transition ${
+                        lang === code
+                          ? "bg-neutral-800 text-white"
+                          : "bg-white text-neutral-500 hover:bg-neutral-50"
+                      }`}
+                    >
+                      {code === "ml" ? "മലയാളം" : "English"}
+                    </button>
+                  ))}
+                </div>
+
+                {quickReplies[lang].map((reply) => (
+                  <button
+                    key={reply.id}
+                    type="button"
+                    onClick={() => insert(reply.body)}
+                    disabled={busy}
+                    title={reply.body}
+                    className="rounded-full border border-neutral-200 bg-white px-2.5 py-1 text-[11px] font-medium text-neutral-600 transition hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700 disabled:opacity-40"
+                  >
+                    {reply.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex gap-2">
               <textarea
+                ref={boxRef}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {

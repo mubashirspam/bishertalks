@@ -191,9 +191,38 @@ function encodeText(s: string): string {
 
 
 
+/**
+ * A drawing stored once and stamped onto many pages — a PDF Form XObject.
+ *
+ * `viewBox` is the coordinate space `content` is drawn in, and it is read as
+ * SVG reads it: x right, y DOWN from the top-left. That is the opposite of
+ * PDF's own axis, and the flip lives in the matrix this class builds rather
+ * than in the caller, so path data lifted straight out of an SVG file can be
+ * used unchanged.
+ */
+interface FormDef {
+  viewBox: { width: number; height: number };
+  content: string;
+}
+
+/**
+ * A form's name in a page's resource dictionary.
+ *
+ * Derived from the caller's name rather than a counter so the same drawing
+ * keeps the same key across pages, and sanitised because a PDF name may not
+ * carry spaces or delimiters.
+ */
+function formRes(name: string): string {
+  return `Fm${name.replace(/[^A-Za-z0-9]/g, "")}`;
+}
+
 export class PdfDocument {
   /** Which embedded faces this document has actually drawn with. */
   private usedFaces = new Set<"regular" | "bold">();
+  /** Reusable drawings, by name. See defineForm. */
+  private forms = new Map<string, FormDef>();
+  /** The forms actually stamped, so an unused definition costs no bytes. */
+  private usedForms = new Set<string>();
   private pages: string[][] = [];
   private current: string[] = [];
   private readonly width: number;
@@ -264,6 +293,47 @@ export class PdfDocument {
     );
   }
 
+  /**
+   * Register a drawing that can be stamped on any number of pages.
+   *
+   * The point is that the content is written to the file **once**. India
+   * Post's emblem is about two kilobytes of path data; repeating it inline on
+   * a three-hundred-label run would add most of a megabyte to a PDF somebody
+   * downloads over a phone connection, for a picture that is identical every
+   * time.
+   *
+   * Defining costs nothing on its own — a form nobody stamps is never written.
+   */
+  defineForm(name: string, viewBox: { width: number; height: number }, content: string): void {
+    this.forms.set(name, { viewBox, content });
+  }
+
+  /**
+   * Stamp a registered form into a box, y measured from the top of the page.
+   *
+   * Scaled to fit while keeping its proportions, and centred in whatever room
+   * is left over — a logo squashed to fill a box exactly is worse than a
+   * smaller one that is still the right shape.
+   */
+  drawForm(name: string, x: number, y: number, w: number, h: number): boolean {
+    const form = this.forms.get(name);
+    if (!form || !form.viewBox.width || !form.viewBox.height) return false;
+
+    const scale = Math.min(w / form.viewBox.width, h / form.viewBox.height);
+    const drawnW = form.viewBox.width * scale;
+    const drawnH = form.viewBox.height * scale;
+    const left = x + (w - drawnW) / 2;
+    // The form's own space runs y-down from its top-left, so the matrix flips
+    // it and lands that top-left at the top of the box.
+    const top = this.height - (y + (h - drawnH) / 2);
+
+    this.usedForms.add(name);
+    this.current.push(
+      `q ${fmt(scale)} 0 0 ${fmt(-scale)} ${fmt(left)} ${fmt(top)} cm /${formRes(name)} Do Q`
+    );
+    return true;
+  }
+
   build(): Buffer {
     const objects: string[] = [];
     const push = (body: string) => {
@@ -278,7 +348,14 @@ export class PdfDocument {
     const faceIds = new Map<string, number>();
     faces.forEach((face, i) => faceIds.set(face, 5 + i * 4));
 
-    const firstPageObj = 5 + faces.length * 4;
+    // Only the forms something actually stamped — a definition nobody used
+    // must not reach the file, and a page may not reference an object that was
+    // never written.
+    const formNames = [...this.usedForms].sort();
+    const formIds = new Map<string, number>();
+    formNames.forEach((name, i) => formIds.set(name, 5 + faces.length * 4 + i));
+
+    const firstPageObj = 5 + faces.length * 4 + formNames.length;
     const pageIds = this.pages.map((_, i) => firstPageObj + i * 2);
 
     push(`<< /Type /Catalog /Pages 2 0 R >>`);
@@ -331,6 +408,25 @@ export class PdfDocument {
       );
     }
 
+    for (const name of formNames) {
+      const form = this.forms.get(name)!;
+      const stream = form.content;
+      // BBox in the form's own y-down space, which the stamping matrix flips.
+      // A BBox smaller than the drawing clips it, so it is the full viewBox.
+      push(
+        `<< /Type /XObject /Subtype /Form /FormType 1 ` +
+          `/BBox [0 0 ${fmt(form.viewBox.width)} ${fmt(form.viewBox.height)}] ` +
+          `/Resources << >> /Length ${Buffer.byteLength(stream, "latin1")} >>\n` +
+          `stream\n${stream}\nendstream`
+      );
+    }
+
+    const xobjectRes = formNames.length
+      ? ` /XObject << ${formNames
+          .map((n) => `/${formRes(n)} ${formIds.get(n)} 0 R`)
+          .join(" ")} >>`
+      : "";
+
     // Only the faces this document used are in the resource dictionary; a
     // page referencing a font object that was never written is a broken PDF.
     const fontRes =
@@ -342,7 +438,7 @@ export class PdfDocument {
       const stream = ops.join("\n");
       push(
         `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${fmt(this.width)} ${fmt(this.height)}] ` +
-          `/Resources << /Font << ${fontRes} >> >> /Contents ${pageIds[i] + 1} 0 R >>`
+          `/Resources << /Font << ${fontRes} >>${xobjectRes} >> /Contents ${pageIds[i] + 1} 0 R >>`
       );
       push(`<< /Length ${Buffer.byteLength(stream, "latin1")} >>\nstream\n${stream}\nendstream`);
     }

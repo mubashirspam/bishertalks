@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { listCouriers } from "@/lib/db/couriers";
 import { articleNumber, isValidArticleNumber } from "@/lib/india-post/article-number";
 
 /**
@@ -32,21 +33,100 @@ interface Claim {
 }
 
 /**
+ * Whose ranges does this courier draw from?
+ *
+ * Usually itself. The exception is two couriers posting under one India Post
+ * contract: Speed Post and Mubashir Logistic carry the same `contract_id` and
+ * `customer_id`, because they are the same contractual account booked at two
+ * counters. India Post allots numbers to the *account*, so a second courier
+ * with its own empty stock would report a shortfall while nine hundred numbers
+ * sat unused under the first.
+ *
+ * ── The two rules that keep this safe ─────────────────────────────────────
+ *
+ * **Only postal couriers group.** Not by contract alone — the Delhivery row
+ * in this database also carries contract 41767647, left over from however its
+ * config was first filled in. Grouping on the contract by itself would put
+ * Delhivery in the postal pool and let one of its parcels take an article
+ * number, which is precisely what /api/admin/delivery/allot-articles refuses
+ * to allow. A courier that is not `tracking: "india-post"` is never rehomed.
+ *
+ * **The group member holding the ranges wins, not the first one listed.**
+ * Deciding by `sort_order` would have made Mubashir Logistic (20) the owner
+ * over Speed Post (30) and orphaned every number already loaded. So the answer
+ * is read from where the ranges actually are, and a courier holding its own
+ * ranges always keeps them.
+ *
+ * Falls back to the courier itself whenever the answer is unclear — no group,
+ * no ranges anywhere, or a lookup that failed. That is the conservative
+ * direction: it can report an empty stock that someone then loads a range
+ * into, where the opposite mistake spends another account's numbers.
+ */
+export async function postalStockOwner(courierId: string): Promise<string> {
+  try {
+    const couriers = await listCouriers();
+    const self = couriers.find((c) => c.id === courierId);
+
+    const contract = self?.config?.contract_id?.trim();
+    if (!self || self.config?.tracking !== "india-post" || !contract) return courierId;
+
+    const group = couriers.filter(
+      (c) =>
+        c.config?.tracking === "india-post" && c.config?.contract_id?.trim() === contract
+    );
+    if (group.length < 2) return courierId;
+
+    const { data, error } = await supabaseAdmin
+      .from("postal_barcode_ranges")
+      .select("courier_id")
+      .in(
+        "courier_id",
+        group.map((c) => c.id)
+      );
+    if (error) {
+      console.error("[Postal] stock owner lookup failed:", error.message);
+      return courierId;
+    }
+
+    const holders = new Set(
+      ((data ?? []) as { courier_id: string }[]).map((r) => r.courier_id)
+    );
+    if (holders.has(courierId)) return courierId;
+
+    // Deterministic among the rest, so two requests never disagree.
+    const owner = group
+      .filter((c) => holders.has(c.id))
+      .sort((a, b) => a.sort_order - b.sort_order)[0];
+
+    return owner?.id ?? courierId;
+  } catch (e) {
+    console.error("[Postal] stock owner resolution threw:", e);
+    return courierId;
+  }
+}
+
+/**
  * How many numbers are left, for the admin panel and the low-stock warning.
  *
  * Reads the view rather than counting rows: "unused" means what the range
  * cursors say is left, and deriving it a second way is how two screens come to
  * disagree about whether we are about to run out.
+ *
+ * Reports the *shared* stock where a contract is split across two couriers —
+ * see postalStockOwner. A screen showing Mubashir Logistic zero while Speed
+ * Post shows nine hundred, when both spend the same allotment, is a screen
+ * that gets somebody to order numbers they already have.
  */
 export async function barcodeStock(courierId: string): Promise<{
   unused: number;
   allotted: number;
   openRanges: number;
 }> {
+  const owner = await postalStockOwner(courierId);
   const { data, error } = await supabaseAdmin
     .from("postal_barcode_stock")
     .select("unused,allotted,open_ranges")
-    .eq("courier_id", courierId)
+    .eq("courier_id", owner)
     .maybeSingle();
 
   if (error) {
@@ -172,6 +252,12 @@ export async function allocateBarcodes(
   const needing = orderNumbers.filter((n) => !held.has(n));
   if (!needing.length) return { allocated, shortfall: 0 };
 
+  // Claim against whoever holds the ranges, which is not always the courier
+  // carrying the parcel — see postalStockOwner. Resolved once here rather than
+  // inside the loop: the answer cannot change mid-batch, and asking per
+  // iteration would put a courier read between two claims.
+  const stockOwner = await postalStockOwner(courierId);
+
   // Claim from as many ranges as it takes. One statement per range; the loop
   // exists because an allotment can be split across several and the last one
   // may have three numbers left.
@@ -180,7 +266,7 @@ export async function allocateBarcodes(
 
   while (remaining > 0) {
     const { data, error } = await supabaseAdmin.rpc("claim_postal_serials", {
-      p_courier_id: courierId,
+      p_courier_id: stockOwner,
       p_wanted: remaining,
     });
 
@@ -257,6 +343,158 @@ export async function allocateBarcodes(
 }
 
 /** India Post accepted this number. The parcel is now theirs. */
+/**
+ * Write an article number somebody read off a counter receipt.
+ *
+ * The escape hatch for the case the allotment cannot cover: the stock ran out,
+ * or the parcel was booked at the window and came back with a number that was
+ * never ours to mint. Without this the label prints a blank barcode and the
+ * parcel has no machine-readable identity in the system carrying it.
+ *
+ * ── Deliberately not part of the allotment ────────────────────────────────
+ *
+ * Nothing is written to `postal_barcodes`. That table is the ledger of numbers
+ * *we* own — every row points at the range it was minted from, and `range_id`
+ * is NOT NULL because a number with no range is not one of ours to account
+ * for. A counter-issued number was never in our stock and spends none of it,
+ * so recording it there would overstate what we have used and give it a range
+ * it did not come from.
+ *
+ * ── The three refusals ────────────────────────────────────────────────────
+ *
+ * **Not a real article number.** Checked against the UPU format and its
+ * modulus-11 check digit, the same function the minter validates its own
+ * output with. A mistyped number prints a barcode that scans cleanly and
+ * resolves to nothing, which is worse than the blank it replaced.
+ *
+ * **Already ours.** If the number is in `postal_barcodes` it belongs to a
+ * parcel the allotment gave it to, and typing it here would put one number on
+ * two parcels — with the ledger insisting it is somewhere else.
+ *
+ * **Already on another order.** The same collision by the other route, since
+ * `orders.postal_barcode` carries no unique constraint (0049 indexes it, but
+ * does not make it unique).
+ *
+ * ── Why confirmation closes it ────────────────────────────────────────────
+ *
+ * Once `courier_entered_at` is set the parcel is on a booking file that has
+ * gone to India Post under that number. Changing it afterwards leaves their
+ * file and our row disagreeing about which parcel is which, and the parcel is
+ * already out of our hands. An allotted number is never overwritten either,
+ * whatever the confirmation state: it is spent, and silently replacing it
+ * would strand it while the ledger still says it is in use here.
+ */
+export async function setManualArticleNumber(
+  orderNumber: string,
+  value: string
+): Promise<{ ok: true; barcode: string } | { ok: false; error: string }> {
+  const barcode = (value ?? "").trim().toUpperCase();
+
+  if (!barcode) return { ok: false, error: "Type an article number first." };
+  if (!isValidArticleNumber(barcode)) {
+    return {
+      ok: false,
+      error:
+        "That is not a valid article number. They run two letters, nine " +
+        "digits and two letters — like CX054909015IN — and the last digit " +
+        "before the country code is a check digit, so a single mistyped " +
+        "figure is caught here rather than at the counter.",
+    };
+  }
+
+  const { data: order, error: readError } = await supabaseAdmin
+    .from("orders")
+    .select("order_number,postal_barcode,courier_entered_at")
+    .eq("order_number", orderNumber)
+    .maybeSingle();
+
+  if (readError) {
+    console.error("[Postal] manual number: order read failed:", readError.message);
+    return { ok: false, error: "Could not read that parcel." };
+  }
+  if (!order) return { ok: false, error: "No such order." };
+
+  const current = (order.postal_barcode as string | null)?.trim() ?? "";
+  if (current === barcode) return { ok: true, barcode };
+
+  if (order.courier_entered_at) {
+    return {
+      ok: false,
+      error:
+        "This parcel is already confirmed with the courier, so its article " +
+        "number is on a booking file India Post has. Untick Confirmed first " +
+        "if it really needs to change.",
+    };
+  }
+
+  // An allotted number is ours and spent. Replacing it here would strand it.
+  if (current) {
+    const { data: mine } = await supabaseAdmin
+      .from("postal_barcodes")
+      .select("barcode")
+      .eq("barcode", current)
+      .maybeSingle();
+
+    if (mine) {
+      return {
+        ok: false,
+        error:
+          `${current} came out of our own allotment, so it cannot be typed ` +
+          "over — it would be left spent and attached to nothing.",
+      };
+    }
+  }
+
+  const [{ data: allotted }, { data: taken }] = await Promise.all([
+    supabaseAdmin.from("postal_barcodes").select("order_number").eq("barcode", barcode).maybeSingle(),
+    supabaseAdmin
+      .from("orders")
+      .select("order_number")
+      .eq("postal_barcode", barcode)
+      .neq("order_number", orderNumber)
+      .maybeSingle(),
+  ]);
+
+  if (allotted) {
+    const owner = (allotted as { order_number: string | null }).order_number;
+    return {
+      ok: false,
+      error:
+        `${barcode} is one of our own allotted numbers` +
+        (owner ? `, already on ${owner}.` : " and is already spent.") +
+        " Two parcels cannot carry the same number.",
+    };
+  }
+  if (taken) {
+    return {
+      ok: false,
+      error: `${barcode} is already on ${(taken as { order_number: string }).order_number}.`,
+    };
+  }
+
+  // Conditional on the confirmation state as well, so a batch confirmed
+  // between the read above and this write cannot slip through.
+  const { data: updated, error } = await supabaseAdmin
+    .from("orders")
+    .update({ postal_barcode: barcode, updated_at: new Date().toISOString() })
+    .eq("order_number", orderNumber)
+    .is("courier_entered_at", null)
+    .select("order_number");
+
+  if (error) {
+    console.error("[Postal] manual number write failed:", orderNumber, error.message);
+    return { ok: false, error: "Could not save that number." };
+  }
+  if (!updated?.length) {
+    return {
+      ok: false,
+      error: "That parcel was confirmed with the courier a moment ago — reload and check.",
+    };
+  }
+
+  return { ok: true, barcode };
+}
+
 export async function markBooked(barcode: string): Promise<void> {
   const { error } = await supabaseAdmin
     .from("postal_barcodes")

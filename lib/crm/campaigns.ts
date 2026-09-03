@@ -457,6 +457,34 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
       orderNumber: row.order_number ?? "",
     });
 
+    // A variable that resolves to nothing is rejected by Meta as a bad
+    // parameter, and five of those in a row halt the campaign under an error
+    // string that names the API rather than the cause. The order number is the
+    // one that can be missing — `orderNumber` falls back to "" above, and a
+    // person can reach a funnel stage with no order row behind them — and it
+    // started mattering when the UTILITY payment templates began quoting it.
+    //
+    // Counted as a refusal rather than skipped, so a segment where *everybody*
+    // lacks one still trips the halt instead of quietly marking the whole list
+    // refused. The reason says which variable was empty.
+    const blank = params.findIndex((p) => !p.trim());
+    if (blank !== -1) {
+      await markRecipient(row.id, "refused", {
+        refuse_reason: `Template needs {{${blank + 1}}} and this recipient has no value for it`,
+      });
+      report.refused++;
+      consecutiveBad++;
+      if (consecutiveBad >= HALT_AFTER_CONSECUTIVE) {
+        const why =
+          `${consecutiveBad} in a row refused — last reason: ` +
+          `template needs {{${blank + 1}}} and these recipients have no value for it`;
+        await setCampaignStatus(campaign.id, "halted", why);
+        report.halted = why;
+        break;
+      }
+      continue;
+    }
+
     const outcome = await sendTemplateMessage({
       contact,
       kind: "campaign",
