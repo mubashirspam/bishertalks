@@ -58,7 +58,7 @@ export interface IndiaPostEvent {
  * the status alone.
  */
 export function statusFromEvent(event: IndiaPostEvent): OrderStatus | null {
-  const kind = kindOf(event);
+  const kind = eventKind(event);
 
   switch (kind) {
     // Accepted at the counter. From our side the parcel has left the building,
@@ -75,7 +75,7 @@ export function statusFromEvent(event: IndiaPostEvent): OrderStatus | null {
       return "delivered";
 
     // A completed RTS: the parcel came back to us. Same event code as a
-    // delivery, and on bulk tracking the same wording too — see kindOf().
+    // delivery, and on bulk tracking the same wording too — see eventKind().
     case "delivered_to_sender":
       return "returned";
 
@@ -108,7 +108,27 @@ export function statusFromEvent(event: IndiaPostEvent): OrderStatus | null {
   }
 }
 
-type EventKind =
+/**
+ * What an event says happened, before any policy is applied to it.
+ *
+ * Exported because two callers want the same reading and disagree about what
+ * to DO with it, which is a difference of policy rather than of vocabulary.
+ * `statusFromEvent` below is the live path — a scan arriving about a parcel
+ * whose journey we have been following, where "in transit" means "still where
+ * I last said" and changes nothing.
+ *
+ * The delivery-report import is the other case. It reads a file about parcels
+ * this system has heard nothing about since they crossed the counter, and
+ * there "Item Dispatched" is not a non-event: it is proof the parcel is in the
+ * postal network, which a parcel still sitting at `confirmed` here plainly
+ * needs to be told. So that caller maps the same kinds to a *floor* — the
+ * least this event proves — and lets `canMoveTo` refuse anything backwards.
+ *
+ * Keeping the reading here and the policy there is what stops the file import
+ * needing a second copy of India Post's vocabulary, which is the one thing
+ * guaranteed to drift.
+ */
+export type EventKind =
   | "booked"
   | "in_transit"
   | "out_for_delivery"
@@ -134,7 +154,7 @@ type EventKind =
  * would make bulk tracking a silent no-op — every parcel polled, nothing ever
  * moved.
  */
-function kindOf(event: IndiaPostEvent): EventKind {
+export function eventKind(event: IndiaPostEvent): EventKind {
   const code = (event.eventCode ?? "").trim().toUpperCase();
   const text = (event.eventDescription ?? "").trim().toLowerCase();
   const summary = (event.deliverySummary ?? "").trim().toLowerCase();
@@ -206,7 +226,13 @@ function kindOf(event: IndiaPostEvent): EventKind {
     text.includes("received") ||
     text.includes("receive") ||
     text.includes("hold") ||
-    text.includes("redirect")
+    text.includes("redirect") ||
+    // "Item inducted" — the article entering the postal network at the office
+    // that took it in. The code path has had INDUCTED since this file was
+    // written; the wording was missing, so 176 of the 2,110 rows in the first
+    // real portal export came back unknown and moved nothing. Every one of
+    // them is a parcel in transit that this system still had at Confirmed.
+    text.includes("inducted")
   ) {
     return "in_transit";
   }

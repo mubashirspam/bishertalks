@@ -12,6 +12,114 @@ Detail lives in [MAGIC_CHECKOUT.md](./MAGIC_CHECKOUT.md) and
 
 ---
 
+## 🔴 Run migrations 0057 and 0058 — the reports screen
+
+`/admin/analytics` ships in the code but reads two database objects that do not
+exist yet. Until both are applied by hand in the Supabase SQL editor the page
+loads and shows zeroes, and the delivery screen's new "assigned on" date is
+blank on every row.
+
+Apply them **in order** — 0058 calls nothing from 0057 directly, but its
+`report_scope` selects `courier_assigned_at`, which 0057 adds.
+
+- [ ] **`0057_courier_assigned_at.sql`** — adds `courier_assigned_at` and
+      `courier_assigned_by` to `orders`, back-fills them, rebuilds
+      `portal_orders`, and adds three partial indexes.
+
+      Nothing recorded *when* a parcel was given to its courier. Routing wrote
+      `courier_id` and no timestamp, so "everything I assigned to Delhivery on
+      24 August" was answerable only by reading `audit_log` by hand. The
+      back-fill reads exactly that log for the real date and falls back to
+      `courier_entered_at` → `courier_sent_at` → `assigned_at` → `shipped_at` →
+      `ordered_at` where the log cannot answer.
+
+      **Watch the NOTICE it prints.** It says how many rows got the exact date
+      and how many were estimated. Rows in the second group are never dated
+      *earlier* than they were routed, so a date filter can miss one, never
+      invent one — but the split is worth knowing before anyone quotes the
+      August figures.
+
+- [ ] **`0058_parcel_reports.sql`** — adds `report_scope` and `report_summary`.
+      No table changes; safe to re-run. Every number, row and spreadsheet cell
+      on the reports screen goes through these two, which is what stops a count
+      disagreeing with the list behind it.
+
+- [ ] **Check the screen after applying.** Open `/admin/analytics`, confirm the
+      Parcels tile matches the delivery queue's All tab for the same dates, and
+      download the Excel once — the Summary tab states which filters produced
+      the file.
+
+## 🔴 Run migration 0059 — India Post tracking reconciliation
+
+- [ ] **`0059_status_at_the_time_it_happened.sql`** — adds
+      `set_delivery_status_at` and `record_courier_scans`. No table changes;
+      safe to re-run.
+
+      Speed Post has no reachable API, so a posted parcel goes quiet and sits
+      at "Handed over" until somebody ticks it off. `/admin/couriers` now has an
+      upload on the India Post row that reads their tracking export, records
+      each parcel's latest scan, and moves any parcel whose status has fallen
+      behind. Without these two functions the preview works and applying fails.
+
+      `set_delivery_status_at` exists because `set_delivery_status` stamps
+      `NOW()`, which is right for a tick in the portal and wrong for a week of
+      events read back from a file — every parcel would record as delivered the
+      instant the file was uploaded, and `delivered_at` is what the reports
+      screen measures delivery time from. `record_courier_scans` exists because
+      the one-at-a-time `recordScan` is two thousand round trips on a real
+      file, which does not finish inside a function timeout.
+
+- [ ] **Export the FULL report, not just the deliveries.** Both work, but the
+      full one is worth much more: of a real 2,110-parcel export, 991 were
+      delivered and 1,114 were still moving through the post. The second group
+      is invisible to this system otherwise, and every one of them is a parcel
+      somebody would be chasing.
+
+- [ ] **First upload: read the preview, do not just press apply.** It says how
+      many parcels were found, how many move status, and which rows it is
+      holding back. It holds a row back when India Post's destination pincode is
+      not the pincode on the matched order — that means the match is probably
+      wrong, and marking the wrong order delivered approves a referral
+      commission that was not earned.
+
+- [ ] **Leave the WhatsApp tick alone unless the events are today's.** It is off
+      by default. Ticking it messages every customer whose parcel moved to
+      shipped or delivered, and a backfill of last week is hundreds of stale
+      messages at once — which is what damages a business number's rating.
+
+## 🟠 India Post name match — done, with four things left over
+
+On 2026-09-03 the booking export was matched against our orders by receiver
+name plus destination pincode, and **462 parcels were given their article
+number** (`scripts/postal-name-match.ts`, `--write`). 460 of them also got the
+number as a waybill; two did not, for the reason below. Re-running the script
+is safe and repairs a partial run.
+
+These four groups were deliberately NOT applied and still need a person:
+
+- [ ] **24 matched an order our records say was never paid.** Name and pincode
+      both agree, but the order reads `failed` or `pending` — a book was posted
+      against money that never arrived here. Either the payment came another
+      way and was never recorded, or stock went out unpaid. On the "Matched but
+      unpaid" tab of the report.
+- [ ] **5 are ambiguous.** Several orders share the name and the pincode, and
+      more than one of them is paid. Someone has to pick.
+- [ ] **68 matched a name whose pincode disagrees.** Not matches, on purpose.
+      Some look like a wrong address rather than a wrong person — one was
+      posted to 678001 where our order says 678011.
+- [ ] **2 parcels are routed to KKR Delhivery but were posted at a post
+      office** — `ORD-65SVGZ` and `ORD-M8RTBH`. They have their article number
+      but no waybill, because writing a `CL…IN` into `tracking_number` on a
+      Delhivery-routed order would feed a postal article to Delhivery's
+      tracking API on every poll. Re-route them to India Post — Speed Post on
+      /admin/delivery and re-run the script to finish them.
+
+A further **62 orders carry an article number with no waybill and were left
+alone**. Those are numbers minted from our own allotment that have never
+appeared in an India Post booking export, so the parcels were never actually
+posted. Filling their waybill would move them to "with courier" on the strength
+of a number we invented — see the note in migration 0049.
+
 ## 🔴 India Post — blocked on their sandbox being down
 
 Full checklist in [docs/india-post-requirements.md](./docs/india-post-requirements.md);
@@ -130,8 +238,23 @@ granted. The chain below is proven end to end.
       WhatsApp link and tracking URL is built from it.
 - [ ] **Configure the Razorpay webhook** — Settings → Webhooks:
       - URL `https://bishertalks.com/api/webhook/razorpay`
-      - Events **`payment.captured`** and **`payment.failed`**
+      - Events **`payment.captured`**, **`payment.failed`**,
+        **`payment_link.paid`**, and — since migration 0055 —
+        **`refund.created`**, **`refund.processed`**, **`refund.failed`**
       - Copy the secret → `RAZORPAY_WEBHOOK_SECRET` (local **and** Vercel)
+
+      The three refund events are what keep refunded money out of the revenue
+      figures. Without them a refund issued on the Razorpay dashboard is
+      invisible here and the reports keep counting it as income — cancelling
+      the order in the admin does **not** record a refund, deliberately, since
+      most cancellations never involve returning money.
+- [ ] **Backfill refunds issued before the webhook was listening**:
+
+      ```bash
+      node --env-file=.env.local --experimental-strip-types \
+        --import ./scripts/alias-loader.mjs scripts/refund-backfill.ts
+      # add --write once the dry run looks right
+      ```
 
       Without the secret set, every webhook returns 400 and the safety net is
       gone. This is what protects a customer whose internet drops after paying.

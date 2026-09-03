@@ -133,3 +133,6 @@ pnpm-lock.yaml
 tsconfig.tsbuildinfo
 delhivery-export.csv
 supabase/.temp/
+
+# Incremental build info from the scripts typecheck project.
+tsconfig.scriptcheck.tsbuildinfo

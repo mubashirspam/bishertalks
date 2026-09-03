@@ -15,6 +15,7 @@ import {
   type CourierHandoff,
 } from "@/lib/couriers";
 import BarcodeStock from "./BarcodeStock";
+import PostalDeliveryImport from "./PostalDeliveryImport";
 
 /**
  * Add, rename, switch off and configure the couriers.
@@ -28,10 +29,20 @@ import BarcodeStock from "./BarcodeStock";
 export default function CourierManager({
   couriers,
   delhivery,
+  canComplete,
 }: {
   couriers: Courier[];
   /** Whether the one integrated partner can actually be used yet. */
   delhivery: { configured: boolean; missing: string[]; env: string };
+  /**
+   * May this person mark parcels delivered? Gates the delivery-report import
+   * below, which is the one control on this screen that changes a customer's
+   * order rather than configuring a partner.
+   *
+   * Hidden rather than disabled for someone without it: a control that is only
+   * ever going to say no is noise. Same rule as the portal's download button.
+   */
+  canComplete: boolean;
 }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
@@ -331,6 +342,16 @@ export default function CourierManager({
                   makes a row India Post rather than its name. */}
               {c.config.tracking === "india-post" && (
                 <BarcodeStock courierId={c.id} courierName={c.name} />
+              )}
+
+              {/* The other half of the India Post problem. The stock panel
+                  above is about getting parcels OUT — numbers to post under.
+                  This is about hearing back: they have no tracking API, so
+                  every posted parcel goes quiet at "Handed over" until their
+                  delivery report is read back in. Same courier, same screen,
+                  the two ends of the same manual channel. */}
+              {c.config.tracking === "india-post" && canComplete && (
+                <PostalDeliveryImport courierName={c.name} />
               )}
 
               {/* Everything printed on this courier's address sheets, in the

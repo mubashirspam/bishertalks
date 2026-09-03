@@ -109,15 +109,97 @@ export async function setDeliveryStatus(
     p_courier: courierName || null,
   });
 
+  await settle(updated, status);
+  return updated;
+}
+
+/**
+ * The same, but recording when it actually happened.
+ *
+ * For a courier's own record read back afterwards rather than a tick made at
+ * the moment of delivery. India Post's delivery export arrives with a week of
+ * events in it; stamping NOW() on all of them would say every parcel in the
+ * file arrived the instant somebody uploaded it, and `delivered_at` is what
+ * the reports screen measures delivery time from. See migration 0059.
+ *
+ * `at` is per parcel, not per batch, because a thousand deliveries have a
+ * thousand different times and one call per distinct timestamp is a thousand
+ * round trips. A null `at` falls back to NOW() in SQL.
+ *
+ * Deliberately shares `settle` with `setDeliveryStatus` above: a parcel marked
+ * delivered from a spreadsheet must settle the referral commission exactly as
+ * one ticked off in the portal does. A second path that forgot would approve
+ * nothing and nobody would notice for a month.
+ */
+export async function setDeliveryStatusAt(
+  entries: { orderNumber: string; at: string | null }[],
+  status: OrderStatus,
+  courierName?: string | null
+): Promise<string[]> {
+  if (!entries.length) return [];
+
+  const updated = await rpc("set_delivery_status_at", {
+    p_order_numbers: entries.map((e) => e.orderNumber),
+    p_status: status,
+    p_at: entries.map((e) => e.at),
+    p_courier: courierName || null,
+  });
+
+  await settle(updated, status);
+  return updated;
+}
+
+/**
+ * A file of courier scans, recorded in one statement.
+ *
+ * `recordScan` in lib/db/courier-send.ts writes one order per call, which is
+ * right for a webhook: one push, one parcel. A courier's own tracking report is
+ * two thousand parcels in one upload, and two thousand round trips does not
+ * finish inside a serverless function's timeout.
+ *
+ * Records the movement and nothing else — no status is touched here. Most
+ * parcels in such a file have not changed stage and recording them is still the
+ * point: a row reading "Item Dispatched — Kozhikode RMS" is a parcel somebody
+ * can stop worrying about, and the same parcel with a blank scan column is one
+ * they ring the post office about.
+ *
+ * `tracking` fills in a waybill only where the order has none — see 0059. It
+ * is how a parcel we booked under our own reference gets the courier's number
+ * stored against it, which is what makes the customer's tracking page work.
+ *
+ * Returns the order numbers actually written.
+ */
+export function recordScans(
+  scans: { orderNumber: string; scan: string; at: string | null; tracking?: string | null }[]
+): Promise<string[]> {
+  if (!scans.length) return Promise.resolve([]);
+
+  return rpc("record_courier_scans", {
+    p_order_numbers: scans.map((s) => s.orderNumber),
+    p_scan: scans.map((s) => s.scan),
+    p_at: scans.map((s) => s.at),
+    p_tracking: scans.map((s) => s.tracking ?? null),
+  });
+}
+
+/**
+ * The referral consequence of a status change.
+ *
+ * Delivered approves any pending commission; cancelled and returned void it.
+ * One place, so no path can move an order to delivered without the commission
+ * following — and a commission is never approved for a parcel that did not
+ * actually arrive, or that came back.
+ */
+async function settle(orderNumbers: string[], status: OrderStatus): Promise<void> {
+  if (!orderNumbers.length) return;
+
   if (status === "delivered") {
-    await approveCommissions(updated);
+    await approveCommissions(orderNumbers);
   } else if (status === "cancelled" || status === "returned") {
     // A parcel that came back was already 'delivered' for a while, so its
     // commission may have been approved. Voiding here is what takes it back.
-    await voidCommissions(updated);
+    await voidCommissions(orderNumbers);
   }
-
-  return updated;
 }
 
 /**

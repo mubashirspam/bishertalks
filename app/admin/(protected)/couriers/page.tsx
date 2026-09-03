@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { Truck } from "lucide-react";
 import { requirePageAccess } from "@/lib/admin-auth";
+import { can } from "@/lib/permissions";
 import { listCouriers } from "@/lib/db/couriers";
 import { delhiveryReadiness, delhiveryEnv } from "@/lib/delhivery/config";
 import { SkeletonHeader, SkeletonTable } from "@/components/admin/Skeleton";
@@ -18,7 +19,7 @@ export const dynamic = "force-dynamic";
  * to from here, and the page says plainly which is which.
  */
 export default async function CouriersPage() {
-  await requirePageAccess("delivery.assign");
+  const staff = await requirePageAccess("delivery.assign");
 
   return (
     <div>
@@ -33,13 +34,13 @@ export default async function CouriersPage() {
       </div>
 
       <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={4} columns={4} /></>}>
-        <Body />
+        <Body canComplete={can(staff, "delivery.complete")} />
       </Suspense>
     </div>
   );
 }
 
-async function Body() {
+async function Body({ canComplete }: { canComplete: boolean }) {
   const couriers = await listCouriers();
 
   // Checked on the server: the token must never reach the browser, and the
@@ -57,6 +58,7 @@ async function Body() {
         missing: readiness.missing,
         env: delhiveryEnv(),
       }}
+      canComplete={canComplete}
     />
   );
 }
