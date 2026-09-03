@@ -163,6 +163,16 @@ export async function POST(request: NextRequest) {
       // carrying it. The claim is already null on everything reachable here:
       // `.is("courier_sent_at", null)` below is what makes that true.
       courier_send_error: null,
+      // When this parcel became this courier's (0057), and who decided.
+      //
+      // Stamped on every routing decision including a re-route, because the
+      // question the reports screen asks is "what did I hand to Delhivery on
+      // the 24th" — and a parcel moved from Speed Post to Delhivery on the
+      // 24th belongs in that answer, under its new courier, on the day it
+      // moved. Cleared alongside the courier for the same reason: an unrouted
+      // parcel was assigned to nobody, on no date.
+      courier_assigned_at: courierId ? new Date().toISOString() : null,
+      courier_assigned_by: courierId ? (auth.staff?.id ?? null) : null,
       updated_at: new Date().toISOString(),
     })
     .in("order_number", requested)

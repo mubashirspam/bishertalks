@@ -35,6 +35,21 @@ export function formatISTShort(iso: string): string {
 }
 
 /**
+ * e.g. "24 Aug 26" — the date alone, for a table that shows five of them per
+ * row. The time is noise when the question is which day something happened,
+ * and the year is not: a report can span years, and "24 Aug" in a list that
+ * also holds last August is ambiguous in the one place it must not be.
+ */
+export function formatISTDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-IN", {
+    timeZone: IST,
+    day: "numeric",
+    month: "short",
+    year: "2-digit",
+  });
+}
+
+/**
  * IST day boundaries as UTC instants, for filtering `created_at` (stored UTC).
  *
  * IST is UTC+5:30, so "5 Aug" in IST runs 2026-08-04T18:30Z → 2026-08-05T18:30Z.

@@ -12,7 +12,7 @@ import {
   DELIVERY_SHORT,
   DELIVERY_BADGE,
 } from "@/lib/delivery-stage";
-import { formatISTShort, timeAgo } from "@/lib/format-date";
+import { formatISTShort, formatISTDate, timeAgo } from "@/lib/format-date";
 import { deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import type { DeliveryRow } from "@/lib/db/delivery-query";
 import type { DeliveryAgent } from "@/lib/db/staff";
@@ -950,6 +950,16 @@ export default function DeliveryTable({
                               <span className="truncate">
                                 {courierNames[o.courier_id] ?? "Removed courier"}
                               </span>
+                              {/* The day this became that courier's parcel
+                                  (0057). Small, and it is the whole reason the
+                                  column exists: "what did I give Delhivery on
+                                  the 24th" was previously answerable only by
+                                  reading the audit log. Reports filters on it. */}
+                              {o.courier_assigned_at && (
+                                <span className="text-neutral-400 flex-shrink-0">
+                                  · {formatISTDate(o.courier_assigned_at)}
+                                </span>
+                              )}
                             </p>
 
                             {o.courier_sent_at ? (

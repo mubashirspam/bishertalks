@@ -73,6 +73,8 @@ export interface DeliveryRow {
   courier_entered_at: string | null;
   /** Which logistics partner carries it, or null if undecided (0030). */
   courier_id: string | null;
+  /** When that partner was chosen (0057) — the date the reports screen filters. */
+  courier_assigned_at: string | null;
   /** When their API accepted it — the tick beside the courier's name. */
   courier_sent_at: string | null;
   /** Why the last send failed, shown loudly on the row. */
@@ -92,7 +94,7 @@ export const DELIVERY_COLUMNS =
   "amount_paise,quantity,is_gift,gift_message,is_signed," +
   "status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
   "assigned_agent_id,assigned_at,courier_entered_at," +
-  "courier_id,courier_sent_at,courier_send_error," +
+  "courier_id,courier_assigned_at,courier_sent_at,courier_send_error," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
   "shipped_at,delivered_at,created_at,paid_at,ordered_at,delivery_stage";
 
