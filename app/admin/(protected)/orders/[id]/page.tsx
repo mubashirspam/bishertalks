@@ -826,12 +826,57 @@ export default function AdminOrderDetailPage() {
                   </span>
                 </div>
               )}
+              {/* Only ever written by Razorpay (0055). Cancelling an order in
+                  this admin does NOT put a figure here, because cancelling and
+                  refunding are two separate decisions and most cancellations
+                  never involve returning money. */}
+              {order.refunded_paise > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Refunded</span>
+                  <span className="text-red-600 font-bold">
+                    −₹{Math.round(order.refunded_paise / 100)}
+                    {order.refunded_paise < order.amount_paise && (
+                      <span className="font-normal text-neutral-500"> (part)</span>
+                    )}
+                  </span>
+                </div>
+              )}
+              {order.refunded_paise > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Kept</span>
+                  <span className="font-bold text-neutral-900">
+                    ₹{Math.round((order.amount_paise - order.refunded_paise) / 100)}
+                  </span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-neutral-500">Status</span>
-                <span className={order.payment_status === "paid" ? "text-green-600" : "text-amber-600"}>
-                  {order.payment_status.charAt(0).toUpperCase() + order.payment_status.slice(1)}
+                <span
+                  className={
+                    order.refunded_paise > 0
+                      ? "text-red-600"
+                      : order.payment_status === "paid"
+                        ? "text-green-600"
+                        : "text-amber-600"
+                  }
+                >
+                  {/* The stored status stays 'paid' through a refund — the
+                      payment really did happen — so the refund is what this
+                      line reports once there is one. */}
+                  {order.refunded_paise > 0
+                    ? order.refunded_paise >= order.amount_paise
+                      ? "Refunded in full"
+                      : "Partly refunded"
+                    : order.payment_status.charAt(0).toUpperCase() +
+                      order.payment_status.slice(1)}
                 </span>
               </div>
+              {order.refunded_at && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-500">Refunded on</span>
+                  <span className="text-neutral-900">{formatIST(order.refunded_at)}</span>
+                </div>
+              )}
               {order.razorpay_payment_id && (
                 <div className="flex justify-between">
                   <span className="text-neutral-500">Payment ID</span>

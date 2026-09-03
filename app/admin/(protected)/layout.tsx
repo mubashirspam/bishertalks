@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getCurrentStaff } from "@/lib/admin-auth";
 import { countUnassignedParcels } from "@/lib/db/delivery-query";
+import { stockWarning } from "@/lib/db/inventory";
 import { can } from "@/lib/permissions";
 import { hasNavigation } from "@/lib/admin-nav";
 import LogoutButton from "@/components/admin/LogoutButton";
@@ -48,6 +49,7 @@ export default async function AdminLayout({
               role={staff.role}
               permissions={staff.permissions}
               unassigned={0}
+              lowStock={null}
             />
           }
         >
@@ -57,6 +59,7 @@ export default async function AdminLayout({
             role={staff.role}
             permissions={staff.permissions}
             canSeeDelivery={can(staff, "delivery.view")}
+            canSeeStock={can(staff, "inventory.view")}
           />
         </Suspense>
       )}
@@ -89,6 +92,7 @@ export default async function AdminLayout({
  */
 async function SidebarWithCounts({
   canSeeDelivery,
+  canSeeStock,
   ...props
 }: {
   email: string;
@@ -96,8 +100,23 @@ async function SidebarWithCounts({
   role: Parameters<typeof AdminSidebar>[0]["role"];
   permissions: string[];
   canSeeDelivery: boolean;
+  canSeeStock: boolean;
 }) {
-  const unassigned = canSeeDelivery ? await countUnassignedParcels() : 0;
+  // Both cached and both short-lived, so this is two tag reads rather than two
+  // queries on most page views. Asked in parallel: they answer to different
+  // tags and neither waits on the other.
+  const [unassigned, stock] = await Promise.all([
+    canSeeDelivery ? countUnassignedParcels() : Promise.resolve(0),
+    canSeeStock ? stockWarning() : Promise.resolve(null),
+  ]);
 
-  return <AdminSidebar {...props} unassigned={unassigned} />;
+  return (
+    <AdminSidebar
+      {...props}
+      unassigned={unassigned}
+      // Only when it is worth interrupting for. A badge that is always there
+      // is furniture, and stops being read on the day it matters.
+      lowStock={stock && (stock.low || stock.oversold) ? stock.free : null}
+    />
+  );
 }

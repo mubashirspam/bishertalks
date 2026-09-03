@@ -98,3 +98,32 @@ export const DELIVERY_CACHE_SECONDS = 60;
 export function revalidateDelivery(): void {
   revalidateTag(DELIVERY_TAG, { expire: 0 });
 }
+
+/**
+ * The book stock figures — the sidebar warning, and the dashboard banner.
+ *
+ * Cached for the same reason the delivery counts are: the number comes from a
+ * view that sums every paid order, so nothing about it can use an index, and
+ * two screens on every admin page view would ask for it.
+ *
+ * Dropped by a stock correction or a new print run. NOT by an order being
+ * placed or shipped — those move the number too, and deliberately are not
+ * revalidated here. A stock figure up to a minute stale is a stock figure; a
+ * tag dropped on every order write would mean recomputing the view a few
+ * hundred times a day to change a badge by one.
+ */
+export const INVENTORY_TAG = "inventory";
+
+/** A minute, matching the delivery counts, and for the same reasoning. */
+export const INVENTORY_CACHE_SECONDS = 60;
+
+/**
+ * Drop the cached stock figures.
+ *
+ * Called from the inventory DB layer after anything that changes the count by
+ * hand, rather than from the two routes that call it — same placement rule as
+ * revalidateDelivery above, so a third route added later cannot forget.
+ */
+export function revalidateInventory(): void {
+  revalidateTag(INVENTORY_TAG, { expire: 0 });
+}

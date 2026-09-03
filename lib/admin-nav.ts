@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
   Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
-  MessageSquare, Inbox,
+  MessageSquare, Inbox, Boxes, BarChart3,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -33,7 +33,14 @@ export const NAV: NavItem[] = [
   { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
   // Under Delivery because it configures that screen: who parcels can go to.
   { href: "/admin/couriers", label: "Couriers", icon: PackageCheck, permission: "delivery.assign" },
+  // Above Insights on purpose: "how many books are left" is a question asked
+  // while packing, not while reviewing figures.
+  { href: "/admin/inventory", label: "Stock", icon: Boxes, permission: "inventory.view" },
   { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
+  // Operational, not financial — it counts parcels and days, never margin — so
+  // it answers to delivery.view like the queue it reports on, and sits beside
+  // Insights rather than under Profit & targets.
+  { href: "/admin/analytics", label: "Reports", icon: BarChart3, permission: "delivery.view" },
   { href: "/admin/reports", label: "Profit & targets", icon: Calculator, permission: "reports.view" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },
   { href: "/admin/courses", label: "Courses", icon: BookOpen, permission: "courses.manage" },

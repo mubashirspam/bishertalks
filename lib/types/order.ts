@@ -9,6 +9,16 @@ export type OrderStatus =
   // it never went out. See migration 0015.
   | "returned";
 
+/**
+ * Whether the money landed. NOT whether it stayed — a refund is recorded in
+ * `refunded_paise` beside the payment rather than by rewriting this, so that
+ * partial refunds are expressible and so that a refunded order does not vanish
+ * from the ~40 queries that ask for payment_status = 'paid'. See migration 0055.
+ *
+ * 'refunded' is therefore never written by any code path today. It is kept
+ * because rows may predate that decision and because dropping a value from a
+ * union is how a `switch` starts silently missing a case.
+ */
 export type PaymentStatus = "pending" | "paid" | "failed" | "refunded";
 
 export type CheckoutType = "standard" | "magic";
@@ -46,6 +56,21 @@ export interface Order {
   promo_code: string | null;
   discount_paise: number;
   payment_status: PaymentStatus;
+  /**
+   * How much of `amount_paise` has gone back to the customer (migration 0055).
+   *
+   * Written only by Razorpay — the webhook's refund events, or the backfill
+   * script reading the same API. 0 on everything else, including every
+   * cancelled order that was never refunded, which is most of them.
+   *
+   * Revenue is `amount_paise - refunded_paise` on every screen that sums money.
+   * `payment_status` deliberately stays 'paid' through a refund; see 0055.
+   */
+  refunded_paise: number;
+  /** When the money went back, or null. */
+  refunded_at: string | null;
+  /** The latest refund's Razorpay id (rfnd_...), for tracing a figure back. */
+  razorpay_refund_id: string | null;
   status: OrderStatus;
   tracking_number: string | null;
   courier_name: string | null;
@@ -70,6 +95,20 @@ export interface Order {
    * makes, and a default would put parcels in front of a courier nobody chose.
    */
   courier_id: string | null;
+  /**
+   * When the courier above was chosen, and by whom (migration 0057).
+   *
+   * The routing decision's own timestamp, and deliberately none of the three
+   * that existed before it. `courier_entered_at` is a later, separate act and
+   * is null on every parcel not yet handed over; `courier_sent_at` only ever
+   * fills in for an integrated courier; `assigned_at` is the delivery agent,
+   * who is a different person from the courier. This is the column the reports
+   * screen filters on for "everything I gave Delhivery on 24 August".
+   *
+   * Re-stamped on a re-route, so it always names the current courier's day.
+   */
+  courier_assigned_at: string | null;
+  courier_assigned_by: string | null;
   /**
    * When the partner's API accepted it (0030).
    *

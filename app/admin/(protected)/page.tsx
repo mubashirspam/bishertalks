@@ -7,6 +7,8 @@ import { fetchAllRows } from "@/lib/db/paginate";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
 import { formatISTShort, timeAgo, istToday, istDayStartUTC } from "@/lib/format-date";
 import { requirePageAccess } from "@/lib/admin-auth";
+import { can } from "@/lib/permissions";
+import { stockWarning, LOW_STOCK_DAYS } from "@/lib/db/inventory";
 import { Suspense } from "react";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
 import { listCouriers } from "@/lib/db/couriers";
@@ -26,7 +28,7 @@ const base = () =>
   supabaseAdmin.from("orders").select("id", { count: "exact", head: true });
 
 export default async function AdminDashboard() {
-  await requirePageAccess("orders.view");
+  const staff = await requirePageAccess("orders.view");
 
   // Six queries feed this screen. None of them block the shell any more — the
   // heading is up instantly and the numbers arrive when they arrive.
@@ -35,6 +37,11 @@ export default async function AdminDashboard() {
       <div className="mb-6">
         <h1 className="text-2xl font-black">Dashboard</h1>
       </div>
+
+      {/* Above everything, and outside the Suspense boundary below, because
+          this is the one thing on the dashboard that is a decision rather than
+          a figure — and it is cached, so it costs nothing to await. */}
+      {can(staff, "inventory.view") && <StockBanner />}
       <Suspense
         fallback={
           <>
@@ -45,6 +52,60 @@ export default async function AdminDashboard() {
       >
         <DashboardBody />
       </Suspense>
+    </div>
+  );
+}
+
+/**
+ * "You are about to run out of books."
+ *
+ * Renders nothing at all unless that is true — no stock set up, comfortable
+ * cover, or a viewer without the permission all produce silence. A banner that
+ * is always present is furniture, and stops being read on the day it matters.
+ *
+ * It says days rather than copies, because copies is the number that misleads:
+ * a thousand books sounds like plenty and is five days at this shop's rate.
+ */
+async function StockBanner() {
+  const stock = await stockWarning();
+  if (!stock || (!stock.low && !stock.oversold)) return null;
+
+  const oversold = stock.oversold;
+
+  return (
+    <div
+      className={`mb-6 flex items-start gap-2.5 rounded-2xl border px-5 py-4 text-sm ${
+        oversold
+          ? "border-red-300 bg-red-50 text-red-900"
+          : "border-amber-300 bg-amber-50 text-amber-900"
+      }`}
+    >
+      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+      <div className="min-w-0">
+        {oversold ? (
+          <p className="font-semibold">
+            {Math.abs(stock.free).toLocaleString("en-IN")} books are sold that
+            don&apos;t exist.
+          </p>
+        ) : (
+          <p className="font-semibold">
+            About {Math.floor(stock.days!)} days of books left.
+          </p>
+        )}
+        <p className="mt-1 leading-relaxed">
+          {stock.free.toLocaleString("en-IN")} free to sell at{" "}
+          {Math.round(stock.perDay)} a day.{" "}
+          {oversold
+            ? "Either a print run has not been recorded, or the shop is selling stock it does not have."
+            : `A print run takes longer than ${LOW_STOCK_DAYS} days to arrive.`}{" "}
+          <Link
+            href="/admin/inventory"
+            className="font-semibold underline underline-offset-2"
+          >
+            Stock
+          </Link>
+        </p>
+      </div>
     </div>
   );
 }
@@ -71,6 +132,8 @@ async function DashboardBody() {
     // shop passed a thousand paid orders. See lib/db/paginate.ts.
     fetchAllRows<{
       amount_paise: number | null;
+      /** Sent back through Razorpay (0055). Comes off every total below. */
+      refunded_paise: number | null;
       quantity: number | null;
       ordered_at: string;
       source: string | null;
@@ -83,7 +146,7 @@ async function DashboardBody() {
       (from, to) =>
         supabaseAdmin
           .from("orders")
-          .select("amount_paise,quantity,ordered_at,source,status,courier_id")
+          .select("amount_paise,refunded_paise,quantity,ordered_at,source,status,courier_id")
           .eq("payment_status", "paid")
       // ordered_at, not created_at: every row here is paid, so this is the
       // payment date — and money must be counted on the day it arrived, not on
@@ -95,7 +158,7 @@ async function DashboardBody() {
     count((q) => q.eq("payment_status", "paid").is("address_line1", null)),
     supabaseAdmin
       .from("orders")
-      .select("order_number,buyer_name,buyer_phone,amount_paise,payment_status,address_line1,razorpay_order_id,ordered_at")
+      .select("order_number,buyer_name,buyer_phone,amount_paise,refunded_paise,payment_status,address_line1,razorpay_order_id,ordered_at")
       // "Today's orders" means paid today. On created_at this panel silently
       // omitted anyone who started checkout earlier in the week and paid today.
       .gte("ordered_at", todayStart)
@@ -116,18 +179,25 @@ async function DashboardBody() {
    * Books are counted separately from orders because one order can carry
    * several copies — without that, a day with a two-book order looks like a day
    * that lost an order, since the money goes up while the row count doesn't.
+   *
+   * Refunds are subtracted, not filtered out (0055): a partly refunded order is
+   * still an order and still a book, it is just worth less money. A refund is
+   * counted against the day the order was PAID rather than the day it was sent
+   * back, so this figure always answers "what did that day end up being worth",
+   * which is the question the comparison against last week is asking.
    */
   const totalsSince = (since: string) =>
     paid.reduce(
       (acc, o) => {
         if (o.ordered_at >= since) {
-          acc.paise += o.amount_paise ?? 0;
+          acc.paise += (o.amount_paise ?? 0) - (o.refunded_paise ?? 0);
           acc.orders += 1;
           acc.books += o.quantity ?? 1;
+          acc.refundedPaise += o.refunded_paise ?? 0;
         }
         return acc;
       },
-      { paise: 0, orders: 0, books: 0 }
+      { paise: 0, orders: 0, books: 0, refundedPaise: 0 }
     );
 
   const orders = (n: number) => `${n} order${n === 1 ? "" : "s"}`;
@@ -150,7 +220,12 @@ async function DashboardBody() {
   const stats = [
     {
       label: "Total revenue", value: `₹${rupees(total.paise)}`,
-      sub: `${total.orders} paid order${total.orders === 1 ? "" : "s"}${books(total)}`,
+      // The refund line only appears once there is one. It has to appear: the
+      // headline is now net, so without it the card silently disagrees with
+      // Razorpay's own settlement total and nobody can see why.
+      sub:
+        `${total.orders} paid order${total.orders === 1 ? "" : "s"}${books(total)}` +
+        (total.refundedPaise > 0 ? ` · ₹${rupees(total.refundedPaise)} refunded` : ""),
       icon: IndianRupee,
       card: "bg-gradient-to-br from-green-500 to-emerald-600",
       chip: "bg-white/20 text-white", valueTone: "text-white", subTone: "text-green-100",

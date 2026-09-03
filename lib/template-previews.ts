@@ -24,6 +24,8 @@ const SAMPLE = {
   buyer_name: "Asraf",
   buyer_phone: "9847759381",
   amount_paise: 69900,
+  /** Nothing refunded. The refunded preview below overrides it. */
+  refunded_paise: 0,
   city: "കണ്ണൂർ",
   state: "Kerala",
 } as const;
@@ -63,6 +65,18 @@ export function funnelPreviews(): Preview[] {
     {
       stage: "complete",
       row: { ...SAMPLE, razorpay_order_id: "order_Nz1sample", payment_status: "paid", address_line1: "സാമ്പിൾ വിലാസം" },
+    },
+    {
+      // payment_status stays 'paid' — that is what a refunded row really looks
+      // like (0055), and a preview built on anything else would be a guess.
+      stage: "refunded",
+      row: {
+        ...SAMPLE,
+        razorpay_order_id: "order_Nz1sample",
+        payment_status: "paid",
+        address_line1: "സാമ്പിൾ വിലാസം",
+        refunded_paise: 69900,
+      },
     },
   ];
 

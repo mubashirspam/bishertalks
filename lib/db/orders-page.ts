@@ -52,6 +52,8 @@ export interface OrdersPageRow {
   is_gift: boolean;
   is_signed: boolean;
   payment_status: string;
+  /** Sent back through Razorpay (0055). 0 on every order never refunded. */
+  refunded_paise: number;
   address_line1: string | null;
   razorpay_order_id: string | null;
   city: string | null;

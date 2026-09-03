@@ -27,12 +27,19 @@ export default function AdminSidebar({
   role,
   permissions,
   unassigned,
+  lowStock,
 }: {
   email: string;
   name: string;
   role: StaffRole;
   permissions: string[];
   unassigned: number;
+  /**
+   * Books free to sell, when that number is low enough to say so — null when
+   * there is nothing to warn about, when stock is not set up, or when the
+   * viewer cannot see it.
+   */
+  lowStock: number | null;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -56,6 +63,23 @@ export default function AdminSidebar({
       title: "Parcels not yet handed to a delivery agent",
       tone: "bg-blue-100 text-blue-700",
     },
+    ...(lowStock !== null
+      ? {
+          "/admin/inventory": {
+            count: lowStock,
+            title:
+              lowStock < 0
+                ? "More books are sold than exist"
+                : "Books left to sell — running low",
+            // Red for oversold, amber for low. The two are different problems:
+            // one is a forecast, the other has already happened.
+            tone:
+              lowStock < 0
+                ? "bg-red-100 text-red-700"
+                : "bg-amber-100 text-amber-800",
+          },
+        }
+      : {}),
   };
 
   /**

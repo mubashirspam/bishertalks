@@ -32,6 +32,14 @@ export const PERMISSIONS = {
   "landing.manage": "Edit the landing page and testimonials",
   "promos.manage": "Create and edit promo codes",
 
+  // Deliberately not folded into insights.view or reports.view. This is the
+  // one screen that answers "can we keep selling" — it shows how many books
+  // exist, how many are already promised, and how many days are left. Someone
+  // packing parcels needs that; the margin structure on /admin/reports is a
+  // separate trust.
+  "inventory.view": "See how many books are in stock",
+  "inventory.manage": "Record print runs and stock corrections",
+
   "insights.view": "See sales figures and traffic sources",
   // Deliberately separate from insights.view. That screen shows what came in;
   // this one shows what it costs to earn, what each book actually makes, and
@@ -73,6 +81,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal", "delivery.complete"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
+  { label: "Stock", permissions: ["inventory.view", "inventory.manage"] },
   { label: "Business", permissions: ["insights.view", "reports.view", "referrals.view", "referrals.payout", "staff.manage"] },
   { label: "Reference", permissions: ["templates.view"] },
   { label: "WhatsApp CRM", permissions: ["crm.view", "crm.reply", "crm.consent", "crm.campaign"] },
@@ -127,6 +136,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "delivery.complete",
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
+    "inventory.view", "inventory.manage",
     "insights.view", "reports.view", "referrals.view",
     "templates.view",
     // Not crm.campaign: bulk sending stays with the owner until enough

@@ -14,7 +14,9 @@ const HEADERS = [
   "Order number", "Ordered on (IST)", "Checkout started (IST)", "Stage", "Name", "Phone", "Email",
   "Amount (₹)", "Books", "Gift", "Gift message", "Gift charge (₹)",
   "Signed",
-  "Discount (₹)", "Promo", "Payment status", "Fulfilment status",
+  "Discount (₹)", "Promo", "Payment status",
+  "Refunded (₹)", "Kept (₹)", "Refunded on (IST)",
+  "Fulfilment status",
   "Address", "Landmark", "Area", "District", "State", "Pincode",
   "Razorpay payment ID", "Checkout", "Address submitted (IST)",
   "Came from", "First touch", "Campaign",
@@ -85,6 +87,12 @@ export async function GET(request: NextRequest) {
     rupees(o.discount_paise),
     o.promo_code ?? "",
     o.payment_status,
+    // Blank rather than 0 on the overwhelming majority that were never
+    // refunded — a column of zeros reads as noise and hides the few rows that
+    // matter. "Kept" is what a revenue total in the spreadsheet should sum.
+    o.refunded_paise ? rupees(o.refunded_paise) : "",
+    rupees(o.amount_paise - (o.refunded_paise ?? 0)),
+    o.refunded_at ? formatIST(o.refunded_at) : "",
     o.status,
     o.address_line1 ?? "",
     o.address_line2 ?? "",

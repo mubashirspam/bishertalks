@@ -18,10 +18,21 @@ export interface RevenueRow {
   /** The order date — when it was paid (0043). */
   ordered_at: string;
   amount_paise: number | null;
+  /**
+   * Money sent back through Razorpay (0055). Subtracted from every bar and
+   * every channel slice below, against the day the order was PAID — so a
+   * refund lowers the day that earned the money rather than denting whatever
+   * day it was processed on.
+   */
+  refunded_paise: number | null;
   /** Copies in the order. Null on rows written before the column existed. */
   quantity: number | null;
   source: string | null;
 }
+
+/** What the order was actually worth to us. Never below zero. */
+const netPaise = (row: RevenueRow) =>
+  Math.max(0, (row.amount_paise ?? 0) - (row.refunded_paise ?? 0));
 
 type Grain = "daily" | "weekly" | "monthly";
 
@@ -120,7 +131,7 @@ function bucketize(rows: RevenueRow[], grain: Grain): Bucket[] {
   for (const row of rows) {
     const b = map.get(keyOf(row.ordered_at));
     if (b) {
-      b.paise += row.amount_paise ?? 0;
+      b.paise += netPaise(row);
       b.orders += 1;
       b.books += row.quantity ?? 1;
     }
@@ -156,7 +167,7 @@ export default function RevenueCharts({ rows }: { rows: RevenueRow[] }) {
     for (const row of rows) {
       if (!windowKeys.has(keyOf(row.ordered_at))) continue;
       const s = isTrafficSource(row.source) ? row.source : "direct";
-      bySource.set(s, (bySource.get(s) ?? 0) + (row.amount_paise ?? 0));
+      bySource.set(s, (bySource.get(s) ?? 0) + netPaise(row));
     }
     return [...bySource.entries()]
       .map(([source, paise]) => ({ source, paise }))

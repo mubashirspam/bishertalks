@@ -108,6 +108,14 @@ export function describeAudit(row: AuditRow): string {
       return `Delivery address edited manually`;
     case "order.phone":
       return `Mobile number corrected to ${m.to ?? "?"}`;
+    // Written by the Razorpay webhook, never by a person — hence "Razorpay".
+    // The figure is the running total sent back, not the size of one refund,
+    // so a second partial refund reads as a larger number rather than a
+    // second small one. See lib/db/refunds.ts.
+    case "order.refund":
+      return `Razorpay refunded ₹${Math.round(Number(m.refunded_paise ?? 0) / 100)}${
+        m.full ? " — the full order" : ` of ₹${Math.round(Number(m.amount_paise ?? 0) / 100)}`
+      }`;
     default:
       return row.action;
   }

@@ -87,6 +87,8 @@ interface FunnelInput {
   razorpay_order_id: string | null;
   payment_status: string;
   address_line1: string | null;
+  /** Read by orderStage(), and quoted in the refund message below. */
+  refunded_paise: number;
 }
 
 export function funnelWaMessage(o: FunnelInput): string {
@@ -118,6 +120,14 @@ ${courseUrl()}
 _Bisher Talks_`;
     case "complete":
       return paidThankYouMessage(o);
+    // The one message here that is not a chase. Nothing is being asked for —
+    // it exists so the WhatsApp button on a refunded row does something useful
+    // instead of offering to thank someone for money we have given back. The
+    // bank delay is the part worth saying: the refund leaves Razorpay at once
+    // and shows up in the customer's account days later, which is exactly the
+    // gap that produces "where is my money" messages.
+    case "refunded":
+      return `Hi ${name}, your order ${o.order_number} has been refunded. ₹${Math.round(o.refunded_paise / 100).toLocaleString("en-IN")} has been sent back to the account you paid from — banks usually take 5–7 working days to show it. Do let us know if you don't see it by then.`;
   }
 }
 

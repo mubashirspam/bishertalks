@@ -35,6 +35,9 @@ export interface OrderRow {
   discount_paise: number;
   promo_code: string | null;
   payment_status: string;
+  /** Refunded so far (0055). NOT NULL DEFAULT 0 — 0 means never refunded. */
+  refunded_paise: number;
+  refunded_at: string | null;
   status: string;
   address_line1: string | null;
   address_line2: string | null;
@@ -63,7 +66,8 @@ export interface OrderRow {
 export const ORDER_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,quantity," +
   "is_gift,gift_message,gift_charge_paise,is_signed,discount_paise,promo_code," +
-  "payment_status,status,address_line1,address_line2,city,district,state,pincode," +
+  "payment_status,refunded_paise,refunded_at,status," +
+  "address_line1,address_line2,city,district,state,pincode," +
   "razorpay_order_id,razorpay_payment_id,checkout_type," +
   "created_at,paid_at,ordered_at,address_submitted_at," +
   "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note";

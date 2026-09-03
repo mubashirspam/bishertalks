@@ -39,6 +39,8 @@ interface Row {
   is_gift: boolean;
   is_signed: boolean;
   payment_status: string;
+  /** Sent back through Razorpay (0055). 0 on every order never refunded. */
+  refunded_paise: number;
   address_line1: string | null;
   razorpay_order_id: string | null;
   city: string | null;
@@ -299,7 +301,29 @@ async function OrdersTable(props: QueryArgs) {
                         )}
                       </td>
                       <td className="px-4 py-3 text-neutral-900 hidden md:table-cell">
-                        <p>₹{Math.round((o.amount_paise ?? 0) / 100)}</p>
+                        {/* Struck through once money went back, with what was
+                            actually kept beside it. A refunded order is not
+                            removed from this list — it happened, and the row is
+                            how anyone finds it again. */}
+                        {(o.refunded_paise ?? 0) > 0 ? (
+                          <p className="flex items-baseline gap-1.5 whitespace-nowrap">
+                            <span className="line-through text-neutral-400">
+                              ₹{Math.round((o.amount_paise ?? 0) / 100)}
+                            </span>
+                            <span className="font-bold">
+                              ₹{Math.round(((o.amount_paise ?? 0) - o.refunded_paise) / 100)}
+                            </span>
+                          </p>
+                        ) : (
+                          <p>₹{Math.round((o.amount_paise ?? 0) / 100)}</p>
+                        )}
+                        {(o.refunded_paise ?? 0) > 0 && (
+                          <span className="inline-flex mt-0.5 px-1.5 py-0.5 rounded-md bg-red-50 text-red-700 border border-red-200 text-[11px] font-semibold whitespace-nowrap">
+                            {o.refunded_paise >= (o.amount_paise ?? 0)
+                              ? "refunded"
+                              : `−₹${Math.round(o.refunded_paise / 100)} refunded`}
+                          </span>
+                        )}
                         {/* How many copies that ₹ actually is. Without it a
                             ₹2,097 row looks like a pricing bug rather than
                             three books, and the multi-copy buyers — the ones

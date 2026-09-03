@@ -106,7 +106,12 @@ export async function getBusinessCosts(): Promise<
 export interface TradingHistory {
   booksSold: number;
   orders: number;
+  /** Net of refunds — what was actually kept. See the query below. */
   revenuePaise: number;
+  /** Money handed back (0055). Already subtracted from `revenuePaise`. */
+  refundedPaise: number;
+  /** Orders with any money returned, in full or in part. */
+  refundedOrders: number;
   /** Revenue divided by books — the price actually realised after discounts. */
   realisedPricePaise: number;
   firstOrderAt: string | null;
@@ -128,6 +133,17 @@ export interface TradingHistory {
  * Counts books rather than orders: one order can carry several copies, and
  * every cost below is per book. Paid orders only — a pending row is a intention,
  * not revenue.
+ *
+ * REFUNDS COME OFF THE TOP (0055). Revenue is amount_paise - refunded_paise per
+ * order, so money sent back through Razorpay stops being counted the moment the
+ * refund is recorded. That is a subtraction and not a filter, which is the only
+ * way a partial refund can be right: hand ₹200 back on a ₹699 sale and the book
+ * is still sold, still printed, still delivered — one book, ₹499 of revenue.
+ *
+ * `booksSold` is deliberately NOT reduced by refunds, including full ones. The
+ * copy was printed and posted; pretending it never existed would flatter every
+ * per-book cost on the report, which is the opposite of what a refund means.
+ * The realised price absorbs it instead, which is exactly where a refund hurts.
  */
 export async function getTradingHistory(): Promise<TradingHistory> {
   // Paged: this had no limit at all, which meant PostgREST handed back the
@@ -135,6 +151,7 @@ export async function getTradingHistory(): Promise<TradingHistory> {
   // from them as though they were the whole business.
   const { rows } = await fetchAllRows<{
     amount_paise: number | null;
+    refunded_paise: number | null;
     quantity: number | null;
     ordered_at: string;
     shipped_at: string | null;
@@ -144,7 +161,9 @@ export async function getTradingHistory(): Promise<TradingHistory> {
     (from, to) =>
       supabaseAdmin
         .from("orders")
-        .select("amount_paise, quantity, ordered_at, shipped_at, delivered_at, returned_at")
+        .select(
+          "amount_paise, refunded_paise, quantity, ordered_at, shipped_at, delivered_at, returned_at"
+        )
         .eq("payment_status", "paid")
         // The day the money arrived, not the day checkout began — see 0043.
         .order("ordered_at", { ascending: true })
@@ -153,7 +172,11 @@ export async function getTradingHistory(): Promise<TradingHistory> {
   );
 
   const booksSold = rows.reduce((s, o) => s + (o.quantity ?? 1), 0);
-  const revenuePaise = rows.reduce((s, o) => s + (o.amount_paise ?? 0), 0);
+  const refundedPaise = rows.reduce((s, o) => s + (o.refunded_paise ?? 0), 0);
+  const revenuePaise = rows.reduce(
+    (s, o) => s + (o.amount_paise ?? 0) - (o.refunded_paise ?? 0),
+    0
+  );
 
   const firstOrderAt = rows[0]?.ordered_at ?? null;
   const lastOrderAt = rows[rows.length - 1]?.ordered_at ?? null;
@@ -175,6 +198,8 @@ export async function getTradingHistory(): Promise<TradingHistory> {
     booksSold,
     orders: rows.length,
     revenuePaise,
+    refundedPaise,
+    refundedOrders: rows.filter((o) => (o.refunded_paise ?? 0) > 0).length,
     realisedPricePaise: booksSold ? Math.round(revenuePaise / booksSold) : 0,
     firstOrderAt,
     lastOrderAt,

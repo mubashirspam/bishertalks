@@ -155,10 +155,15 @@ function Kpis({ report }: { report: EconomicsReport }) {
         // was sold at whatever the price was THEN. Right after a rise most of
         // the gap is the second, and it shrinks on its own as new orders land.
         // So the label says where the number sits, and does not claim why.
+        // Refunds are inside this number — revenue is net of them (0055) — so
+        // when there are any, say so here rather than letting the realised
+        // price quietly sag with no visible cause.
         sub={
-          discountGapPercent >= 0.5
-            ? `${discountGapPercent.toFixed(0)}% below today's ${rupees(listPricePaise)} · every book ever sold`
-            : `after discounts · ${compact(history.revenuePaise)} collected`
+          history.refundedPaise > 0
+            ? `${compact(history.revenuePaise)} kept · ${compact(history.refundedPaise)} refunded on ${history.refundedOrders} order${history.refundedOrders === 1 ? "" : "s"}`
+            : discountGapPercent >= 0.5
+              ? `${discountGapPercent.toFixed(0)}% below today's ${rupees(listPricePaise)} · every book ever sold`
+              : `after discounts · ${compact(history.revenuePaise)} collected`
         }
       />
       <Kpi
