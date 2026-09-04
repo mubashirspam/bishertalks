@@ -234,6 +234,13 @@ const REFERENCE_CODES: Record<string, string> = {
   "delhivery-sheet": "BISH",
   "speed-post": "SP",
   "mubashir-logistic": "ML",
+  // KKR's postal channel (0060). Not "BISH": that prefix is the one KKR files
+  // Delhivery sheets under and the one Delhivery's reference lookup answers
+  // for, so sharing it would put parcels that never went near Delhivery into
+  // the range those lookups sweep. Spelled out rather than left to the
+  // derivation below, which would produce "KIP" from the slug anyway — the
+  // point is that it is a decision, not an accident of spelling.
+  "kkr-india-post": "KIP",
 };
 
 /** The house code, for a parcel not routed anywhere yet. */
