@@ -65,7 +65,11 @@ const ALIASES: Record<string, string[]> = {
 const norm = (s: string) =>
   s.toLowerCase().replace(/[_\-.]+/g, " ").replace(/\s+/g, " ").trim();
 
-function readBookings(path: string): { rows: BookingRow[]; skipped: number } {
+function readBookings(path: string): {
+  rows: BookingRow[];
+  skipped: number;
+  duplicates: number;
+} {
   const buf = readFileSync(path);
   const sheets = /\.(csv|txt)$/i.test(path)
     ? [readCSV(buf.toString("utf8"))]
@@ -97,8 +101,27 @@ function readBookings(path: string): { rows: BookingRow[]; skipped: number } {
   const cell = (r: string[], key: string) =>
     at[key] === undefined ? "" : (r[at[key]] ?? "").trim();
 
-  const rows: BookingRow[] = [];
+  // ONE ROW PER ARTICLE, and the file decides nothing about that.
+  //
+  // Their exports repeat an article: the booking portal writes a row per event
+  // per article, and the "POSTAL DETAILS" workbook of 01/09/2026 arrived with
+  // every parcel but three listed twice, byte for byte — 143 rows naming 73
+  // parcels. The tracking import already collapses this (see
+  // lib/delivery/postal-delivery-import.ts, which keeps the last row for each
+  // article); this reader did not, and the cost was not cosmetic.
+  //
+  // A duplicate row is not a harmless repeat HERE, because matchBookings marks
+  // an order `taken` the moment the first copy claims it. The second copy then
+  // finds no free candidate and is reported as "no order here carries that
+  // name" — a parcel that was in fact matched, filed under the one verdict that
+  // says nobody could find it. That run reported 86 not-found against 73 real
+  // parcels, which is not a number that can be true.
+  //
+  // Last occurrence wins, as in the import: where a file does carry a row per
+  // event, the last is the most recent state of the parcel.
+  const byArticle = new Map<string, BookingRow>();
   let skipped = 0;
+  let duplicates = 0;
 
   for (const r of grid.slice(start + 1)) {
     const article = cell(r, "article").toUpperCase().replace(/\s+/g, "");
@@ -111,7 +134,9 @@ function readBookings(path: string): { rows: BookingRow[]; skipped: number } {
       continue;
     }
 
-    rows.push({
+    if (byArticle.has(article)) duplicates++;
+
+    byArticle.set(article, {
       article,
       receiverName,
       receiverAddress: cell(r, "address") || null,
@@ -122,7 +147,7 @@ function readBookings(path: string): { rows: BookingRow[]; skipped: number } {
     });
   }
 
-  return { rows, skipped };
+  return { rows: [...byArticle.values()], skipped, duplicates };
 }
 
 // ── Our side ─────────────────────────────────────────────────────────────────
@@ -395,8 +420,12 @@ async function main() {
   }
 
   console.log(`Reading ${file}`);
-  const { rows: bookings, skipped } = readBookings(file);
-  console.log(`  ${bookings.length} articles with a receiver name` + (skipped ? `, ${skipped} rows skipped` : ""));
+  const { rows: bookings, skipped, duplicates } = readBookings(file);
+  console.log(
+    `  ${bookings.length} articles with a receiver name` +
+      (duplicates ? `, ${duplicates} repeated rows collapsed` : "") +
+      (skipped ? `, ${skipped} rows skipped` : "")
+  );
 
   console.log("Reading our parcels…");
   const orders = await loadOrders();
@@ -457,6 +486,7 @@ async function main() {
       ["Report built", formatIST(new Date().toISOString())],
       ["Booking file", file],
       ["Articles read", bookings.length],
+      ["Repeated rows collapsed", duplicates],
       ["Our parcels considered", orders.length],
       ["", ""],
       ["READ THIS FIRST", ""],
