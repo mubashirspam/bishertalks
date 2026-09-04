@@ -36,6 +36,7 @@ interface PlanRow {
   from_status: string;
   to_status: string | null;
   fills_tracking: boolean;
+  corrects_date: { from: string; to: string } | null;
 }
 
 interface HeldRow {
@@ -53,6 +54,7 @@ interface Result {
   unchanged: number;
   moves: Record<string, number>;
   willFillTracking: number;
+  willCorrectDates: number;
   unmatched: number;
   held: number;
   plan?: PlanRow[];
@@ -61,6 +63,7 @@ interface Result {
   /** Present only on the applied response. */
   scanned?: number;
   moved?: Record<string, number>;
+  datesCorrected?: number;
   notified?: number;
 }
 
@@ -254,6 +257,9 @@ export default function PostalDeliveryImport({ courierName }: { courierName: str
                   .map(([k, v]) => `${v} → ${STATUS_WORD[k] ?? k}`)
                   .join(", ")
               : "No parcel needed its status changed."}
+            {applied.datesCorrected
+              ? ` ${applied.datesCorrected} delivery date${applied.datesCorrected === 1 ? " was" : "s were"} moved back to the day India Post delivered.`
+              : ""}
             {applied.notified
               ? ` ${applied.notified} customers were messaged.`
               : " No customers were messaged."}
@@ -276,6 +282,13 @@ export default function PostalDeliveryImport({ courierName }: { courierName: str
               tone={preview.willMove ? "good" : undefined}
             />
             <Figure label="Scan only" value={preview.unchanged} />
+            {!!preview.willCorrectDates && (
+              <Figure
+                label="Delivery date wrong"
+                value={preview.willCorrectDates}
+                tone="good"
+              />
+            )}
           </div>
 
           {/* Where their parcels actually are, in their words. The reason to
@@ -388,6 +401,10 @@ export default function PostalDeliveryImport({ courierName }: { courierName: str
                                   {STATUS_WORD[p.to_status] ?? p.to_status}
                                 </span>
                               </>
+                            ) : p.corrects_date ? (
+                              <span className="font-semibold text-amber-700 whitespace-nowrap">
+                                delivery date fixed
+                              </span>
                             ) : (
                               <span className="text-neutral-400">scan only</span>
                             )}

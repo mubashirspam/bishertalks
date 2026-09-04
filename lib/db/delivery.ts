@@ -150,6 +150,69 @@ export async function setDeliveryStatusAt(
 }
 
 /**
+ * Move a delivery date BACK to when the courier says it happened.
+ *
+ * `set_delivery_status_at` deliberately never rewrites a milestone it already
+ * has — `COALESCE(o.delivered_at, t.at, NOW())` — so re-uploading yesterday's
+ * export cannot shuffle history. That is right for the normal path and it
+ * leaves one hole: a parcel ticked off by hand, or marked delivered by a run
+ * whose file carried no date, holds NOW() from the moment somebody noticed
+ * rather than the moment it arrived. Their export knows better, and until it
+ * is read back nothing ever corrects it.
+ *
+ * In the 01/09 report that was 38 parcels of 637 — every one of them recorded
+ * LATER than the truth, none earlier, which is the signature of a date stamped
+ * on noticing.
+ *
+ * ── Backwards only, and only across a day boundary ───────────────────────
+ *
+ * The caller decides which parcels qualify; this refuses to be the place that
+ * silently rewrites history, so it writes only when the stored value is later
+ * than the one offered. A courier event cannot postdate the delivery it
+ * describes, so "ours is later" is the only direction that can be an error —
+ * and moving a date forward on the strength of a spreadsheet is exactly the
+ * mistake this guard exists to make impossible.
+ *
+ * Status is not touched, and neither is the referral commission: these parcels
+ * are already delivered and already settled. This corrects when, never what.
+ */
+export async function correctDeliveredAt(
+  entries: { orderNumber: string; at: string }[]
+): Promise<string[]> {
+  if (!entries.length) return [];
+
+  const corrected: string[] = [];
+
+  // One statement per parcel, because each carries its own timestamp. The
+  // qualifying set is small by nature — it is the parcels somebody ticked off
+  // by hand — so this is not the bulk path that needed SQL in 0059.
+  const BATCH = 20;
+  for (let i = 0; i < entries.length; i += BATCH) {
+    await Promise.all(
+      entries.slice(i, i + BATCH).map(async ({ orderNumber, at }) => {
+        const { data, error } = await supabaseAdmin
+          .from("orders")
+          .update({ delivered_at: at, updated_at: new Date().toISOString() })
+          .eq("order_number", orderNumber)
+          // Still delivered, and still holding the later date the plan was
+          // built from. Anything else changed under us and is not ours to fix.
+          .eq("status", "delivered")
+          .gt("delivered_at", at)
+          .select("order_number");
+
+        if (error) {
+          console.error(`[Delivery] delivered_at fix ${orderNumber}:`, error.message);
+          return;
+        }
+        if (data?.length) corrected.push(orderNumber);
+      })
+    );
+  }
+
+  return corrected;
+}
+
+/**
  * A file of courier scans, recorded in one statement.
  *
  * `recordScan` in lib/db/courier-send.ts writes one order per call, which is

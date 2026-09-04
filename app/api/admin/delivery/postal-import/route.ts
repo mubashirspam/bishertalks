@@ -5,7 +5,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { parsePostalExport, type PostalRow } from "@/lib/delivery/postal-delivery-import";
-import { setDeliveryStatusAt, recordScans, notifyStatusChange } from "@/lib/db/delivery";
+import {
+  setDeliveryStatusAt,
+  correctDeliveredAt,
+  recordScans,
+  notifyStatusChange,
+} from "@/lib/db/delivery";
 import { canMoveTo } from "@/lib/delhivery/status";
 import { revalidateDelivery } from "@/lib/db/cache-tags";
 import { auditMany } from "@/lib/audit";
@@ -71,6 +76,16 @@ const LOOKUP_CHUNK = 250;
 /** Parcels per write. Each is one statement; this only bounds the array size. */
 const WRITE_CHUNK = 500;
 
+/**
+ * Which IST calendar day an instant falls on.
+ *
+ * The comparison has to be in IST, not UTC: a parcel delivered at 23:00 IST is
+ * still 17:30 UTC the same day, but one delivered at 01:00 IST is the previous
+ * UTC day — so comparing UTC days would call a correct date wrong twice a night.
+ */
+const istDay = (iso: string): string =>
+  new Date(new Date(iso).getTime() + 5.5 * 3600_000).toISOString().slice(0, 10);
+
 /** Enough of an order to decide, and to show back to whoever uploaded. */
 const COLUMNS =
   "order_number,buyer_name,pincode,status,delivered_at,returned_at," +
@@ -103,6 +118,11 @@ interface PlanRow {
   to_status: OrderStatus | null;
   /** True when this parcel's article number is being filled in for the first time. */
   fills_tracking: boolean;
+  /**
+   * Set when the parcel is already delivered but on the wrong DAY, and their
+   * file says when it really arrived. See the note at the decision below.
+   */
+  corrects_date: { from: string; to: string } | null;
 }
 
 /** A row that will not be applied, and the reason in plain words. */
@@ -260,6 +280,34 @@ export async function POST(request: NextRequest) {
 
     claimed.add(order.order_number);
 
+    // ── Already delivered, on the wrong day ─────────────────────────────────
+    //
+    // `set_delivery_status_at` never rewrites a milestone it already holds, so
+    // re-uploading an export cannot shuffle history — right for the normal
+    // path, and it leaves this hole: a parcel ticked off by hand, or marked
+    // delivered by a run whose file carried no date, holds the moment somebody
+    // NOTICED rather than the moment it arrived. Nothing else ever corrects
+    // that, and `delivered_at` is what the reports screen measures from.
+    //
+    // Only across a day boundary, and only backwards. A few hours' difference
+    // is the poller having seen it the same evening and changes no answer this
+    // shop asks; a different date does. Backwards only because a courier's own
+    // event cannot postdate the delivery it describes — in the 01/09 report all
+    // 38 disagreements ran the same way, ours later, none earlier.
+    //
+    // `delivered` alone. It is the milestone with money attached and the one
+    // the reports measure; `shipped_at` is fed by a dozen in-transit events and
+    // "which one was the real dispatch" is a question this file cannot settle.
+    const corrects_date =
+      !to &&
+      order.status === "delivered" &&
+      row.kind === "delivered_to_addressee" &&
+      order.delivered_at &&
+      row.at &&
+      istDay(order.delivered_at) > istDay(row.at)
+        ? { from: order.delivered_at, to: row.at }
+        : null;
+
     // Every matched parcel is planned, even one whose status does not move —
     // the scan line is most of the value of this import. Counted separately so
     // the screen can say "1,100 parcels, 340 of which move".
@@ -275,6 +323,7 @@ export async function POST(request: NextRequest) {
       from_status: order.status,
       to_status: to,
       fills_tracking,
+      corrects_date,
     });
   }
 
@@ -294,6 +343,7 @@ export async function POST(request: NextRequest) {
     unchanged,
     moves,
     willFillTracking: plan.filter((p) => p.fills_tracking).length,
+    willCorrectDates: plan.filter((p) => p.corrects_date).length,
     unmatched: unmatched.length,
     held: held.length,
     columns: parsed.matched,
@@ -306,7 +356,13 @@ export async function POST(request: NextRequest) {
       // Capped: the point of a preview is to be read, and two thousand rows in
       // a panel is not read. The parcels that MOVE come first, because those
       // are the ones worth checking before pressing the button.
-      plan: [...moving, ...plan.filter((p) => p.to_status === null)].slice(0, 100),
+      // Movers first, then the date corrections, then everything else — the
+      // list is capped, and these are the two kinds of row worth the space.
+      plan: [
+        ...moving,
+        ...plan.filter((p) => p.to_status === null && p.corrects_date),
+        ...plan.filter((p) => p.to_status === null && !p.corrects_date),
+      ].slice(0, 100),
       unmatchedRows: unmatched.slice(0, 100),
       heldRows: held.slice(0, 100),
     });
@@ -381,6 +437,27 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Dates that were recorded on the wrong day ─────────────────────────────
+  //
+  // After the status writes, not before: a parcel moving to delivered in THIS
+  // run gets its date from `set_delivery_status_at` and is not in this list at
+  // all. What is left is the parcels that were already delivered and already
+  // carried a date, which is the only case there is anything to correct.
+  let datesCorrected = 0;
+  const corrections = plan
+    .filter((p) => p.corrects_date)
+    .map((p) => ({ orderNumber: p.order_number, at: p.corrects_date!.to }));
+
+  if (corrections.length) {
+    try {
+      datesCorrected = (await correctDeliveredAt(corrections)).length;
+    } catch (e) {
+      // Not fatal. Every scan and every status change already landed, and a
+      // delivery date that is a day late is a worse report, not a wrong one.
+      console.error("[Postal import] date corrections failed:", e);
+    }
+  }
+
   await auditMany(
     auth.staff,
     "order.postal_reconciled",
@@ -391,6 +468,7 @@ export async function POST(request: NextRequest) {
       file: file.name,
       scans: scanned,
       moved: done,
+      dates_corrected: datesCorrected,
       notified,
       unmatched: unmatched.length,
       held: held.length,
@@ -405,6 +483,7 @@ export async function POST(request: NextRequest) {
     ...summary,
     scanned,
     moved: done,
+    datesCorrected,
     notified,
     unmatchedRows: unmatched.slice(0, 100),
     heldRows: held.slice(0, 100),

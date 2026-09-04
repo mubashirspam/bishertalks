@@ -245,9 +245,30 @@ export function parsePostalDate(value: string): string | null {
   if (m) {
     const [, y, mo, d, h = "0", mi = "0", s = "0", zone] = m;
     const pad = (v: string) => v.padStart(2, "0");
-    const t = Date.parse(
-      `${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}:${pad(s)}${zone ?? "+05:30"}`
-    );
+
+    // ── A trailing "Z" from this portal is punctuation, not a timezone ──────
+    //
+    // Their delivered-only export writes `2026/08/29T19:00:19` and their
+    // latest-status export writes `2026-08-29T19:00:19Z` — and for all 1,055
+    // articles that appear in both, the clock reading is byte-identical. One
+    // of the two labels has to be wrong, and it is the Z: read as IST the
+    // 2,126 events in that file cluster across 09:00–17:00 and put 76 outside
+    // working hours, where honouring the Z drags 335 of them into 22:00–06:00
+    // and makes 17:00–22:00 the busiest delivery window of the day. Postmen do
+    // not deliver at two in the morning.
+    //
+    // The cost of trusting it is not a rounding error: every timestamp lands
+    // 5h30m late, so any event after 18:30 IST is recorded on the following
+    // day, and `delivered_at` is what the reports screen measures days-in-
+    // transit from.
+    //
+    // An explicit numeric offset IS honoured, because the same file's
+    // `full-dt` column carries `+05:30` — their exporter emits a real offset
+    // when it means one, and a future export that says +00:00 deserves to be
+    // believed.
+    const offset = zone && zone !== "Z" ? zone : "+05:30";
+
+    const t = Date.parse(`${y}-${pad(mo)}-${pad(d)}T${pad(h)}:${pad(mi)}:${pad(s)}${offset}`);
     return Number.isNaN(t) ? null : new Date(t).toISOString();
   }
 
