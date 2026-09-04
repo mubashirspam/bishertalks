@@ -64,6 +64,55 @@ const ARTICLE = /^[A-Z]{2}\d{9}[A-Z]{2}$/;
  * control; a thirteen-character article number is unmistakable wherever it
  * appears, and nothing else in one of these files looks like one.
  */
+/**
+ * Is this their TRACKING report rather than an allotment?
+ *
+ * `parseAllottedBarcodes` below scans every cell for anything shaped like an
+ * article number, which is what lets it read an allotment file whatever shape
+ * they send it in — and is exactly why it cannot be trusted alone. A delivery
+ * report is also full of article numbers, and every one of them is SPENT: it is
+ * already printed on a parcel that has already been posted.
+ *
+ * Loading one as stock is the worst outcome this table has. The numbers land in
+ * the unused pool and are handed to new orders, so two parcels end up carrying
+ * one article number — the precise failure the exclusion constraint in 0049
+ * exists to prevent, arriving through the one door it does not watch.
+ *
+ * It happened: on 04/09 four status exports were uploaded here, and 890 numbers
+ * already sitting on delivered parcels were recorded as available. Nothing had
+ * been handed out of them yet, and the stock read 1,641 unused when the true
+ * figure was 751.
+ *
+ * The tell is their event columns. An allotment is a list of numbers; a report
+ * says what happened to each one, and no allotment file has ever carried a
+ * column describing an event.
+ *
+ * Returns the heading that gave it away, or null.
+ */
+export function looksLikeTrackingExport(rows: string[][]): string | null {
+  const TELLS = [
+    "event-description", "event description", "eventdescription",
+    "event-date-time", "event date time", "eventdatetime",
+    "event-code", "event code", "eventcode",
+    "event-office-name", "event office name",
+    "non-delivery-reason-description", "non delivery reason description",
+    "delivery-status", "delivery status",
+  ];
+
+  // Only the top of the file: a heading row is at the top, and scanning the
+  // whole sheet would let one stray cell of free text refuse a real allotment.
+  for (const row of rows.slice(0, 8)) {
+    for (const cell of row) {
+      const heading = (cell ?? "").trim().toLowerCase().replace(/[_\s]+/g, " ");
+      if (TELLS.includes(heading) || TELLS.includes(heading.replace(/ /g, "-"))) {
+        return (cell ?? "").trim();
+      }
+    }
+  }
+
+  return null;
+}
+
 export function parseAllottedBarcodes(rows: string[][]): ParsedAllotment {
   const serialsByBlock = new Map<string, Set<number>>();
   const mismatched: string[] = [];

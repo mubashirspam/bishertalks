@@ -5,7 +5,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { getCourier } from "@/lib/db/couriers";
 import { addBarcodeRange, barcodeStock } from "@/lib/db/postal-barcodes";
-import { parseAllottedBarcodes, describeRange } from "@/lib/india-post/barcode-import";
+import {
+  parseAllottedBarcodes,
+  looksLikeTrackingExport,
+  describeRange,
+} from "@/lib/india-post/barcode-import";
 import { readXLSX, readCSV } from "@/lib/xlsx-read";
 import { audit } from "@/lib/audit";
 import type { CurrentStaff } from "@/lib/admin-auth";
@@ -110,6 +114,32 @@ async function uploadedFile(request: NextRequest, staff: Staff) {
         error:
           `"${file.name}" is not a spreadsheet this can read. ` +
           "Use the Export to Excel from Allocated Barcodes, or a .csv.",
+      },
+      { status: 400 }
+    );
+  }
+
+  // ── Refuse their tracking report before reading a single number out of it ──
+  //
+  // This screen loads numbers we may still SPEND. A delivery report is full of
+  // numbers already spent, and parseAllottedBarcodes cannot tell the two apart
+  // — it harvests anything article-shaped, which is what makes it tolerant of
+  // whatever layout an allotment arrives in.
+  //
+  // The two uploads sit on the same courier's page, one above the other, and
+  // picking the wrong one is an easy mistake with an expensive result: on 04/09
+  // it put 890 already-delivered numbers into the unused pool, where the next
+  // routing run would have handed them to new parcels.
+  const trackingColumn = looksLikeTrackingExport(rows);
+  if (trackingColumn) {
+    return NextResponse.json(
+      {
+        error:
+          `That looks like a tracking report, not an allotment — it has a ` +
+          `"${trackingColumn}" column. Every article number in it is already on ` +
+          `a posted parcel, so loading it here would hand those numbers out ` +
+          `again. Nothing was loaded. To bring parcel statuses up to date, use ` +
+          `the delivery-report upload further down this page instead.`,
       },
       { status: 400 }
     );
