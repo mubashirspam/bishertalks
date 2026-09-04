@@ -156,7 +156,18 @@ export async function addBarcodeRange(input: {
   serialTo: number;
   suffix?: string;
   note?: string;
-}): Promise<{ ok: true; count: number } | { ok: false; error: string }> {
+}): Promise<
+  | {
+      ok: true;
+      /** How many numbers were actually stored. */
+      count: number;
+      /** How many separate sub-ranges it had to be broken into. */
+      parts: number;
+      /** How many of the numbers asked for were already recorded. */
+      alreadyHeld: number;
+    }
+  | { ok: false; error: string }
+> {
   const prefix = input.prefix.trim().toUpperCase();
   const suffix = (input.suffix ?? "IN").trim().toUpperCase();
 
@@ -180,27 +191,92 @@ export async function addBarcodeRange(input: {
     }
   }
 
-  const { error } = await supabaseAdmin.from("postal_barcode_ranges").insert({
-    courier_id: input.courierId,
-    prefix,
-    suffix,
-    serial_from: from,
-    serial_to: to,
-    next_serial: from,
-    note: input.note?.trim() || null,
-  });
+  // ── Load the parts we do not already hold, not nothing ────────────────────
+  //
+  // Their "Allocated Barcodes" export is cumulative: every upload carries the
+  // numbers from the last one too. So a block in the file routinely straddles a
+  // range already recorded, and the exclusion constraint from 0049 refuses on
+  // ANY overlap — which used to throw away the new numbers either side of the
+  // old range along with the duplicate middle.
+  //
+  // That is not a hypothetical tidy-up. The 04/09 upload skipped
+  // CL669228010IN–CL669228726IN whole because 36 of its 72 numbers were already
+  // held from 30/08; the other 36 were allotted to us, paid for, and silently
+  // never loaded. The message said "overlaps one already recorded", which is
+  // true and reads exactly like the 53 skips that really were pure duplicates.
+  //
+  // So subtract what is recorded and insert the gaps. Duplicates still cannot
+  // be stored twice; the difference is only that the numbers we do not have
+  // stop being collateral.
+  //
+  // Matched on prefix+suffix ACROSS COURIERS, because that is how the
+  // constraint is scoped — an article number belongs to an allotment, not to
+  // whoever posts under it — so subtracting only this courier's ranges would
+  // compute a gap the database then refuses.
+  const { data: existing, error: readError } = await supabaseAdmin
+    .from("postal_barcode_ranges")
+    .select("serial_from,serial_to")
+    .eq("prefix", prefix)
+    .eq("suffix", suffix)
+    .lte("serial_from", to)
+    .gte("serial_to", from);
+
+  if (readError) {
+    console.error("[Postal] range read failed:", readError.message);
+    return { ok: false, error: "Could not check the range against the ones already recorded." };
+  }
+
+  const held = (existing ?? [])
+    .map((r) => ({ from: Number(r.serial_from), to: Number(r.serial_to) }))
+    .sort((a, b) => a.from - b.from);
+
+  const gaps: { from: number; to: number }[] = [];
+  let cursor = from;
+  for (const h of held) {
+    if (h.from > cursor) gaps.push({ from: cursor, to: Math.min(h.from - 1, to) });
+    cursor = Math.max(cursor, h.to + 1);
+    if (cursor > to) break;
+  }
+  if (cursor <= to) gaps.push({ from: cursor, to });
+
+  const alreadyHeld = to - from + 1 - gaps.reduce((n, g) => n + g.to - g.from + 1, 0);
+
+  if (!gaps.length) {
+    return { ok: false, error: "Every number in that range is already recorded." };
+  }
+
+  const { error } = await supabaseAdmin.from("postal_barcode_ranges").insert(
+    gaps.map((g) => ({
+      courier_id: input.courierId,
+      prefix,
+      suffix,
+      serial_from: g.from,
+      serial_to: g.to,
+      next_serial: g.from,
+      note: input.note?.trim() || null,
+    }))
+  );
 
   if (error) {
-    // The exclusion constraint from 0049. Worth naming, because the fix is to
-    // check the allotment letter rather than to retry.
+    // Still reachable: another upload can record a range between the read
+    // above and this insert. The constraint is the backstop, and the fix is to
+    // run the upload again — the second pass subtracts what the first stored.
     if (/exclusion|overlap/i.test(error.message)) {
-      return { ok: false, error: "That range overlaps one already recorded." };
+      return {
+        ok: false,
+        error: "That range overlaps one recorded while this file was loading — upload it again.",
+      };
     }
     console.error("[Postal] range insert failed:", error.message);
     return { ok: false, error: "Could not save the range." };
   }
 
-  return { ok: true, count: to - from + 1 };
+  return {
+    ok: true,
+    count: gaps.reduce((n, g) => n + g.to - g.from + 1, 0),
+    parts: gaps.length,
+    alreadyHeld,
+  };
 }
 
 /**

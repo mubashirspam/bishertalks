@@ -160,8 +160,21 @@ async function uploadedFile(request: NextRequest, staff: Staff) {
       note: `Imported from ${file.name}`,
     });
 
-    if (result.ok) loaded.push(`${describeRange(range)} (${result.count})`);
-    else skipped.push(`${describeRange(range)} — ${result.error}`);
+    if (!result.ok) {
+      skipped.push(`${describeRange(range)} — ${result.error}`);
+      continue;
+    }
+
+    // Said plainly when a block was only partly new, because "loaded" on a
+    // line whose numbers were mostly already held reads like a bigger delivery
+    // than it was — and because the part that WAS new is the thing an earlier
+    // version of this threw away.
+    loaded.push(
+      result.alreadyHeld
+        ? `${describeRange(range)} (${result.count} new, ${result.alreadyHeld} already held` +
+          (result.parts > 1 ? `, in ${result.parts} parts)` : ")")
+        : `${describeRange(range)} (${result.count})`
+    );
   }
 
   if (loaded.length) {
@@ -255,15 +268,28 @@ async function typedRange(request: NextRequest, staff: Staff) {
     action: "courier.barcodes_loaded",
     entity: "courier",
     entityId: courierId,
-    meta: { typed: true, prefix, suffix, from: serialFrom, to: serialTo, count: result.count },
+    meta: {
+      typed: true,
+      prefix,
+      suffix,
+      from: serialFrom,
+      to: serialTo,
+      count: result.count,
+      already_held: result.alreadyHeld,
+      parts: result.parts,
+    },
   });
 
   const stock = await barcodeStock(courierId);
+
+  const partly = result.alreadyHeld
+    ? ` ${result.alreadyHeld} of them were already recorded and were left alone.`
+    : "";
 
   return NextResponse.json({
     loaded: [`${prefix}${serialFrom}${suffix} – ${prefix}${serialTo}${suffix} (${result.count})`],
     skipped: [],
     stock,
-    message: `Loaded ${result.count} numbers — ${stock.unused} now unused.`,
+    message: `Loaded ${result.count} numbers — ${stock.unused} now unused.${partly}`,
   });
 }

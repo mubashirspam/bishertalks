@@ -21,14 +21,29 @@ import type { DelhiverySettings } from "./config";
 export type DelhiveryFailure = "rejected" | "unknown";
 
 export class DelhiveryError extends Error {
+  readonly kind: DelhiveryFailure;
+  readonly status?: number;
+  readonly body?: string;
+
+  // Fields declared and assigned rather than written as constructor parameter
+  // properties. Those are the one piece of TypeScript that cannot be erased —
+  // they emit code — so Node's type stripping refuses the whole module, and
+  // because lib/couriers/types.ts reaches this file through ./adapters, that
+  // refusal takes every courier helper with it. Any script run the way this
+  // repo runs them (node --experimental-strip-types, see package.json) died on
+  // `import { listCouriers }` with an error naming a Delhivery file it had no
+  // interest in.
   constructor(
     message: string,
-    readonly kind: DelhiveryFailure,
-    readonly status?: number,
-    readonly body?: string
+    kind: DelhiveryFailure,
+    status?: number,
+    body?: string
   ) {
     super(message);
     this.name = "DelhiveryError";
+    this.kind = kind;
+    this.status = status;
+    this.body = body;
   }
 }
 

@@ -30,14 +30,26 @@ import { accessToken, forgetToken } from "./session";
 export type IndiaPostFailure = "rejected" | "unauthorised" | "blocked" | "unknown";
 
 export class IndiaPostError extends Error {
+  readonly kind: IndiaPostFailure;
+  readonly status?: number;
+  readonly body?: string;
+
+  // Declared and assigned, not constructor parameter properties — see the same
+  // note on DelhiveryError. They are the one bit of TypeScript that emits code
+  // rather than being erased, so a module using them cannot be loaded by
+  // `node --experimental-strip-types`, which is how every script in this repo
+  // runs.
   constructor(
     message: string,
-    readonly kind: IndiaPostFailure,
-    readonly status?: number,
-    readonly body?: string
+    kind: IndiaPostFailure,
+    status?: number,
+    body?: string
   ) {
     super(message);
     this.name = "IndiaPostError";
+    this.kind = kind;
+    this.status = status;
+    this.body = body;
   }
 }
 
