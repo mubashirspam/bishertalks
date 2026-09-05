@@ -38,6 +38,7 @@ export default function ThreadClient({
   canReply,
   canConsent,
   quickReplies,
+  onChanged,
 }: {
   contact: { id: string; phone: string; optedOut: boolean; marketingOptIn: boolean };
   messages: ThreadMessage[];
@@ -50,8 +51,22 @@ export default function ThreadClient({
    * customer's login number — see lib/crm/quick-replies.ts.
    */
   quickReplies: Record<ReplyLanguage, QuickReply[]>;
+  /**
+   * What to do once a send or a consent change lands.
+   *
+   * The thread PAGE has no answer but `router.refresh()`, which re-runs its
+   * server component — five awaits, and the screen blanks. Inside the inbox
+   * that is the wrong tool entirely: the list beside it has not changed, and
+   * refreshing throws away its scroll position and search to rebuild it.
+   *
+   * So the inbox passes its own re-fetch, which reloads this one conversation
+   * over JSON and leaves everything else alone. Absent, the old behaviour
+   * stands, which is what the standalone page still wants.
+   */
+  onChanged?: () => void;
 }) {
   const router = useRouter();
+  const changed = onChanged ?? (() => router.refresh());
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +128,7 @@ export default function ThreadClient({
       return;
     }
     setText("");
-    router.refresh();
+    changed();
   }
 
   async function consent(action: string) {
@@ -134,7 +149,7 @@ export default function ThreadClient({
     setBusy(false);
 
     if (!res.ok) setError(json.error ?? "That didn't work.");
-    else router.refresh();
+    else changed();
   }
 
   return (

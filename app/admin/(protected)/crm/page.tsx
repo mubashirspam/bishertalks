@@ -12,6 +12,7 @@ import {
 } from "@/lib/crm/contacts";
 import { latestHealth, ratingTone } from "@/lib/crm/health";
 import CrmTabs from "./CrmTabs";
+import InboxShell, { type ConversationRow } from "./InboxShell";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
 export default async function CrmInboxPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string; q?: string }>;
+  searchParams: Promise<{ filter?: string; q?: string; c?: string }>;
 }) {
   await requirePageAccess("crm.view");
   const params = await searchParams;
@@ -47,13 +48,22 @@ export default async function CrmInboxPage({
       <CrmTabs active="inbox" />
 
       <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={8} columns={4} /></>}>
-        <Body filter={params.filter} q={params.q} />
+        <Body filter={params.filter} q={params.q} selected={params.c} />
       </Suspense>
     </div>
   );
 }
 
-async function Body({ filter, q }: { filter?: string; q?: string }) {
+async function Body({
+  filter,
+  q,
+  selected,
+}: {
+  filter?: string;
+  q?: string;
+  /** `?c=<id>` — the conversation to open on first paint. */
+  selected?: string;
+}) {
   const [health, settings, today] = await Promise.all([
     latestHealth(),
     getSettings(),
@@ -149,60 +159,29 @@ async function Body({ filter, q }: { filter?: string; q?: string }) {
       </div>
 
       {/* ── Conversations ──────────────────────────────────────────────── */}
-      {!conversations.length ? (
-        <p className="rounded-xl border border-neutral-200 bg-white px-4 py-8 text-center text-sm text-neutral-400">
-          Nothing here yet. Conversations appear once a customer replies to a
-          message from the automated number.
-        </p>
-      ) : (
-        <div className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 bg-white">
-          {conversations.map((c) => {
-            const win = windowState(c.last_inbound_at);
-            return (
-              <Link
-                key={c.id}
-                href={`/admin/crm/${c.id}`}
-                className="flex items-center gap-3 px-4 py-3 transition hover:bg-neutral-50"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-2 text-sm font-semibold text-neutral-900">
-                    <span className="truncate">
-                      {c.display_name?.trim() || c.phone}
-                    </span>
-                    {c.unread_count > 0 && (
-                      <span className="shrink-0 rounded-full bg-primary-500 px-1.5 py-0.5 text-[10px] font-bold text-white tabular-nums">
-                        {c.unread_count}
-                      </span>
-                    )}
-                    {c.opt_out_at && (
-                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700">
-                        <Ban className="h-3 w-3" /> Stopped
-                      </span>
-                    )}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-neutral-400 tabular-nums">
-                    {c.phone}
-                    {c.last_order_number ? ` · ${c.last_order_number}` : ""}
-                  </p>
-                </div>
-
-                <div className="shrink-0 text-right">
-                  {win.open ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700">
-                      <Clock className="h-3 w-3" />
-                      {formatWindow(win.remainingMs)}
-                    </span>
-                  ) : (
-                    <span className="text-[10px] text-neutral-400">
-                      {c.last_inbound_at ? "Window closed" : "Never replied"}
-                    </span>
-                  )}
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-      )}
+      {/*
+        Two panes, and no navigation between them. Each row used to be a link
+        into a server-rendered thread page, so opening somebody rebuilt this
+        entire screen — list included — and sending a reply did it again. See
+        InboxShell.
+      */}
+      <InboxShell
+        conversations={conversations.map((c): ConversationRow => {
+          const win = windowState(c.last_inbound_at);
+          return {
+            id: c.id,
+            phone: c.phone,
+            displayName: c.display_name,
+            unread: c.unread_count,
+            optedOut: !!c.opt_out_at,
+            lastOrderNumber: c.last_order_number,
+            lastInboundAt: c.last_inbound_at,
+            windowOpen: win.open,
+            windowLabel: formatWindow(win.remainingMs),
+          };
+        })}
+        initialId={selected ?? null}
+      />
     </div>
   );
 }
