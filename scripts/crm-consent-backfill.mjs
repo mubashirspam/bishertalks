@@ -31,12 +31,13 @@
  * question "why is this person marketable?" has an answer per contact rather
  * than a note in a commit message.
  *
- * Safe to re-run, but not a no-op: it never rewrites a contact that already
- * has a date, and it DOES pick up contacts created since the last run. That
- * second half is not a nicety — `upsertContact` does not set the flag when it
- * creates a contact from an order, so every new customer arrives without it
- * and would be refused by the gate. Until that changes, this needs running
- * periodically or the campaign refusals come straight back.
+ * Safe to re-run, and now normally a no-op. `upsertContact` records the same
+ * consent on the same basis the moment it sees an order, so new customers no
+ * longer arrive unmarketable and this no longer has to be run periodically to
+ * keep campaigns from refusing everybody.
+ *
+ * Kept for the one thing that fix cannot do: a contact whose row already
+ * existed before it landed. This is what caught up the 1,783 of those.
  */
 
 import { readFileSync } from "node:fs";

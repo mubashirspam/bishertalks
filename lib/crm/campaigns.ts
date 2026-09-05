@@ -114,26 +114,42 @@ async function alreadySent(
  * be created showing 400 recipients, started, and refuse all 400 one by one.
  * The dry run has to say so up front, because the whole point of a dry run is
  * that the number on screen is the number that will be messaged.
+ *
+ * A missing contact row is NOT a missing consent. `createCampaign` calls
+ * `upsertContact` with the member's order number as it queues, and that records
+ * consent on the shop's standing basis — the number was typed into checkout for
+ * that order. Counting those as refusals was the more damaging error of the
+ * two: it reported 579 of 781 unreachable on a segment the campaign can in fact
+ * message in full, and a preview that under-counts its own audience is a
+ * campaign nobody starts.
+ *
+ * A member with no row AND no order number is still counted. Nothing will
+ * consent them, and the gate will refuse them one at a time.
  */
-async function withoutMarketingConsent(phones: string[]): Promise<number> {
-  if (!phones.length) return 0;
+async function withoutMarketingConsent(
+  members: { phone: string; orderNumber: string | null }[]
+): Promise<number> {
+  if (!members.length) return 0;
   let missing = 0;
   const CHUNK = 300;
 
-  for (let i = 0; i < phones.length; i += CHUNK) {
-    const slice = phones.slice(i, i + CHUNK);
+  for (let i = 0; i < members.length; i += CHUNK) {
+    const slice = members.slice(i, i + CHUNK);
     const { data } = await supabaseAdmin
       .from("whatsapp_contacts")
       .select("phone, marketing_opt_in_at")
-      .in("phone", slice);
+      .in(
+        "phone",
+        slice.map((m) => m.phone)
+      );
 
-    const optedIn = new Set(
-      ((data ?? []) as { phone: string; marketing_opt_in_at: string | null }[])
-        .filter((c) => c.marketing_opt_in_at)
-        .map((c) => c.phone)
-    );
-    // A phone with no contact row has never consented either.
-    missing += slice.filter((p) => !optedIn.has(p)).length;
+    const rows = (data ?? []) as { phone: string; marketing_opt_in_at: string | null }[];
+    const optedIn = new Set(rows.filter((c) => c.marketing_opt_in_at).map((c) => c.phone));
+    const hasRow = new Set(rows.map((c) => c.phone));
+
+    missing += slice.filter(
+      (m) => !optedIn.has(m.phone) && (hasRow.has(m.phone) || !m.orderNumber)
+    ).length;
   }
   return missing;
 }
@@ -194,7 +210,9 @@ export async function dryRun(
     // shows 400 recipients, starts, and refuses all 400 one at a time — the
     // dry run's whole job is to make that visible before it happens.
     if (template.category === "MARKETING") {
-      const missing = await withoutMarketingConsent(members.map((m) => m.phone));
+      const missing = await withoutMarketingConsent(
+        members.map((m) => ({ phone: m.phone, orderNumber: m.orderNumber }))
+      );
       if (missing > 0) {
         excluded.push({
           reason: "Would be refused — no marketing opt-in",

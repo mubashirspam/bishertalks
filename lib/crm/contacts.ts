@@ -49,6 +49,27 @@ const COLUMNS =
  * Returns null for a number that is not a valid Indian mobile — the caller
  * gets a refusal rather than a row, because a contact we cannot message is
  * worse than no contact at all.
+ *
+ * ── An order number is consent ──────────────────────────────────────────
+ *
+ * A seed carrying `orderNumber` is somebody who typed their phone into this
+ * shop's checkout for that order. The shop's standing decision is that this is
+ * consent to be messaged about it — the same basis every `order_confirmed`
+ * ever sent to these numbers already rests on — so it is recorded here rather
+ * than left for scripts/crm-consent-backfill.mjs to notice later.
+ *
+ * Without this the gate's MARKETING check (lib/crm/gate.ts, 06) refuses the
+ * people it most needs to reach. A failed payment sends no WhatsApp, so those
+ * customers have no contact row; the campaign creates one as it queues, and a
+ * row created without consent is refused at send. That was 579 of the 781 in
+ * the payment-failed segment — a campaign that queued, ran and messaged nobody,
+ * which is indistinguishable from the feature being broken.
+ *
+ * Two conditions, both deliberate. Only with an order: a number that has only
+ * ever messaged us has been through no checkout and consented to nothing. And
+ * never over an opt-out or an existing date — the stop flag wins over this as
+ * it wins over everything, and the first yes is the date that matters if
+ * anybody ever asks.
  */
 export async function upsertContact(
   rawPhone: string | null | undefined,
@@ -66,6 +87,13 @@ export async function upsertContact(
       if (seed?.name && !existing.display_name) patch.display_name = seed.name.trim();
       if (seed?.orderNumber) patch.last_order_number = seed.orderNumber;
       if (seed?.userId && !existing.user_id) patch.user_id = seed.userId;
+      if (
+        seed?.orderNumber &&
+        !existing.marketing_opt_in_at &&
+        !existing.opt_out_at
+      ) {
+        patch.marketing_opt_in_at = new Date().toISOString();
+      }
 
       if (Object.keys(patch).length) {
         patch.updated_at = new Date().toISOString();
@@ -87,6 +115,7 @@ export async function upsertContact(
         display_name: seed?.name?.trim() || null,
         last_order_number: seed?.orderNumber ?? null,
         user_id: seed?.userId ?? null,
+        marketing_opt_in_at: seed?.orderNumber ? new Date().toISOString() : null,
       })
       .select(COLUMNS)
       .maybeSingle();
