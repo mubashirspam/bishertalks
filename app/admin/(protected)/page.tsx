@@ -1,6 +1,7 @@
 import Link from "@/components/admin/AdminLink";
 import {
   IndianRupee, CalendarDays, CalendarRange, CalendarCheck, AlertCircle, ArrowRight, Clock,
+  Wallet,
 } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { fetchAllRows } from "@/lib/db/paginate";
@@ -12,6 +13,7 @@ import { stockWarning, LOW_STOCK_DAYS } from "@/lib/db/inventory";
 import { Suspense } from "react";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
 import { listCouriers } from "@/lib/db/couriers";
+import { countsAsRevenue, isDirectSale } from "@/lib/db/sales-channel";
 import RevenueCharts from "./RevenueCharts";
 import HourlyOrders from "./HourlyOrders";
 import CourierStatusTable from "./CourierStatusTable";
@@ -137,6 +139,8 @@ async function DashboardBody() {
       quantity: number | null;
       ordered_at: string;
       source: string | null;
+      /** online | manual. Decides which of the two totals below a row joins. */
+      sales_channel: string | null;
       // Two more columns on a read this screen already does. The courier x
       // status table below is counted from these rows rather than from a
       // second full-table pass — same 3,500 rows, one trip.
@@ -146,7 +150,9 @@ async function DashboardBody() {
       (from, to) =>
         supabaseAdmin
           .from("orders")
-          .select("amount_paise,refunded_paise,quantity,ordered_at,source,status,courier_id")
+          .select(
+            "amount_paise,refunded_paise,quantity,ordered_at,source,sales_channel,status,courier_id"
+          )
           .eq("payment_status", "paid")
       // ordered_at, not created_at: every row here is paid, so this is the
       // payment date — and money must be counted on the day it arrived, not on
@@ -169,7 +175,13 @@ async function DashboardBody() {
     listCouriers(),
   ]);
 
-  const paid = paidOrders.rows;
+  // Two populations, one read. Direct sales (QR/UPI, address over WhatsApp)
+  // are real parcels and belong in the courier table below with everything
+  // else — but their money never touched Razorpay, so it is counted on its own
+  // and never mixed into the four tiles that get checked against the
+  // settlement statement. See lib/db/sales-channel.ts.
+  const paid = paidOrders.rows.filter(countsAsRevenue);
+  const direct = paidOrders.rows.filter(isDirectSale);
 
   /**
    * Revenue, order count and book count for one period, in a single pass.
@@ -211,6 +223,18 @@ async function DashboardBody() {
    */
   const books = (t: { orders: number; books: number }) =>
     t.books === t.orders ? "" : ` · ${t.books.toLocaleString("en-IN")} books`;
+
+  /** The same pass, over the direct sales instead. */
+  const directTotals = direct.reduce(
+    (acc, o) => {
+      acc.paise += (o.amount_paise ?? 0) - (o.refunded_paise ?? 0);
+      acc.orders += 1;
+      acc.books += o.quantity ?? 1;
+      if (o.ordered_at >= monthStart) acc.monthPaise += (o.amount_paise ?? 0) - (o.refunded_paise ?? 0);
+      return acc;
+    },
+    { paise: 0, orders: 0, books: 0, monthPaise: 0 }
+  );
 
   const total = totalsSince("");
   const todayTotals = totalsSince(todayStart);
@@ -269,10 +293,41 @@ async function DashboardBody() {
         ))}
       </div>
 
+      {/* Its own card, deliberately not one of the four above and deliberately
+          not a gradient: this money did not come through Razorpay, and the
+          whole point of the separation is that it never reads as part of the
+          settlement total. Hidden entirely until there is a direct sale —
+          a permanent ₹0 tile is furniture. */}
+      {directTotals.orders > 0 && (
+        <Link
+          href="/admin/orders?channel=manual"
+          className="mb-6 flex items-start gap-4 rounded-2xl border border-dashed border-neutral-300 bg-white px-5 py-4 hover:border-neutral-400 transition-colors"
+        >
+          <div className="w-9 h-9 shrink-0 rounded-xl bg-neutral-100 text-neutral-600 flex items-center justify-center">
+            <Wallet className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-xl sm:text-2xl font-black leading-none text-neutral-900">
+              ₹{rupees(directTotals.paise)}
+            </p>
+            <p className="text-sm font-semibold mt-2 text-neutral-900">Direct sales</p>
+            <p className="text-xs mt-0.5 text-neutral-500">
+              {orders(directTotals.orders)} · {directTotals.books.toLocaleString("en-IN")} book
+              {directTotals.books === 1 ? "" : "s"} · ₹{rupees(directTotals.monthPaise)} this month
+            </p>
+            <p className="text-xs mt-1.5 text-neutral-400">
+              Paid by QR, UPI, cash or transfer — never counted in the four totals above,
+              and not included in book or stock figures.
+            </p>
+          </div>
+          <ArrowRight className="w-4 h-4 text-neutral-400 ml-auto shrink-0 mt-1" />
+        </Link>
+      )}
+
       <RevenueCharts rows={paid} />
 
       <CourierStatusTable
-        rows={paid}
+        rows={paidOrders.rows}
         courierNames={new Map(couriers.map((c) => [c.id, c.name]))}
       />
 

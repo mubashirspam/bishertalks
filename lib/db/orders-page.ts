@@ -27,11 +27,12 @@ export const fetchOrdersPage = cache(async function fetchOrdersPage(
   source: string | undefined,
   followUp: string | undefined,
   books: string | undefined,
+  channel: string | undefined,
   pageNum: number,
   perPage: number
 ) {
   const { data, count, error } = await buildOrdersQuery({
-    stage, q, from, to, source, followUp, books,
+    stage, q, from, to, source, followUp, books, channel,
   }).range(
     pageNum * perPage,
     (pageNum + 1) * perPage - 1

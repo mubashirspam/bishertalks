@@ -31,6 +31,18 @@ const BOOK_COUNTS = [
   { label: "Single copy", value: "single" },
 ];
 
+/**
+ * How the money arrived (0061).
+ *
+ * "All" by default: this is the order book, and a direct sale is a parcel
+ * somebody is waiting for. Hiding it here would be how it got forgotten.
+ */
+const CHANNELS = [
+  { label: "All sales", value: "all" },
+  { label: "Online checkout", value: "online" },
+  { label: "Direct sales", value: "manual" },
+];
+
 const PRESETS = [
   { label: "Today", days: 0 },
   { label: "7 days", days: 6 },
@@ -59,6 +71,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
   const source = params.get("source") ?? "all";
   const followUp = params.get("followUp") ?? "all";
   const books = params.get("books") ?? "all";
+  const channel = params.get("channel") ?? "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const [q, setQ] = useState(params.get("q") ?? "");
@@ -79,6 +92,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
     if (source !== "all") p.set("source", source);
     if (followUp !== "all") p.set("followUp", followUp);
     if (books !== "all") p.set("books", books);
+    if (channel !== "all") p.set("channel", channel);
     if (from) p.set("from", from);
     if (to) p.set("to", to);
     if (params.get("q")) p.set("q", params.get("q")!);
@@ -88,7 +102,7 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
 
   const hasFilters =
     stage !== "all" || source !== "all" || followUp !== "all" || books !== "all" ||
-    !!from || !!to || !!params.get("q");
+    channel !== "all" || !!from || !!to || !!params.get("q");
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -149,6 +163,19 @@ export default function OrderFilters({ countSlot }: { countSlot?: React.ReactNod
           >
             {BOOK_COUNTS.map((b) => (
               <option key={b.value} value={b.value}>{b.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="min-w-[150px]">
+          <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Sale type</label>
+          <select
+            value={channel}
+            onChange={(e) => push({ channel: e.target.value === "all" ? null : e.target.value })}
+            className={`${field} w-full cursor-pointer`}
+          >
+            {CHANNELS.map((c) => (
+              <option key={c.value} value={c.value}>{c.label}</option>
             ))}
           </select>
         </div>

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { REVENUE_SCOPE } from "@/lib/db/sales-channel";
 import { fetchAllRows } from "@/lib/db/paginate";
 import { istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
 import {
@@ -135,6 +136,10 @@ export async function getInsights(filters: {
     let query = supabaseAdmin
       .from("orders")
       .select("source,payment_status,amount_paise")
+      // Direct sales never went through the checkout, so they have no lead to
+      // convert from (0061). Counting them here would add a paid order with no
+      // matching lead and quietly inflate every conversion rate on the page.
+      .eq(REVENUE_SCOPE.column, REVENUE_SCOPE.value)
       // Stable order, or paging can repeat and skip rows between requests.
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
@@ -215,6 +220,10 @@ export async function getLinkBreakdown(filters: {
         "source,utm_source,utm_medium,utm_campaign,utm_content,referrer_url," +
           "landing_path,created_at,payment_status,amount_paise"
       )
+      // Direct sales never went through the checkout, so they have no lead to
+      // convert from (0061). Counting them here would add a paid order with no
+      // matching lead and quietly inflate every conversion rate on the page.
+      .eq(REVENUE_SCOPE.column, REVENUE_SCOPE.value)
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .range(from, to);

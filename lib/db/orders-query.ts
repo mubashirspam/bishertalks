@@ -14,6 +14,14 @@ export interface OrderFilters {
   followUp?: string;
   /** Copies in the order: "multi" for 2+, "single" for exactly one, or "all". */
   books?: string;
+  /**
+   * How the money arrived: a SalesChannel, or "all".
+   *
+   * Defaults to "all" rather than to online. This screen is the order book, not
+   * a revenue report — a direct sale is a parcel somebody is waiting for, and
+   * hiding it here by default is how it would get forgotten.
+   */
+  channel?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -61,6 +69,11 @@ export interface OrderRow {
   follow_up_status: string | null;
   follow_up_at: string | null;
   follow_up_note: string | null;
+  /** "online" or "manual" (0061). Never null in practice — the column defaults. */
+  sales_channel: string | null;
+  /** Only ever set on a direct sale. */
+  manual_payment_method: string | null;
+  manual_payment_ref: string | null;
 }
 
 export const ORDER_COLUMNS =
@@ -70,7 +83,8 @@ export const ORDER_COLUMNS =
   "address_line1,address_line2,city,district,state,pincode," +
   "razorpay_order_id,razorpay_payment_id,checkout_type," +
   "created_at,paid_at,ordered_at,address_submitted_at," +
-  "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note";
+  "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note," +
+  "sales_channel,manual_payment_method,manual_payment_ref";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -120,6 +134,10 @@ export function buildOrdersQuery(filters: OrderFilters) {
   // running a session, and that's a different conversation from a single copy.
   // `quantity` is NOT NULL DEFAULT 1, so a plain comparison catches every old
   // row correctly without an `or (quantity is null)` arm.
+  if (filters.channel && filters.channel !== "all") {
+    query = query.eq("sales_channel", filters.channel);
+  }
+
   if (filters.books === "multi") query = query.gte("quantity", 2);
   else if (filters.books === "single") query = query.eq("quantity", 1);
 

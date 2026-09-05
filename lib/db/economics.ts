@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { REVENUE_SCOPE } from "@/lib/db/sales-channel";
 import { getProductPricing } from "@/lib/db/courses";
 import { fetchAllRows } from "@/lib/db/paginate";
 
@@ -165,6 +166,11 @@ export async function getTradingHistory(): Promise<TradingHistory> {
           "amount_paise, refunded_paise, quantity, ordered_at, shipped_at, delivered_at, returned_at"
         )
         .eq("payment_status", "paid")
+        // Direct sales are reported on their own and counted nowhere else
+        // (0061) — see lib/db/sales-channel.ts. Every figure below is a
+        // per-book profit checked against a Razorpay settlement, and money
+        // that never went through Razorpay has no place in it.
+        .eq(REVENUE_SCOPE.column, REVENUE_SCOPE.value)
         // The day the money arrived, not the day checkout began — see 0043.
         .order("ordered_at", { ascending: true })
         .range(from, to),

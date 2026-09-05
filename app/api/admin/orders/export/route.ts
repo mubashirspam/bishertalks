@@ -48,6 +48,7 @@ export async function GET(request: NextRequest) {
     source: p.get("source") ?? undefined,
     followUp: p.get("followUp") ?? undefined,
     books: p.get("books") ?? undefined,
+    channel: p.get("channel") ?? undefined,
   };
 
   // Paged. The `.limit(5000)` this replaces never worked: PostgREST caps a

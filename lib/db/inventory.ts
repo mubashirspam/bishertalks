@@ -1,5 +1,6 @@
 import { unstable_cache } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { REVENUE_SCOPE } from "@/lib/db/sales-channel";
 import { fetchAllRows } from "@/lib/db/paginate";
 import {
   INVENTORY_TAG,
@@ -178,6 +179,12 @@ export async function salesRate(days = 7): Promise<SalesRate> {
         .from("orders")
         .select("quantity")
         .eq("payment_status", "paid")
+        // Direct sales move books but are held out of every book figure by
+        // instruction (0061). Excluded here too, so the rate this feeds and
+        // the `free` count it is divided into are measuring the same thing —
+        // a rate over one population and a stock level over another would
+        // produce a days-of-cover number that means nothing at all.
+        .eq(REVENUE_SCOPE.column, REVENUE_SCOPE.value)
         .gte("ordered_at", since)
         .order("ordered_at", { ascending: true })
         .range(from, to),

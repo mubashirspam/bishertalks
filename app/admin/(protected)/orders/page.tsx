@@ -1,5 +1,5 @@
 import Link from "@/components/admin/AdminLink";
-import { AlertCircle, Phone, MessageCircle, ArrowRight, Gift, PenLine } from "lucide-react";
+import { AlertCircle, Phone, MessageCircle, ArrowRight, Gift, PenLine, Plus } from "lucide-react";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { orderStage, STAGE_LABELS, STAGE_BADGE } from "@/lib/order-stage";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
@@ -21,6 +21,8 @@ interface QueryArgs {
   source?: string;
   followUp?: string;
   books?: string;
+  /** "online" | "manual" | undefined for both (0061). */
+  channel?: string;
   pageNum: number;
 }
 import { requirePageAccess } from "@/lib/admin-auth";
@@ -43,6 +45,8 @@ interface Row {
   refunded_paise: number;
   address_line1: string | null;
   razorpay_order_id: string | null;
+  /** "online" | "manual" (0061). Direct sales are badged in the table. */
+  sales_channel: string | null;
   city: string | null;
   state: string | null;
   created_at: string;
@@ -61,18 +65,22 @@ export default async function AdminOrdersPage({
     source?: string;
     followUp?: string;
     books?: string;
+    channel?: string;
   }>;
 }) {
   // Cached per request and shared with the layout, so this no longer costs a
   // second round trip to Supabase auth.
   await requirePageAccess("orders.view");
 
-  const { stage, q, page = "1", from, to, source, followUp, books } = await searchParams;
+  const { stage, q, page = "1", from, to, source, followUp, books, channel } =
+    await searchParams;
   const pageNum = Math.max(0, parseInt(page) - 1);
 
   // Nothing is awaited past this point: the shell renders now and the two
   // sections below stream in when the (single, shared) query resolves.
-  const queryArgs: QueryArgs = { stage, q, from, to, source, followUp, books, pageNum };
+  const queryArgs: QueryArgs = {
+    stage, q, from, to, source, followUp, books, channel, pageNum,
+  };
 
   return (
     <NavigationPending>
@@ -81,6 +89,16 @@ export default async function AdminOrdersPage({
 
       {/* Filters render immediately — they need no data, so making them wait
           for the query was pure delay. The row count is streamed into them. */}
+      <div className="flex justify-end mb-3">
+        <Link
+          href="/admin/orders/new"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
+        >
+          <Plus className="w-4 h-4" />
+          Add direct sale
+        </Link>
+      </div>
+
       <OrderFilters
         countSlot={
           <Suspense fallback={<span className="text-neutral-400">Counting…</span>}>
@@ -104,11 +122,11 @@ export default async function AdminOrdersPage({
 async function OrderCount(props: QueryArgs) {
   const { count } = await fetchOrdersPage(
     props.stage, props.q, props.from, props.to, props.source, props.followUp, props.books,
-    props.pageNum, PER_PAGE
+    props.channel, props.pageNum, PER_PAGE
   );
   const filtered =
     !!props.stage || !!props.q || !!props.from || !!props.to || !!props.source ||
-    !!props.followUp || !!props.books;
+    !!props.followUp || !!props.books || !!props.channel;
 
   return (
     <>
@@ -122,7 +140,7 @@ async function OrderCount(props: QueryArgs) {
 async function OrdersTable(props: QueryArgs) {
   const { rows, count } = await fetchOrdersPage(
     props.stage, props.q, props.from, props.to, props.source, props.followUp, props.books,
-    props.pageNum, PER_PAGE
+    props.channel, props.pageNum, PER_PAGE
   );
   const orders = rows as unknown as Row[];
   const pageNum = props.pageNum;
@@ -146,6 +164,7 @@ async function OrdersTable(props: QueryArgs) {
     if (props.source) sp.set("source", props.source);
     if (props.followUp) sp.set("followUp", props.followUp);
     if (props.books) sp.set("books", props.books);
+    if (props.channel) sp.set("channel", props.channel);
     if (p > 1) sp.set("page", String(p));
     const qs = sp.toString();
     return `/admin/orders${qs ? `?${qs}` : ""}`;
@@ -286,6 +305,15 @@ async function OrdersTable(props: QueryArgs) {
                         )}
                       </td>
                       <td className="px-4 py-3 hidden md:table-cell">
+                        {/* Where the money came from, which is not where the
+                            CUSTOMER came from — both can be true at once, so
+                            this sits above the attribution badge rather than
+                            replacing it. */}
+                        {o.sales_channel === "manual" && (
+                          <span className="inline-flex px-2 py-0.5 mb-1 rounded-full text-[11px] font-medium border border-dashed border-neutral-400 bg-neutral-50 text-neutral-600 whitespace-nowrap">
+                            Direct sale
+                          </span>
+                        )}
                         {isTrafficSource(o.source) && (
                           <>
                             <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium border whitespace-nowrap ${SOURCE_BADGE[o.source]}`}>
