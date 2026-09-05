@@ -32,13 +32,17 @@
  */
 
 /** How the name was matched, strongest first. */
-export type MatchTier = "exact" | "initials" | "tokens";
+export type MatchTier = "exact" | "initials" | "tokens" | "fuzzy";
 
 export const TIER_LABELS: Record<MatchTier, string> = {
   exact: "name matches exactly",
   initials: "name matches ignoring initials",
   tokens: "every word of the shorter name appears in the longer",
+  fuzzy: "name is a near-spelling, above the similarity threshold",
 };
+
+/** Below this, two names are not the same person. Overridable per call. */
+export const DEFAULT_SIMILARITY = 0.8;
 
 /**
  * A name, reduced to what can be compared.
@@ -103,6 +107,90 @@ export function nameAgreement(a: string, b: string): MatchTier | null {
 
   const set = new Set(long);
   return short.every((t) => set.has(t)) ? "tokens" : null;
+}
+
+// ── Similarity, for the names the three tiers above cannot reach ────────────
+//
+// The tiers are all-or-nothing: they compare whole words, so one transposed
+// letter fails every one of them. That is most of what a post office counter
+// produces. "SREEKUMAR MK" against "Sreekumàr M K" is the same customer and
+// matches at `initials`; "GOOPKUMAR K V" against "Gopakumar k v" is also the
+// same customer and matches nothing at all, because "GOOPKUMAR" is not
+// "GOPAKUMAR" and no amount of word comparison will make it so.
+//
+// So this measures how far apart two names are per character, and the caller
+// decides where to draw the line. It is deliberately the LAST tier: a score is
+// a weaker kind of evidence than an agreement, and anything the strict tiers
+// can claim, they claim first.
+
+/** Edit distance, with a rolling two-row table rather than a full matrix. */
+function levenshtein(a: string, b: string): number {
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(
+        prev[j] + 1,
+        cur[j - 1] + 1,
+        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+
+/** Edit distance as a 0-1 agreement, so length does not decide the score. */
+const ratio = (a: string, b: string): number =>
+  !a.length && !b.length ? 1 : 1 - levenshtein(a, b) / Math.max(a.length, b.length);
+
+/**
+ * How alike two names are, 0 to 1.
+ *
+ * Compared three ways, best wins, because the two sides disagree about word
+ * ORDER as often as they disagree about spelling:
+ *
+ *   token set   the words they share, against each side's full set. This is
+ *               what carries "AMJAD ABDUL KHADER M" against
+ *               "Amjad Abdulkhader.M" — one side split a word the other joined.
+ *   token sort  both word lists alphabetised, then compared. Survives a
+ *               surname written first on one side.
+ *   plain       the normalised strings as they stand, which is the only one of
+ *               the three that catches a single-word name.
+ *
+ * Normalisation is `normaliseName`'s — upper case, no punctuation, honorifics
+ * dropped — so an accent or a trailing full stop costs nothing. Single-letter
+ * initials are dropped from the token comparisons for the same reason they are
+ * in `nameAgreement`, but kept in the plain one, where "T S" against "TS" is
+ * exactly the difference being measured.
+ */
+export function nameSimilarity(rawA: string, rawB: string): number {
+  const na = normaliseName(rawA);
+  const nb = normaliseName(rawB);
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+
+  const ta = nameTokens(na);
+  const tb = nameTokens(nb);
+  if (!ta.length || !tb.length) return ratio(na, nb);
+
+  const sa = new Set(ta);
+  const sb = new Set(tb);
+  const shared = [...sa].filter((t) => sb.has(t)).sort().join(" ");
+  const onlyA = [shared, ...[...sa].filter((t) => !sb.has(t)).sort()].join(" ").trim();
+  const onlyB = [shared, ...[...sb].filter((t) => !sa.has(t)).sort()].join(" ").trim();
+
+  return Math.max(
+    ratio(shared, onlyA),
+    ratio(shared, onlyB),
+    ratio(onlyA, onlyB),
+    ratio([...ta].sort().join(" "), [...tb].sort().join(" ")),
+    ratio(na, nb)
+  );
 }
 
 /** One row of their booking export, reduced to what matching needs. */
@@ -171,6 +259,8 @@ export interface MatchResult {
   booking: BookingRow;
   verdict: Verdict;
   tier: MatchTier | null;
+  /** How alike the two names are, 0-1, or null where no name was compared. */
+  score: number | null;
   /** The order this is proposed against, when exactly one was found. */
   order: CandidateOrder | null;
   /** Every order that agreed, for the ambiguous and mismatch cases. */
@@ -189,11 +279,26 @@ export interface MatchResult {
  * An order already carrying a DIFFERENT article number is not a candidate. It
  * is a parcel that has already been posted once, and attaching a second
  * article to it would silently replace a number somebody may be tracking.
+ *
+ * `fuzzy` adds the similarity tier after the three strict ones, for the
+ * counter's spelling. OFF by default, and deliberately so: it is the only tier
+ * that can match two names no human rule says are equal, so it is something a
+ * person turns on for a file they are going to read, not the standing
+ * behaviour of every import.
  */
+export interface MatchOptions {
+  /** Allow the similarity tier. Default false. */
+  fuzzy?: boolean;
+  /** Where the similarity tier draws its line. Default DEFAULT_SIMILARITY. */
+  threshold?: number;
+}
+
 export function matchBookings(
   bookings: BookingRow[],
-  orders: CandidateOrder[]
+  orders: CandidateOrder[],
+  options: MatchOptions = {}
 ): MatchResult[] {
+  const { fuzzy = false, threshold = DEFAULT_SIMILARITY } = options;
   // Every article number we already hold, whichever column it landed in.
   const known = new Map<string, CandidateOrder>();
   for (const o of orders) {
@@ -217,6 +322,25 @@ export function matchBookings(
   /** Orders spoken for by an earlier booking in this same run. */
   const taken = new Set<string>();
 
+  /**
+   * Unpaid matches, held back until every tier has run.
+   *
+   * A tier claims a booking the moment it finds one candidate, and the tiers
+   * run strongest first — so an UNPAID order agreeing at `initials` consumes a
+   * booking that a PAID order would have matched at `fuzzy`, and the paid
+   * order is then reported as if nothing was posted for it. Pincode 679303 had
+   * exactly that: their "YUSEPH P C" went to a `pending` order reading
+   * "YUSEPH", while the paid "Yuseph PC" two rows down got nothing.
+   *
+   * This module already holds that the book was posted against the order that
+   * was paid for — that is why the twins rule exists a few lines below. The
+   * twins rule can only apply it WITHIN a tier, because that is the only place
+   * it can see both orders at once. Deferring is the same principle across
+   * tiers: an unpaid candidate is remembered, not acted on, and only becomes
+   * the answer once no tier has found a paid order for that booking.
+   */
+  const deferred = new Map<string, { order: CandidateOrder; tier: MatchTier }>();
+
   const results: MatchResult[] = [];
 
   // Strongest tier first across the WHOLE file, not row by row. Otherwise an
@@ -236,6 +360,7 @@ export function matchBookings(
       booking: p.booking,
       verdict: "already_linked",
       tier: null,
+      score: null,
       order: hit,
       others: [],
       note: `already on ${hit.order_number}`,
@@ -244,21 +369,50 @@ export function matchBookings(
 
   // Passes 1-3: one tier at a time, so a stronger agreement always wins the
   // order it wants.
-  for (const tier of ["exact", "initials", "tokens"] as MatchTier[]) {
+  const tiers: MatchTier[] = fuzzy
+    ? ["exact", "initials", "tokens", "fuzzy"]
+    : ["exact", "initials", "tokens"];
+
+  for (const tier of tiers) {
     for (const p of pending) {
       if (p.done) continue;
 
       const pin = normalisePin(p.booking.pincode);
       if (!pin) continue;
 
-      const candidates = (byPin.get(pin) ?? []).filter(
+      const free = (byPin.get(pin) ?? []).filter(
         (o) =>
           !taken.has(o.order_number) &&
           // Already posted under a different article. Not ours to reassign.
           !o.postal_barcode &&
-          !o.tracking_number &&
-          nameAgreement(p.booking.receiverName, o.buyer_name ?? "") === tier
+          !o.tracking_number
       );
+
+      // The strict tiers ask whether the names AGREE, which is a yes or no.
+      // The fuzzy tier asks how ALIKE they are, and only considers names the
+      // strict tiers have already declined — so turning it on can never change
+      // which order an agreement would have claimed, only add matches where
+      // there was nothing before.
+      let candidates: CandidateOrder[];
+
+      if (tier !== "fuzzy") {
+        candidates = free.filter(
+          (o) => nameAgreement(p.booking.receiverName, o.buyer_name ?? "") === tier
+        );
+      } else {
+        const scored = free
+          .filter((o) => nameAgreement(p.booking.receiverName, o.buyer_name ?? "") === null)
+          .map((o) => ({ o, s: nameSimilarity(p.booking.receiverName, o.buyer_name ?? "") }))
+          .filter((c) => c.s >= threshold);
+
+        // Within a strict tier every candidate is equally good, so two of them
+        // is a real ambiguity. Here they are not equal — a closer name is
+        // better evidence — so only the best score stays in the running, and
+        // ambiguity means a genuine TIE at the top rather than two names of
+        // visibly different quality.
+        const best = Math.max(0, ...scored.map((c) => c.s));
+        candidates = scored.filter((c) => c.s >= best - 1e-9).map((c) => c.o);
+      }
 
       if (!candidates.length) continue;
 
@@ -283,6 +437,7 @@ export function matchBookings(
           booking: p.booking,
           verdict: "ambiguous",
           tier,
+          score: null,
           order: null,
           others: resolved,
           note:
@@ -294,25 +449,59 @@ export function matchBookings(
       }
 
       const only = resolved[0];
+
+      // Unpaid, and a later tier may yet find the paid order this booking
+      // really belongs to. Remember the best one seen and carry on.
+      if (only.payment_status !== "paid") {
+        if (!deferred.has(p.booking.article)) deferred.set(p.booking.article, { order: only, tier });
+        continue;
+      }
+
       p.done = true;
       taken.add(only.order_number);
 
-      const isPaid = only.payment_status === "paid";
+      const score = nameSimilarity(p.booking.receiverName, only.buyer_name ?? "");
       emit({
         booking: p.booking,
-        verdict: isPaid ? "matched" : "matched_unpaid",
+        verdict: "matched",
         tier,
+        score,
         order: only,
         others: candidates.length > 1 ? candidates.filter((c) => c !== only) : [],
         note:
-          (isPaid
-            ? `${TIER_LABELS[tier]}, pincode ${pin} agrees`
-            : `${TIER_LABELS[tier]}, pincode ${pin} agrees — but this order's payment reads "${only.payment_status}"`) +
+          `${TIER_LABELS[tier]}${tier === "fuzzy" ? ` (${Math.round(score * 1000) / 10}%)` : ""}, pincode ${pin} agrees` +
           (candidates.length > 1
             ? ` (chosen over ${candidates.length - 1} unpaid order(s) of the same name)`
             : ""),
       });
     }
+  }
+
+  // The unpaid matches nobody paid outbid. Emitted now, under their own
+  // verdict, so a book posted against an order whose payment never landed is
+  // still reported — it is one of the most useful things this exercise finds.
+  for (const p of pending) {
+    if (p.done) continue;
+
+    const held = deferred.get(p.booking.article);
+    if (!held || taken.has(held.order.order_number)) continue;
+
+    p.done = true;
+    taken.add(held.order.order_number);
+
+    const score = nameSimilarity(p.booking.receiverName, held.order.buyer_name ?? "");
+    emit({
+      booking: p.booking,
+      verdict: "matched_unpaid",
+      tier: held.tier,
+      score,
+      order: held.order,
+      others: [],
+      note:
+        `${TIER_LABELS[held.tier]}${held.tier === "fuzzy" ? ` (${Math.round(score * 1000) / 10}%)` : ""}, ` +
+        `pincode ${normalisePin(p.booking.pincode) ?? "?"} agrees — but this order's ` +
+        `payment reads "${held.order.payment_status}"`,
+    });
   }
 
   // Whatever is left. Separating "the name is here but in another pincode"
@@ -334,6 +523,7 @@ export function matchBookings(
         booking: p.booking,
         verdict: "pincode_mismatch",
         tier: null,
+        score: null,
         order: null,
         others: elsewhere.slice(0, 5),
         note:
@@ -351,6 +541,7 @@ export function matchBookings(
       booking: p.booking,
       verdict: "no_match",
       tier: null,
+      score: null,
       order: null,
       others: [],
       note: "no order here carries that name",

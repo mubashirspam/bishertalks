@@ -3,7 +3,8 @@
  *
  *   node --env-file=.env.local --experimental-strip-types \
  *     --import ./scripts/alias-loader.mjs \
- *     scripts/postal-name-match.ts "<booking export.xlsx>" [--out report.xlsx]
+ *     scripts/postal-name-match.ts "<booking export.xlsx>" \
+ *       [--out report.xlsx] [--fuzzy [0.8]] [--write]
  *
  * WHY THIS EXISTS. A parcel booked over the counter carries the post office's
  * own docket ("1103/1") instead of our reference, and the article number it was
@@ -29,6 +30,13 @@
  * disagreements and the unpaid matches are reported and left alone, whatever
  * the flag says.
  *
+ * `--fuzzy` adds the similarity tier, for the names the three strict tiers
+ * cannot reach — a counter clerk's "GOOPKUMAR K V" for our "Gopakumar k v".
+ * It takes an optional threshold, `--fuzzy 0.85`, and defaults to 0.8. Off
+ * unless asked for, because it is the one tier that matches names no rule says
+ * are equal; the report prints the percentage for every row it produces so the
+ * person approving can see how far each one stretched.
+ *
  * The matching rules, and the reason a name alone is never enough, are in
  * lib/delivery/postal-name-match.ts.
  */
@@ -43,6 +51,7 @@ import { formatIST } from "@/lib/format-date";
 import {
   matchBookings,
   normalisePin,
+  DEFAULT_SIMILARITY,
   TIER_LABELS,
   type BookingRow,
   type CandidateOrder,
@@ -214,6 +223,7 @@ const VERDICT_WORD: Record<Verdict, string> = {
 const HEADERS = [
   "Verdict",
   "Confidence",
+  "Similarity",
   "Article number",
   "Their receiver name",
   "Our buyer name",
@@ -237,6 +247,7 @@ function reportRow(r: MatchResult): unknown[] {
   return [
     VERDICT_WORD[r.verdict],
     r.tier ? TIER_LABELS[r.tier] : "",
+    r.score == null ? "" : `${Math.round(r.score * 1000) / 10}%`,
     r.booking.article,
     r.booking.receiverName,
     r.order?.buyer_name ?? (r.others.length ? r.others.map((x) => x.buyer_name).join(" | ") : ""),
@@ -288,7 +299,8 @@ function reportRow(r: MatchResult): unknown[] {
  */
 async function applyMatches(
   results: MatchResult[],
-  postalCourierIds: Set<string>
+  postalCourierIds: Set<string>,
+  matchedOn: string
 ): Promise<{ written: string[]; barcodeOnly: string[]; skipped: string[] }> {
   const matched = results.filter((r) => r.verdict === "matched" && r.order);
 
@@ -387,7 +399,7 @@ async function applyMatches(
   if (written.length) {
     await auditMany(null, "order.postal_barcode_matched", "order", written, {
       via: "scripts/postal-name-match.ts",
-      matched_on: "receiver name + destination pincode",
+      matched_on: matchedOn,
     });
   }
 
@@ -406,8 +418,28 @@ async function postalCouriers(): Promise<Set<string>> {
 
 async function main() {
   const args = process.argv.slice(2);
-  const file = args.find((a) => !a.startsWith("--"));
   const write = args.includes("--write");
+
+  // `--fuzzy` on its own means the default threshold; `--fuzzy 0.85` sets it.
+  const fuzzyFlag = args.indexOf("--fuzzy");
+  const fuzzy = fuzzyFlag >= 0;
+  const next = fuzzy ? args[fuzzyFlag + 1] : undefined;
+  const threshold =
+    next && !next.startsWith("--") && Number.isFinite(Number(next))
+      ? Number(next)
+      : DEFAULT_SIMILARITY;
+
+  if (fuzzy && (threshold <= 0 || threshold > 1)) {
+    console.error(`--fuzzy takes a threshold between 0 and 1, not "${next}".`);
+    process.exit(1);
+  }
+
+  // The threshold is a positional value, so it must not be read as the file.
+  const consumed = new Set<string>(fuzzy && next === String(threshold) ? [next] : []);
+  const outFlagEarly = args.indexOf("--out");
+  if (outFlagEarly >= 0 && args[outFlagEarly + 1]) consumed.add(args[outFlagEarly + 1]);
+
+  const file = args.find((a) => !a.startsWith("--") && !consumed.has(a));
   const outFlag = args.indexOf("--out");
   const out =
     outFlag >= 0 && args[outFlag + 1]
@@ -415,7 +447,9 @@ async function main() {
       : "postal-name-match-report.xlsx";
 
   if (!file) {
-    console.error("Usage: postal-name-match.ts <booking export.xlsx> [--out report.xlsx]");
+    console.error(
+      "Usage: postal-name-match.ts <booking export.xlsx> [--out report.xlsx] [--fuzzy [0.8]] [--write]"
+    );
     process.exit(1);
   }
 
@@ -431,7 +465,13 @@ async function main() {
   const orders = await loadOrders();
   console.log(`  ${orders.length} addressed orders (paid and not)`);
 
-  const results = matchBookings(bookings, orders);
+  if (fuzzy) {
+    console.log(
+      `  similarity tier ON at ${Math.round(threshold * 100)}% — names the strict tiers decline`
+    );
+  }
+
+  const results = matchBookings(bookings, orders, { fuzzy, threshold });
 
   const counts: Record<string, number> = {};
   for (const r of results) counts[r.verdict] = (counts[r.verdict] ?? 0) + 1;
@@ -486,6 +526,7 @@ async function main() {
       ["Report built", formatIST(new Date().toISOString())],
       ["Booking file", file],
       ["Articles read", bookings.length],
+      ["Similarity tier", fuzzy ? `on, at ${Math.round(threshold * 100)}%` : "off"],
       ["Repeated rows collapsed", duplicates],
       ["Our parcels considered", orders.length],
       ["", ""],
@@ -493,6 +534,9 @@ async function main() {
       ["", "Nothing has been changed. This is a proposal."],
       ["", "Every match required the name AND the destination pincode to agree."],
       ["", "A name that matched with a different pincode is NOT a match and is on its own tab."],
+      ...(fuzzy
+        ? [["", "The similarity tier is ON — read the Similarity column on rows below 100%."]]
+        : []),
       ["", "\"Matched but unpaid\" means a book was posted against an order whose payment never landed here."],
       ["", ""],
       ...order.map((v) => [VERDICT_WORD[v], counts[v] ?? 0]),
@@ -516,7 +560,9 @@ async function main() {
   console.log(`\nWriting the article number to ${counts.matched ?? 0} matched orders…`);
   const { written, barcodeOnly, skipped: notWritten } = await applyMatches(
     results,
-    await postalCouriers()
+    await postalCouriers(),
+    "receiver name + destination pincode" +
+      (fuzzy ? ` (similarity tier enabled at ${Math.round(threshold * 100)}%)` : "")
   );
 
   console.log(`\n  ${written.length} orders now carry their article number`);
