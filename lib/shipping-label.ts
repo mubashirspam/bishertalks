@@ -1,4 +1,4 @@
-import { PdfDocument, wrapText, measureText, printableOnly } from "@/lib/pdf";
+import { PdfDocument, wrapText, measureText, truncate, printableOnly } from "@/lib/pdf";
 import { drawBarcode } from "@/lib/barcode";
 import { indiaPostEmblem, INDIA_POST_FORM, INDIA_POST_VIEWBOX } from "@/lib/india-post-logo";
 import { formatIST } from "@/lib/format-date";
@@ -597,32 +597,56 @@ function drawLabel(
   // ── Contents + return address, pinned above the barcode ──────────────────
   doc.line(LEFT, DESPATCH_TOP, RIGHT, DESPATCH_TOP, { gray: 0.8, width: 0.5 });
 
-  doc.text(
-    LEFT,
-    DESPATCH_TOP + 13,
-    `Contents: ${contentsLine(copies, !!o.is_gift, !!o.is_signed)}`,
-    { size: 8.5, gray: 0.3, maxWidth: INNER_W }
-  );
-
+  // ── Contents and order date share one row ────────────────────────────────
+  //
+  // They used to be stacked, which spent twelve points of a seventy-two point
+  // block on two short strings and left the return address the runt of it. The
+  // date is right-aligned on the same baseline and the contents string is
+  // truncated to what is left, so neither can run into the other.
   const ordered = new Date(o.ordered_at).toLocaleDateString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "numeric",
     month: "short",
     year: "numeric",
   });
-  doc.text(LEFT, DESPATCH_TOP + 25, `Ordered ${ordered}`, { size: 8, gray: 0.45 });
+  const orderedText = `Ordered ${ordered}`;
+  const orderedW = measureText(orderedText, 8);
 
+  doc.text(
+    LEFT,
+    DESPATCH_TOP + 12,
+    truncate(
+      `Contents: ${contentsLine(copies, !!o.is_gift, !!o.is_signed)}`,
+      INNER_W - orderedW - 10,
+      8.5
+    ),
+    { size: 8.5, gray: 0.3 }
+  );
+  doc.text(RIGHT - orderedW, DESPATCH_TOP + 12, orderedText, { size: 8, gray: 0.45 });
+
+  // ── Return address ───────────────────────────────────────────────────────
+  //
+  // Bold, darker and a point and a half larger than the rest of this block,
+  // because it is the only thing on the label a post office actually acts on
+  // when a parcel cannot be delivered. At 8pt in 45% grey it was being printed
+  // and not read — thermal labels lose light greys badly, and the counter was
+  // reading it off a printout, not a screen.
+  //
+  // The twelve points this needed came from the row above, not from the
+  // delivery address: the recipient block truncates its own least important
+  // lines at ADDRESS_END, so borrowing from it would silently drop somebody's
+  // street on a long address.
   const from = [sender.name, sender.address, sender.phone && `Ph ${sender.phone}`]
     .filter(Boolean)
     .join(", ");
   // Stops short of the contract strip below rather than of the rule itself:
-  // the emblem stands 15pt above the rule, and a fourth line of return address
+  // the emblem stands 15pt above the rule, and another line of return address
   // would have been drawn straight through it.
-  let fy = DESPATCH_TOP + 37;
-  for (const line of wrapText(`FROM: ${from}`, INNER_W, 8)) {
+  let fy = DESPATCH_TOP + 26;
+  for (const line of wrapText(`FROM: ${from}`, INNER_W, 9.5, true)) {
     if (fy > BARCODE_RULE_Y - 17) break;
-    doc.text(LEFT, fy, line, { size: 8, gray: 0.45 });
-    fy += 9.5;
+    doc.text(LEFT, fy, line, { size: 9.5, bold: true, gray: 0.15 });
+    fy += 11;
   }
 
   // ── Barcode ──────────────────────────────────────────────────────────────
