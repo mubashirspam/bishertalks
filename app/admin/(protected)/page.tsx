@@ -30,7 +30,7 @@ const base = () =>
   supabaseAdmin.from("orders").select("id", { count: "exact", head: true });
 
 export default async function AdminDashboard() {
-  const staff = await requirePageAccess("orders.view");
+  const staff = await requirePageAccess("dashboard.view");
 
   // Six queries feed this screen. None of them block the shell any more — the
   // heading is up instantly and the numbers arrive when they arrive.

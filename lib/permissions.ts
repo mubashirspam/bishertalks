@@ -172,8 +172,16 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
   // and not a role test.
   delivery: ["delivery.portal"],
 
+  // No dashboard.view. Support look things up; the day's takings are not one
+  // of the things they look up, and it was only ever on their screen because
+  // the front page rode along with `orders.view`.
+  //
+  // `analytics.view` IS here: the parcel report is the screen that answers
+  // "where is my book", which is most of what support is asked, and it carries
+  // no money — parcels and days, never margin.
   support: [
-    "orders.view", "users.view", "delivery.view", "templates.view",
+    "orders.view", "users.view", "delivery.view", "analytics.view",
+    "templates.view",
     // Support answer customers; they do not decide who may be messaged.
     "crm.view", "crm.reply",
   ],
@@ -211,6 +219,10 @@ export function canAny(
 
 /** Where to send someone after login — the first screen they can actually use. */
 export function landingPage(holder: PermissionHolder): string {
+  // The dashboard first, but only for somebody who is actually allowed on it.
+  // It stopped being implied by `orders.view`, so it has to be asked for by
+  // name or an owner would land on the order list.
+  if (can(holder, "dashboard.view")) return "/admin";
   if (can(holder, "orders.view")) return "/admin/orders";
   if (can(holder, "delivery.portal")) return "/admin/delivery-portal";
   if (can(holder, "delivery.view")) return "/admin/delivery";

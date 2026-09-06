@@ -20,6 +20,18 @@ import { EXPENSE_KIND_HINTS, type ExpenseKind } from "@/lib/db/expenses";
  * and the route converts — but a person copying ₹40,000 off an invoice into a
  * box labelled paise is a hundredfold error waiting to happen, in the one
  * table that decides what the company owes somebody.
+ *
+ * ── Editing ──
+ *
+ * The same form, given `initial`, becomes an edit. It has to exist: the field
+ * most worth correcting is who paid, and that is also the easiest to pick
+ * wrongly — three names in a dropdown, one of them selected by default. An
+ * expense filed against the wrong person overstates one balance and understates
+ * another, and the company settles real money against those numbers.
+ *
+ * Correcting it needs no repair pass, because balances are derived rather than
+ * stored: `funder_balances` recomputes from the ledger on every read, so
+ * changing the payer here moves both balances the moment it saves.
  */
 
 const LABEL = "text-xs font-medium text-neutral-500 mb-1.5 block";
@@ -32,12 +44,29 @@ export interface CategoryOption extends Option { kind: ExpenseKind }
 export interface FunderOption extends Option { isCompany: boolean }
 export interface PrintRunOption { id: string; label: string }
 
+/** An existing row, when this form is editing rather than creating. */
+export interface InitialExpense {
+  id: string;
+  spent_on: string;
+  category_id: string;
+  vendor_id: string | null;
+  funder_id: string;
+  print_run_id: string | null;
+  amount_paise: number;
+  description: string;
+  reference: string | null;
+  receipt_url: string | null;
+  units: number | null;
+  notes: string | null;
+}
+
 export default function ExpenseForm({
   categories,
   vendors,
   funders,
   printRuns,
   today,
+  initial,
 }: {
   categories: CategoryOption[];
   vendors: Option[];
@@ -45,14 +74,24 @@ export default function ExpenseForm({
   printRuns: PrintRunOption[];
   /** Today in IST, from the server — the shop's date, not the browser's. */
   today: string;
+  /** Present when correcting an existing row. */
+  initial?: InitialExpense;
 }) {
   const router = useRouter();
+  const editing = !!initial;
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(
+    initial?.receipt_url ?? null
+  );
 
-  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
-  const [funderId, setFunderId] = useState(funders[0]?.id ?? "");
+  const [categoryId, setCategoryId] = useState(
+    initial?.category_id ?? categories[0]?.id ?? ""
+  );
+  const [funderId, setFunderId] = useState(
+    initial?.funder_id ?? funders[0]?.id ?? ""
+  );
 
   const category = useMemo(
     () => categories.find((c) => c.id === categoryId),
@@ -76,9 +115,13 @@ export default function ExpenseForm({
 
     try {
       const res = await fetch("/api/admin/expenses", {
-        method: "POST",
+        method: editing ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, receipt_url: receiptUrl }),
+        body: JSON.stringify({
+          ...body,
+          id: initial?.id,
+          receipt_url: receiptUrl,
+        }),
       });
       const json = await res.json();
 
@@ -88,6 +131,7 @@ export default function ExpenseForm({
         return;
       }
       router.push("/admin/expenses");
+      router.refresh();
     } catch {
       setError("Could not reach the server. Nothing was saved.");
       setSaving(false);
@@ -109,13 +153,15 @@ export default function ExpenseForm({
           <div>
             <label className={LABEL}>Date spent</label>
             <input
-              name="spent_on" type="date" required defaultValue={today} className={INPUT}
+              name="spent_on" type="date" required
+              defaultValue={initial?.spent_on ?? today} className={INPUT}
             />
           </div>
           <div>
             <label className={LABEL}>Amount (₹)</label>
             <input
               name="amount_rupees" type="number" min="1" step="1" required
+              defaultValue={initial ? Math.round(initial.amount_paise) / 100 : undefined}
               className={INPUT} placeholder="40000"
             />
           </div>
@@ -123,8 +169,8 @@ export default function ExpenseForm({
           <div className="sm:col-span-2">
             <label className={LABEL}>Description</label>
             <input
-              name="description" required className={INPUT}
-              placeholder="What this payment was for"
+              name="description" required defaultValue={initial?.description}
+              className={INPUT} placeholder="What this payment was for"
             />
           </div>
 
@@ -148,7 +194,7 @@ export default function ExpenseForm({
 
           <div>
             <label className={LABEL}>Vendor (optional)</label>
-            <select name="vendor_id" defaultValue="" className={INPUT}>
+            <select name="vendor_id" defaultValue={initial?.vendor_id ?? ""} className={INPUT}>
               <option value="">Not recorded</option>
               {vendors.map((v) => (
                 <option key={v.id} value={v.id}>{v.name}</option>
@@ -161,8 +207,9 @@ export default function ExpenseForm({
             <div>
               <label className={LABEL}>Books this covers (optional)</label>
               <input
-                name="units" type="number" min="1" step="1" className={INPUT}
-                placeholder="2000"
+                name="units" type="number" min="1" step="1"
+                defaultValue={initial?.units ?? undefined}
+                className={INPUT} placeholder="2000"
               />
               <p className="mt-1 text-[11px] text-neutral-400">
                 Lets the report work out a real per-book cost.
@@ -173,7 +220,7 @@ export default function ExpenseForm({
           {isPrinting && printRuns.length > 0 && (
             <div>
               <label className={LABEL}>Print run (optional)</label>
-              <select name="print_run_id" defaultValue="" className={INPUT}>
+              <select name="print_run_id" defaultValue={initial?.print_run_id ?? ""} className={INPUT}>
                 <option value="">Not linked</option>
                 {printRuns.map((p) => (
                   <option key={p.id} value={p.id}>{p.label}</option>
@@ -210,17 +257,31 @@ export default function ExpenseForm({
               <p className="mt-1 text-[11px] text-neutral-400">
                 {funder.isCompany
                   ? "The company's own money. Creates no debt."
-                  : `Adds to what the company owes ${funder.name}.`}
+                  : editing
+                    ? `Counts towards what the company owes ${funder.name}.`
+                    : `Adds to what the company owes ${funder.name}.`}
+              </p>
+            )}
+            {/* Only when it has actually been changed, so it reads as a
+                consequence rather than a warning nobody asked for. */}
+            {editing && initial && funderId !== initial.funder_id && (
+              <p className="mt-1.5 rounded-lg bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-900">
+                Moving this expense to {funder?.name}. Both balances change as
+                soon as you save — they are worked out from the ledger, so
+                nothing else needs correcting.
               </p>
             )}
           </div>
           <div>
             <label className={LABEL}>Bill / UPI reference (optional)</label>
-            <input name="reference" className={INPUT} placeholder="Invoice or txn id" />
+            <input
+              name="reference" defaultValue={initial?.reference ?? ""}
+              className={INPUT} placeholder="Invoice or txn id"
+            />
           </div>
           <div className="sm:col-span-2">
             <label className={LABEL}>Note (optional)</label>
-            <input name="notes" className={INPUT} />
+            <input name="notes" defaultValue={initial?.notes ?? ""} className={INPUT} />
           </div>
         </div>
       </section>
@@ -247,7 +308,7 @@ export default function ExpenseForm({
           className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
         >
           {saving && <Loader2 className="h-4 w-4 animate-spin" />}
-          {saving ? "Saving…" : "Save expense"}
+          {saving ? "Saving…" : editing ? "Save changes" : "Save expense"}
         </button>
       </div>
     </form>

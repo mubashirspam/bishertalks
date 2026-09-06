@@ -61,7 +61,7 @@ function generateOrderNumber(): string {
 const str = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
 
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("orders.edit");
+  const auth = await requirePermission("orders.create");
   if (!auth.ok) return auth.response;
   const staff = auth.staff;
 

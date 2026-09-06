@@ -14,10 +14,12 @@ import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
  * client one. Two copies of this list would disagree the first time an item
  * was added.
  *
- * The dashboard is gated on `orders.view` because it shows revenue and order
- * counts — a delivery agent has no business on it, and lands on the delivery
- * portal instead. `permission: null` is left available for a genuinely
- * universal screen.
+ * Every item names the capability its own screen requires, and nothing rides
+ * along with another. The dashboard used to answer to `orders.view` and the
+ * parcel report to `delivery.view`, which meant granting somebody the order
+ * list also handed them the takings, and granting the delivery queue handed
+ * them every parcel's age and the spreadsheet of the lot. `permission: null`
+ * is left available for a genuinely universal screen.
  */
 export interface NavItem {
   href: string;
@@ -28,7 +30,7 @@ export interface NavItem {
 }
 
 export const NAV: NavItem[] = [
-  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, permission: "orders.view" },
+  { href: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true, permission: "dashboard.view" },
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
   { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
   // Under Delivery because it configures that screen: who parcels can go to.
@@ -38,9 +40,11 @@ export const NAV: NavItem[] = [
   { href: "/admin/inventory", label: "Stock", icon: Boxes, permission: "inventory.view" },
   { href: "/admin/insights", label: "Insights", icon: TrendingUp, permission: "insights.view" },
   // Operational, not financial — it counts parcels and days, never margin — so
-  // it answers to delivery.view like the queue it reports on, and sits beside
-  // Insights rather than under Profit & targets.
-  { href: "/admin/analytics", label: "Reports", icon: BarChart3, permission: "delivery.view" },
+  // it sits beside Insights rather than under Profit & targets. Its own
+  // capability, though: it used to answer to delivery.view, and "can work the
+  // delivery queue" is not the same trust as "can have the whole book of
+  // parcels as a spreadsheet".
+  { href: "/admin/analytics", label: "Reports", icon: BarChart3, permission: "analytics.view" },
   { href: "/admin/reports", label: "Profit & targets", icon: Calculator, permission: "reports.view" },
   // Directly under Profit & targets, because the two answer halves of one
   // question: that page models what a book should cost, this records what was

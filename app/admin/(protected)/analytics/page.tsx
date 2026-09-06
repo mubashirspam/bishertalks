@@ -52,7 +52,7 @@ export default async function AnalyticsPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const staff = await requirePageAccess("delivery.view");
+  const staff = await requirePageAccess("analytics.view");
 
   const params = await searchParams;
   const filters = parseReportFilters(params);

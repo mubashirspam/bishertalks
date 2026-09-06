@@ -1,25 +1,37 @@
+import { notFound } from "next/navigation";
 import Link from "@/components/admin/AdminLink";
 import { ArrowLeft, AlertCircle } from "lucide-react";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { istToday } from "@/lib/format-date";
-import { getExpenseSetup } from "@/lib/db/expenses";
-import ExpenseForm, { type PrintRunOption } from "../ExpenseForm";
+import { istToday, formatISTDate } from "@/lib/format-date";
+import { getExpenseSetup, getExpense } from "@/lib/db/expenses";
+import ExpenseForm, { type PrintRunOption } from "../../ExpenseForm";
+import DeleteExpense from "./DeleteExpense";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Record one payment.
+ * Correcting one expense.
  *
- * `expenses.edit`, not `expenses.view`: this writes a row that decides what the
- * company owes a named person, which is a long way from being allowed to read
- * the ledger.
+ * The field this exists for is "who paid". It is three names in a dropdown
+ * with one of them selected by default, which makes it the easiest thing on
+ * the form to get wrong and the most expensive to leave wrong — a misfiled
+ * expense overstates one person's balance and understates another's, and the
+ * company settles real money against those numbers.
+ *
+ * Nothing needs repairing afterwards. `funder_balances` derives from the
+ * ledger on every read, so saving a corrected payer moves both balances at
+ * once.
  */
-export default async function NewExpensePage() {
+export default async function EditExpensePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   await requirePageAccess("expenses.edit");
+  const { id } = await params;
 
   const setup = await getExpenseSetup();
-
   if (!setup.ready) {
     return (
       <div className="max-w-3xl rounded-2xl border border-amber-300 bg-amber-50 px-5 py-4 text-sm text-amber-900">
@@ -33,8 +45,9 @@ export default async function NewExpensePage() {
     );
   }
 
-  // Offered only on a printing expense, so an invoice can be tied to the run it
-  // paid for rather than becoming a second, disagreeing record of it.
+  const expense = await getExpense(id);
+  if (!expense) notFound();
+
   const { data: runs } = await supabaseAdmin
     .from("print_runs")
     .select("id,edition,copies,received_on")
@@ -58,27 +71,34 @@ export default async function NewExpensePage() {
       </Link>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-black">Add an expense</h1>
-        <p className="mt-1.5 max-w-prose text-sm text-neutral-500">
-          One payment: what it was for, what it cost, and whose money it was. If
-          somebody other than the company paid, this is what creates the balance
-          owed back to them.
+        <h1 className="text-2xl font-black">Edit expense</h1>
+        <p className="mt-1.5 text-sm text-neutral-500">
+          Recorded {formatISTDate(expense.created_at)}
+          {expense.actor_email ? ` by ${expense.actor_email}` : ""}. Changing who
+          paid moves both balances as soon as you save.
         </p>
       </div>
 
       <ExpenseForm
         categories={setup.categories
-          .filter((c) => c.is_active)
+          .filter((c) => c.is_active || c.id === expense.category_id)
           .map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
         vendors={setup.vendors
-          .filter((v) => v.is_active)
+          .filter((v) => v.is_active || v.id === expense.vendor_id)
           .map((v) => ({ id: v.id, name: v.name }))}
         funders={setup.funders
-          .filter((f) => f.is_active)
+          // A funder switched off since this was recorded still has to appear,
+          // or saving anything else on the row would silently reassign it.
+          .filter((f) => f.is_active || f.id === expense.funder_id)
           .map((f) => ({ id: f.id, name: f.name, isCompany: f.is_company }))}
         printRuns={printRuns}
         today={istToday()}
+        initial={expense}
       />
+
+      <div className="mt-8 border-t border-neutral-200 pt-5">
+        <DeleteExpense id={expense.id} />
+      </div>
     </div>
   );
 }

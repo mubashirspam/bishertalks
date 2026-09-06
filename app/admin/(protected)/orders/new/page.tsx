@@ -9,12 +9,13 @@ export const dynamic = "force-dynamic";
 /**
  * Add a book that was sold directly.
  *
- * `orders.edit` rather than `orders.view`: this writes a paid order, which is
- * the same authority as changing one, and a long way from being allowed to
- * look at the list.
+ * `orders.create`, its own capability. This writes a paid order and moves
+ * stock, which is a long way from being allowed to look at the list — and a
+ * different job from `orders.edit`, which re-statuses sales that came through
+ * Razorpay. Somebody at the counter needs this one and not that one.
  */
 export default async function NewDirectSalePage() {
-  await requirePageAccess("orders.edit");
+  await requirePageAccess("orders.create");
 
   // The same resolver the checkout charges from — offer price and any
   // scheduled price change included — so the figure this form suggests is the

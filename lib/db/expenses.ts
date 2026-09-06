@@ -228,6 +228,23 @@ export async function listExpenses(
   return { rows, ready: true };
 }
 
+/** One row, for the edit screen. Null when it is gone or the table is missing. */
+export async function getExpense(id: string): Promise<ExpenseRow | null> {
+  const { data, error } = await supabaseAdmin
+    .from("expenses")
+    .select(COLUMNS)
+    .eq("id", id)
+    .maybeSingle();
+
+  if (error) {
+    if (!tableMissing(error.message)) {
+      console.error("[Expenses] read failed:", error.message);
+    }
+    return null;
+  }
+  return (data as unknown as ExpenseRow) ?? null;
+}
+
 export interface ExpenseTotals {
   /** Everything in range, capital included. */
   totalPaise: number;

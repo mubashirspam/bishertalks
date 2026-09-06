@@ -26,6 +26,7 @@ interface QueryArgs {
   pageNum: number;
 }
 import { requirePageAccess } from "@/lib/admin-auth";
+import { can } from "@/lib/permissions";
 
 export const dynamic = "force-dynamic";
 
@@ -70,7 +71,7 @@ export default async function AdminOrdersPage({
 }) {
   // Cached per request and shared with the layout, so this no longer costs a
   // second round trip to Supabase auth.
-  await requirePageAccess("orders.view");
+  const staff = await requirePageAccess("orders.view");
 
   const { stage, q, page = "1", from, to, source, followUp, books, channel } =
     await searchParams;
@@ -89,15 +90,19 @@ export default async function AdminOrdersPage({
 
       {/* Filters render immediately — they need no data, so making them wait
           for the query was pure delay. The row count is streamed into them. */}
-      <div className="flex justify-end mb-3">
-        <Link
-          href="/admin/orders/new"
-          className="inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
-        >
-          <Plus className="w-4 h-4" />
-          Add direct sale
-        </Link>
-      </div>
+      {/* The page itself refuses without `orders.create` — this only stops
+          offering a button that leads to a redirect. */}
+      {can(staff, "orders.create") && (
+        <div className="flex justify-end mb-3">
+          <Link
+            href="/admin/orders/new"
+            className="inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800"
+          >
+            <Plus className="w-4 h-4" />
+            Add direct sale
+          </Link>
+        </div>
+      )}
 
       <OrderFilters
         countSlot={

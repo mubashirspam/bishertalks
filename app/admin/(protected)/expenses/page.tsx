@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "@/components/admin/AdminLink";
-import { Receipt, Plus, Users, Paperclip, AlertCircle } from "lucide-react";
+import { Receipt, Plus, Users, Paperclip, AlertCircle, Pencil } from "lucide-react";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
@@ -178,12 +178,13 @@ async function Body({
                   <th className="hidden px-4 py-3 font-semibold md:table-cell">Vendor</th>
                   <th className="px-4 py-3 font-semibold">Paid by</th>
                   <th className="px-4 py-3 text-right font-semibold">Amount</th>
+                  <th className="px-4 py-3"><span className="sr-only">Edit</span></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100">
                 {!rows.length ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-neutral-400">
+                    <td colSpan={7} className="px-4 py-12 text-center text-neutral-400">
                       Nothing recorded for these filters.
                       {canEdit && (
                         <>
@@ -244,6 +245,18 @@ async function Body({
                         </td>
                         <td className="whitespace-nowrap px-4 py-3 text-right font-semibold tabular-nums text-neutral-900">
                           ₹{rupees(r.amount_paise)}
+                        </td>
+                        <td className="px-3 py-3 text-right">
+                          {canEdit && (
+                            <Link
+                              href={`/admin/expenses/${r.id}/edit`}
+                              aria-label={`Edit ${r.description}`}
+                              title="Edit — including who paid"
+                              className="inline-flex rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-800"
+                            >
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Link>
+                          )}
                         </td>
                       </tr>
                     );
