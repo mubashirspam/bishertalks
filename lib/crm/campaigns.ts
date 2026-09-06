@@ -1,5 +1,10 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
-import { resolveSegment, type Segment, type SegmentResult } from "@/lib/crm/segments";
+import {
+  resolveSegment,
+  paidPhonesFor,
+  type Segment,
+  type SegmentResult,
+} from "@/lib/crm/segments";
 import { upsertContact, getSettings, getContacts } from "@/lib/crm/contacts";
 import { sendTemplateMessage } from "@/lib/crm/send";
 import { latestHealth } from "@/lib/crm/health";
@@ -459,6 +464,16 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
   // requests.
   const contacts = await getContacts(batch.map((r) => r.contact_id));
 
+  // Who has bought since the list was built.
+  //
+  // `resolveSegment` already drops them at queue time, and that is not enough
+  // on its own: a campaign of 800 runs 100 a day for eight days, and the whole
+  // purpose of chasing somebody is that they might pay. Anyone who does is
+  // sitting in the queue with "your payment failed" addressed to them.
+  //
+  // Same read as the queue-time check, taken now, once for the batch.
+  const paid = await paidPhonesFor(campaign.segment);
+
   // Consecutive failures, reset by any success. See HALT_AFTER_CONSECUTIVE.
   let consecutiveBad = 0;
 
@@ -466,6 +481,17 @@ export async function runCampaignBatch(campaign: Campaign): Promise<WorkerReport
     const contact = contacts.get(row.contact_id);
     if (!contact) {
       await markRecipient(row.id, "refused", { refuse_reason: "Contact no longer exists" });
+      report.refused++;
+      continue;
+    }
+
+    // Not counted as a consecutive failure, like the missing contact above:
+    // somebody buying the book is the campaign working, not the number going
+    // bad, and it must never be what halts a run.
+    if (paid?.has(contact.phone)) {
+      await markRecipient(row.id, "refused", {
+        refuse_reason: "Has paid since this campaign was built",
+      });
       report.refused++;
       continue;
     }

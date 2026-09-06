@@ -1,7 +1,9 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fetchAllRows, type PageResult } from "@/lib/db/paginate";
 import { toWhatsAppNumber } from "@/lib/whatsapp";
 import {
   listPeople,
+  loadPeople,
   PERSON_STAGES,
   PERSON_STAGE_LABELS,
   PRIORITIES,
@@ -161,12 +163,24 @@ export async function resolveSegment(
   const phones = [...byPhone.keys()];
   const contacts = await contactsFor(phones);
 
+  // Nobody who has already bought the book. See `chasesPayment` — this is only
+  // consulted for the segments where being a customer is a contradiction.
+  const paid = await paidPhonesFor(segment);
+
   const members: SegmentMember[] = [];
   const excluded: Record<string, number> = {};
 
   for (const phone of phones) {
     const seed = byPhone.get(phone)!;
     const contact = contacts.get(phone);
+
+    // Asked before the contact row, because it must hold for somebody who has
+    // never been messaged — they have no row, and they are exactly who a
+    // payment-chasing campaign reaches first.
+    if (paid?.has(phone)) {
+      excluded["Has since paid"] = (excluded["Has since paid"] ?? 0) + 1;
+      continue;
+    }
 
     // No contact row yet is fine — the campaign creates one when it queues.
     // No consent has been withdrawn, because none was ever recorded.
@@ -212,6 +226,56 @@ type Seeds = {
   byPhone: Map<string, { name: string | null; orderNumber: string }>;
   unreachable: number;
 };
+
+/**
+ * Is this segment chasing a payment?
+ *
+ * The three stages that mean "has not bought". A campaign built on any of them
+ * says something — your payment failed, you did not finish, the order is
+ * waiting — that is false the moment the person pays, and telling a paying
+ * customer their payment failed is worse than not messaging them at all.
+ *
+ * Deliberately not a check on the template. The wording is what makes it
+ * wrong, but the wording is chosen after the segment and can be changed later
+ * without anybody rereading this; the segment is the thing that means "these
+ * people have not paid", so the segment is what gets held to it.
+ */
+function chasesPayment(segment: Segment): boolean {
+  const UNPAID = ["not_started", "payment_started", "failed", "lead"];
+  return (
+    (!!segment.personStage && UNPAID.includes(segment.personStage)) ||
+    (!!segment.orderStage && UNPAID.includes(segment.orderStage))
+  );
+}
+
+/**
+ * Every phone belonging to somebody who has paid at least once.
+ *
+ * Matched on the mobile number, because that is the only thing a person has
+ * across orders — someone who failed three times in June and bought in August
+ * did it under three order numbers and one phone.
+ *
+ * `personStage` already gets this right by construction: a person's stage is
+ * the furthest they ever got, so anyone who paid is "customer" and cannot
+ * appear under "failed". `orderStage` cannot — it matches order ROWS and
+ * collapses to phones afterwards, so those three June failures still match and
+ * the customer is chased for a payment they have already made. That was 240
+ * people on this database's payment-failed segment.
+ *
+ * The composer offers both pickers and the order-level one is a legitimate
+ * choice, so this is applied to the result of either rather than left as a
+ * rule about which dropdown to use.
+ */
+export async function paidPhonesFor(segment: Segment): Promise<Set<string> | null> {
+  return chasesPayment(segment) ? await paidPhones() : null;
+}
+
+async function paidPhones(): Promise<Set<string>> {
+  const { people } = await loadPeople();
+  const paid = new Set<string>();
+  for (const p of people) if (p.stage === "customer") paid.add(p.phone);
+  return paid;
+}
 
 /** Whether any person-level filter is set, which decides how members are found. */
 function usesPeople(segment: Segment): boolean {
@@ -284,67 +348,89 @@ interface OrderRow {
   buyer_phone: string | null;
 }
 
+/**
+ * The orders a segment matches — all of them.
+ *
+ * Paged, because PostgREST answers at most 1,000 rows per request whatever
+ * `.limit()` asks for, and it does not say that it truncated. The old single
+ * request took the first 1,000 and the segment quietly became "some of the
+ * people you asked for" — 1,113 orders had never opened the payment screen and
+ * it found 1,000; 1,048 parcels were delivered ten or more days ago and it
+ * found 1,000.
+ *
+ * A ceiling nobody is under yet is still the wrong shape: the loss is silent,
+ * it grows with the shop, and "the newest 1,000" quietly means the oldest
+ * customers are the ones who stop being messaged.
+ *
+ * Same `fetchAllRows` the rest of the app pages with — see the note in
+ * lib/db/referrals.ts, which hit this first.
+ */
 async function matchingOrders(segment: Segment, limit: number): Promise<OrderRow[]> {
   // portal_orders carries both derived stages as columns, so neither has to be
   // reassembled from raw fields here — the thing migration 0045 exists to stop.
-  let query = supabaseAdmin
-    .from("portal_orders")
-    .select("order_number, buyer_name, buyer_phone, ordered_at")
-    .order("ordered_at", { ascending: false })
-    .limit(limit);
+  const build = (from: number, to: number) => {
+    let query = supabaseAdmin
+      .from("portal_orders")
+      .select("order_number, buyer_name, buyer_phone, ordered_at")
+      // Stable, and the same order the single-request version used: a paged read
+      // without one can repeat or skip rows between pages.
+      .order("ordered_at", { ascending: false })
+      .range(from, to);
 
-  if (segment.deliveryStage) {
-    query = query
-      .eq("delivery_stage", segment.deliveryStage)
-      .eq("payment_status", "paid")
-      .not("address_line1", "is", null);
-  }
-
-  if (segment.orderStage) {
-    switch (segment.orderStage) {
-      case "lead":
-        query = query.is("razorpay_order_id", null).neq("payment_status", "paid");
-        break;
-      case "payment_started":
-        query = query.not("razorpay_order_id", "is", null).eq("payment_status", "pending");
-        break;
-      case "failed":
-        query = query.eq("payment_status", "failed");
-        break;
-      case "paid_no_address":
-        query = query.eq("payment_status", "paid").is("address_line1", null);
-        break;
-      case "complete":
-        query = query.eq("payment_status", "paid").not("address_line1", "is", null);
-        break;
+    if (segment.deliveryStage) {
+      query = query
+        .eq("delivery_stage", segment.deliveryStage)
+        .eq("payment_status", "paid")
+        .not("address_line1", "is", null);
     }
-  }
 
-  if (segment.from) query = query.gte("ordered_at", segment.from);
-  if (segment.to) query = query.lt("ordered_at", segment.to);
-  if (segment.district) query = query.eq("district", segment.district);
-
-  // Delivered, and how long ago. `delivered_at` rather than the status alone:
-  // a parcel marked delivered this morning and one delivered in July are the
-  // same status and completely different audiences.
-  if (segment.deliveredMinDays !== undefined || segment.deliveredMaxDays !== undefined) {
-    query = query.eq("status", "delivered").not("delivered_at", "is", null);
-    const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
-    // "at least N days ago" is an upper bound on the timestamp.
-    if (segment.deliveredMinDays !== undefined) {
-      query = query.lte("delivered_at", daysAgo(segment.deliveredMinDays));
+    if (segment.orderStage) {
+      switch (segment.orderStage) {
+        case "lead":
+          query = query.is("razorpay_order_id", null).neq("payment_status", "paid");
+          break;
+        case "payment_started":
+          query = query.not("razorpay_order_id", "is", null).eq("payment_status", "pending");
+          break;
+        case "failed":
+          query = query.eq("payment_status", "failed");
+          break;
+        case "paid_no_address":
+          query = query.eq("payment_status", "paid").is("address_line1", null);
+          break;
+        case "complete":
+          query = query.eq("payment_status", "paid").not("address_line1", "is", null);
+          break;
+      }
     }
-    if (segment.deliveredMaxDays !== undefined) {
-      query = query.gte("delivered_at", daysAgo(segment.deliveredMaxDays));
-    }
-  }
 
-  const { data, error } = await query;
-  if (error) {
-    console.error("[CRM] segment query failed:", error.message);
-    return [];
-  }
-  return (data ?? []) as unknown as OrderRow[];
+    if (segment.from) query = query.gte("ordered_at", segment.from);
+    if (segment.to) query = query.lt("ordered_at", segment.to);
+    if (segment.district) query = query.eq("district", segment.district);
+
+    // Delivered, and how long ago. `delivered_at` rather than the status alone:
+    // a parcel marked delivered this morning and one delivered in July are the
+    // same status and completely different audiences.
+    if (segment.deliveredMinDays !== undefined || segment.deliveredMaxDays !== undefined) {
+      query = query.eq("status", "delivered").not("delivered_at", "is", null);
+      const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+      // "at least N days ago" is an upper bound on the timestamp.
+      if (segment.deliveredMinDays !== undefined) {
+        query = query.lte("delivered_at", daysAgo(segment.deliveredMinDays));
+      }
+      if (segment.deliveredMaxDays !== undefined) {
+        query = query.gte("delivered_at", daysAgo(segment.deliveredMaxDays));
+      }
+    }
+
+    return query;
+  };
+
+  const { rows } = await fetchAllRows<OrderRow>(
+    (from, to) => build(from, to) as unknown as PromiseLike<PageResult<OrderRow>>,
+    { label: "CRM segment orders", max: limit }
+  );
+  return rows;
 }
 
 interface ContactLite {
