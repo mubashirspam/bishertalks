@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
   Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
-  MessageSquare, Inbox, Boxes, BarChart3,
+  MessageSquare, Inbox, Boxes, BarChart3, Receipt,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -42,6 +42,10 @@ export const NAV: NavItem[] = [
   // Insights rather than under Profit & targets.
   { href: "/admin/analytics", label: "Reports", icon: BarChart3, permission: "delivery.view" },
   { href: "/admin/reports", label: "Profit & targets", icon: Calculator, permission: "reports.view" },
+  // Directly under Profit & targets, because the two answer halves of one
+  // question: that page models what a book should cost, this records what was
+  // actually spent and who is still owed for it.
+  { href: "/admin/expenses", label: "Expenses", icon: Receipt, permission: "expenses.view" },
   { href: "/admin/users", label: "Users", icon: Users, permission: "users.view" },
   { href: "/admin/courses", label: "Courses", icon: BookOpen, permission: "courses.manage" },
   { href: "/admin/landing", label: "Landing page", icon: LayoutTemplate, permission: "landing.manage" },

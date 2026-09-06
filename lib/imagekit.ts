@@ -58,6 +58,7 @@ export const IMAGEKIT_FOLDERS = {
   testimonialAudio: "/neuro-code/testimonials/audio",
   avatar: "/neuro-code/testimonials/avatars",
   explainer: "/neuro-code/explainer",
+  receipt: "/neuro-code/expenses/receipts",
 } as const;
 
 export type ImageKitFolder = (typeof IMAGEKIT_FOLDERS)[keyof typeof IMAGEKIT_FOLDERS];
@@ -73,6 +74,10 @@ export const UPLOAD_LIMITS = {
   image: { maxMB: 10, accept: "image/*" },
   audio: { maxMB: 25, accept: "audio/*" },
   video: { maxMB: 200, accept: "video/*" },
+  // A bill. Photographed off a phone far more often than exported as a PDF,
+  // so both are accepted and the limit is sized for a camera image rather
+  // than a scan.
+  document: { maxMB: 10, accept: "image/*,application/pdf" },
 } as const;
 
 export type UploadKind = keyof typeof UPLOAD_LIMITS;

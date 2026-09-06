@@ -13,6 +13,12 @@ import {
   type UnitEconomics,
 } from "@/lib/db/economics";
 import CostEditor from "./CostEditor";
+import ActualSpend from "./ActualSpend";
+import { supabaseAdmin } from "@/lib/supabase/admin";
+import { fetchAllRows } from "@/lib/db/paginate";
+import { istToday, istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
+import { REVENUE_SCOPE } from "@/lib/db/sales-channel";
+import { actualsVsAssumed } from "@/lib/db/expenses";
 
 export const dynamic = "force-dynamic";
 
@@ -93,11 +99,85 @@ async function ReportBody() {
       <Kpis report={report} />
       <NotConfigured report={report} />
       <FulfilmentWarning report={report} />
+      {/* The only block on this page made of real transactions rather than
+          typed assumptions. Above the editor on purpose: the gap it shows is
+          the reason to go and correct the numbers below it. */}
+      <Suspense
+        fallback={<div className="h-64 rounded-2xl bg-neutral-100 animate-pulse" />}
+      >
+        <ActualSpendBlock report={report} />
+      </Suspense>
       <CostEditor costs={report.costs} />
       <Breakdown economics={report.economics} report={report} />
       <Milestones report={report} />
       <Scenarios report={report} />
     </div>
+  );
+}
+
+/**
+ * Actual spend for the current month, against what the model expected.
+ *
+ * The month to date rather than all time, because that is the period somebody
+ * can still do something about, and because an all-time comparison would be
+ * dominated by whatever the assumptions were years ago.
+ *
+ * Revenue and books are counted for the SAME range as the spend, and through
+ * `REVENUE_SCOPE` — a profit figure built from all-time revenue and one
+ * month's costs would be a very encouraging lie.
+ */
+async function ActualSpendBlock({ report }: { report: EconomicsReport }) {
+  const today = istToday();
+  const from = `${today.slice(0, 7)}-01`;
+
+  const { rows } = await fetchAllRows<{
+    amount_paise: number | null;
+    refunded_paise: number | null;
+    quantity: number | null;
+    sales_channel: string | null;
+  }>(
+    (a, b) =>
+      supabaseAdmin
+        .from("orders")
+        .select("amount_paise,refunded_paise,quantity,sales_channel")
+        .eq("payment_status", "paid")
+        .gte("ordered_at", istDayStartUTC(from))
+        .lte("ordered_at", istDayEndUTC(today))
+        .order("ordered_at", { ascending: true })
+        .range(a, b) as never,
+    { label: "reports actual spend" }
+  );
+
+  let revenuePaise = 0;
+  let directSalesPaise = 0;
+  let booksSold = 0;
+
+  for (const o of rows) {
+    const net = (o.amount_paise ?? 0) - (o.refunded_paise ?? 0);
+    if (o.sales_channel === "manual") {
+      directSalesPaise += net;
+      continue;
+    }
+    revenuePaise += net;
+    booksSold += o.quantity ?? 1;
+  }
+
+  const actuals = await actualsVsAssumed(
+    from,
+    today,
+    {
+      perBookVariablePaise: report.economics.variablePaise,
+      monthlyFixedPaise: report.economics.fixedMonthlyPaise,
+    },
+    booksSold
+  );
+
+  return (
+    <ActualSpend
+      actuals={actuals}
+      revenuePaise={revenuePaise}
+      directSalesPaise={directSalesPaise}
+    />
   );
 }
 

@@ -10,8 +10,19 @@
  * can't be added without saying in plain words what it lets someone do.
  */
 export const PERMISSIONS = {
+  // The front page, and its own capability rather than a free extra with
+  // `orders.view`. It is the takings screen — today's revenue, the month, the
+  // charts — and somebody given the order list to look things up in was being
+  // handed the shop's income along with it.
+  "dashboard.view": "See the dashboard — revenue, order counts and charts",
+
   "orders.view": "See orders and the payment funnel",
   "orders.edit": "Change order details and status",
+  // Split from orders.edit. Recording a sale that happened at the counter and
+  // changing a sale that came through Razorpay are different jobs: this one
+  // writes a new paid order and moves stock, and it is grantable to somebody
+  // who is not allowed to re-status the order book.
+  "orders.create": "Add a direct sale — counter, UPI, cash or bank transfer",
   "orders.export": "Download customer data as CSV/Excel",
 
   "delivery.view": "See the delivery queue",
@@ -24,6 +35,14 @@ export const PERMISSIONS = {
   // that settles our money — so packing and shipping are one capability and
   // finishing is another.
   "delivery.complete": "Mark parcels delivered or returned",
+
+  // The parcel report at /admin/analytics. It used to answer to
+  // `delivery.view`, which made it an invisible extra on the delivery queue —
+  // grant somebody the queue and they also got every parcel's age, the courier
+  // breakdown and the spreadsheet of the lot. Operational, not financial: it
+  // counts parcels and days and never margin, which is why it is its own
+  // capability rather than part of reports.view.
+  "analytics.view": "See the parcel report — where every parcel is and how long it has been there",
 
   "users.view": "See customers",
   "users.manage": "Add customers and grant course access",
@@ -46,6 +65,8 @@ export const PERMISSIONS = {
   // the salary line divided by the month's volume. Someone can be trusted with
   // revenue without being handed the margin structure.
   "reports.view": "See unit economics, profit and milestone projections",
+  "expenses.view": "See what the business has spent and who it owes",
+  "expenses.edit": "Record expenses and repay whoever funded them",
   "referrals.view": "See referrers and what they've earned",
   "referrals.payout": "Settle referral commissions",
   "staff.manage": "Add, edit and remove staff",
@@ -77,12 +98,12 @@ export function isPermission(v: string): v is Permission {
 
 /** Grouping for the staff form — flat checkboxes for twelve items is a wall. */
 export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
-  { label: "Orders", permissions: ["orders.view", "orders.edit", "orders.export"] },
-  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal", "delivery.complete"] },
+  { label: "Orders", permissions: ["orders.view", "orders.edit", "orders.create", "orders.export"] },
+  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal", "delivery.complete", "analytics.view"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Stock", permissions: ["inventory.view", "inventory.manage"] },
-  { label: "Business", permissions: ["insights.view", "reports.view", "referrals.view", "referrals.payout", "staff.manage"] },
+  { label: "Business", permissions: ["dashboard.view", "insights.view", "reports.view", "expenses.view", "expenses.edit", "referrals.view", "referrals.payout", "staff.manage"] },
   { label: "Reference", permissions: ["templates.view"] },
   { label: "WhatsApp CRM", permissions: ["crm.view", "crm.reply", "crm.consent", "crm.campaign"] },
 ];
@@ -131,13 +152,14 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
   owner: [],
 
   manager: [
-    "orders.view", "orders.edit", "orders.export",
+    "dashboard.view",
+    "orders.view", "orders.edit", "orders.create", "orders.export",
     "delivery.view", "delivery.print", "delivery.assign", "delivery.portal",
-    "delivery.complete",
+    "delivery.complete", "analytics.view",
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
     "inventory.view", "inventory.manage",
-    "insights.view", "reports.view", "referrals.view",
+    "insights.view", "reports.view", "expenses.view", "expenses.edit", "referrals.view",
     "templates.view",
     // Not crm.campaign: bulk sending stays with the owner until enough
     // campaigns have run to know what the opt-out rate looks like.
