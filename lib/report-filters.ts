@@ -90,6 +90,81 @@ export const LATE_CHIPS = [5, 10, 15];
 /** What "late" means when nobody has said otherwise. */
 export const DEFAULT_LATE_DAYS = 10;
 
+// ── The delivery promise ─────────────────────────────────────────────────────
+
+/**
+ * How long each leg of the journey is allowed to take.
+ *
+ * Three legs, three different people to chase, which is why they are measured
+ * apart rather than as one "days since the order" number:
+ *
+ *   routing    the order is paid and addressed and nobody has chosen a courier
+ *              for it yet. That is entirely ours, and it is the leg this shop
+ *              is worst at.
+ *   handover   a courier is chosen but the parcel has not shipped. Packing,
+ *              manifesting and the physical hand-over.
+ *   transit    it is with the courier and moving. Theirs, not ours.
+ *
+ * The targets live here rather than in the panel that draws them because the
+ * same numbers decide three things — the compliance figure, the colour of the
+ * card, and the `late` threshold the chase link puts in the URL — and three
+ * copies of "2" is how they end up disagreeing.
+ *
+ * `stages` and `basis` are how each leg is expressed in the filters this screen
+ * already has, so a card can hand the parcel table the exact query behind its
+ * own number. If those stop matching, the card and the list it opens disagree,
+ * which is the one failure that makes a report untrustworthy.
+ */
+export interface SlaLeg {
+  key: "routing" | "handover" | "transit";
+  label: string;
+  /** What the clock runs from. */
+  from: "ordered_at" | "courier_assigned_at" | "shipped_at";
+  /** What stops it. Null means it is still running. */
+  to: "courier_assigned_at" | "shipped_at" | "delivered_at";
+  /** Whole days. Over this and the parcel has missed the promise. */
+  target: number;
+  /** The delivery stages a parcel on this leg is sitting in. */
+  stages: DeliveryStage[];
+  /** The matching `lateFrom` basis, for the chase link. */
+  basis: LateBasis;
+  /** Said in the panel, under the number. */
+  blurb: string;
+}
+
+export const SLA_LEGS: SlaLeg[] = [
+  {
+    key: "routing",
+    label: "Order to courier",
+    from: "ordered_at",
+    to: "courier_assigned_at",
+    target: 2,
+    stages: ["new"],
+    basis: "ordered",
+    blurb: "Paid and addressed, waiting for somebody to choose a courier.",
+  },
+  {
+    key: "handover",
+    label: "Courier to shipped",
+    from: "courier_assigned_at",
+    to: "shipped_at",
+    target: 2,
+    stages: ["assigned"],
+    basis: "courier_assigned",
+    blurb: "Routed, but not yet packed and handed over.",
+  },
+  {
+    key: "transit",
+    label: "Shipped to delivered",
+    from: "shipped_at",
+    to: "delivered_at",
+    target: 5,
+    stages: ["shipped", "out_for_delivery"],
+    basis: "shipped",
+    blurb: "On the road with the courier.",
+  },
+];
+
 // ── Ageing buckets ───────────────────────────────────────────────────────────
 
 /**

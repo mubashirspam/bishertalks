@@ -5,6 +5,7 @@ import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
 import { parseReportFilters, type ReportFilters } from "@/lib/report-filters";
 import { reportSummary, fetchReportPage } from "@/lib/db/parcel-report";
+import { deliverySla } from "@/lib/db/delivery-sla";
 import { listCouriers } from "@/lib/db/couriers";
 import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
@@ -20,6 +21,7 @@ import TimeChart from "./TimeChart";
 import AgentTable from "./AgentTable";
 import StateTable from "./StateTable";
 import ReportTable from "./ReportTable";
+import SlaPanel from "./SlaPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +85,16 @@ export default async function AnalyticsPage({
           <Headline filters={filters} />
         </Suspense>
 
+        {/* Deliberately NOT filtered. The promise is a property of the whole
+            operation, and a compliance figure that moved every time somebody
+            narrowed to one courier would be answering a different question
+            each time it was read. Its chase links set the filters instead. */}
+        <Suspense
+          fallback={<div className="mb-5 h-44 rounded-2xl bg-neutral-100 animate-pulse" />}
+        >
+          <Promise_ />
+        </Suspense>
+
         <Suspense
           fallback={<div className="h-64 rounded-2xl bg-neutral-100 animate-pulse mb-5" />}
         >
@@ -113,6 +125,17 @@ async function Filters({ filters }: { filters: ReportFilters }) {
       agents={agents.map((a) => ({ id: a.id, name: a.name }))}
     />
   );
+}
+
+/**
+ * How long each leg of the journey is taking against its target.
+ *
+ * Named with a trailing underscore because `Promise` is taken by the language,
+ * and a shadowed global in a file full of async functions is a trap.
+ */
+async function Promise_() {
+  const report = await deliverySla();
+  return <SlaPanel report={report} />;
 }
 
 /** The seven tiles. */
