@@ -82,6 +82,11 @@ export default function DeliveryFilters({
   // rather than a third independent thing, and two selects for four mutually
   // exclusive answers is a worse control than one.
   const gift = params.get("signed") === "yes" ? "signed" : (params.get("gift") ?? "all");
+  // Where the sale came from (0061). A packing question here, not a money one:
+  // a direct sale's address was typed off a WhatsApp message rather than filled
+  // in by the customer, so it is worth being able to look at that run on its own
+  // before it is booked.
+  const channel = params.get("channel") ?? "all";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   // Must match the default in parseDeliveryFilters (lib/db/delivery-query.ts).
@@ -109,7 +114,8 @@ export default function DeliveryFilters({
     !!courier ||
     !!handover ||
     books !== "all" ||
-    gift !== "all";
+    gift !== "all" ||
+    channel !== "all";
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -305,6 +311,23 @@ export default function DeliveryFilters({
 
           <div>
             <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              Sold
+            </label>
+            <select
+              value={channel}
+              onChange={(e) =>
+                push({ channel: e.target.value === "all" ? null : e.target.value })
+              }
+              className={`${field} cursor-pointer`}
+            >
+              <option value="all">Any way</option>
+              <option value="manual">Direct sales only</option>
+              <option value="online">Online checkout only</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
               Order
             </label>
             <select
@@ -353,7 +376,7 @@ export default function DeliveryFilters({
                   push({
                     from: null, to: null, q: null, agent: null,
                     courier: null, handover: null, books: null, signed: null,
-                    gift: null,
+                    gift: null, channel: null,
                   });
                 }}
                 className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"

@@ -12,6 +12,7 @@ import {
   DELIVERY_SHORT,
   DELIVERY_BADGE,
 } from "@/lib/delivery-stage";
+import { isDirectSale } from "@/lib/db/sales-channel";
 import {
   deliveryPriority,
   PRIORITY_BADGE,
@@ -797,6 +798,10 @@ export default function DeliveryTable({
                   // to come from the same place, and they used not to.
                   const s = o.delivery_stage;
                   const urgent = deliveryPriority(o.delivery_priority) === "urgent";
+                  // Sold at the counter, address typed off a WhatsApp message
+                  // (0061). Worth saying on the row: it is the one class of
+                  // parcel here whose address nobody but us has checked.
+                  const direct = isDirectSale(o);
                   const checked = selected.has(o.order_number);
                   return (
                     <React.Fragment key={o.id}>
@@ -889,7 +894,7 @@ export default function DeliveryTable({
                         <p className="text-neutral-500 mt-0.5">
                           {o.quantity > 1 ? `${o.quantity} books` : "1 book"}
                         </p>
-                        {(o.is_gift || o.is_signed || urgent) && (
+                        {(o.is_gift || o.is_signed || urgent || direct) && (
                           <p className="flex flex-wrap items-center gap-1 mt-1">
                             {/* First in the row on purpose: it is the one badge
                                 that changes what somebody does today. */}
@@ -899,6 +904,14 @@ export default function DeliveryTable({
                                 className={`inline-flex px-1.5 rounded-full text-[10px] font-bold border ${PRIORITY_BADGE.urgent}`}
                               >
                                 ⚡ urgent
+                              </span>
+                            )}
+                            {direct && (
+                              <span
+                                title="Direct sale — paid by QR, UPI, cash or bank transfer, address taken over WhatsApp"
+                                className="inline-flex px-1.5 rounded-full bg-sky-100 text-sky-800 text-[10px] font-bold"
+                              >
+                                🧾 direct
                               </span>
                             )}
                             {o.is_gift && (
