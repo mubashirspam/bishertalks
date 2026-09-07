@@ -2,6 +2,7 @@ import Link from "@/components/admin/AdminLink";
 import { ArrowLeft } from "lucide-react";
 import { requirePageAccess } from "@/lib/admin-auth";
 import { getProductPricing } from "@/lib/db/courses";
+import { listActiveCouriers } from "@/lib/db/couriers";
 import DirectSaleForm from "./DirectSaleForm";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,12 @@ export default async function NewDirectSalePage() {
   // scheduled price change included — so the figure this form suggests is the
   // one the shop is actually selling at today.
   const pricing = await getProductPricing();
+
+  // The real partner list, active only — the same one the routing screen
+  // offers. Passed in rather than fetched by the form, because the form is a
+  // client component and this is two rows out of a table it has no business
+  // reaching into.
+  const couriers = await listActiveCouriers();
 
   return (
     <div className="max-w-3xl">
@@ -42,7 +49,10 @@ export default async function NewDirectSalePage() {
         </p>
       </div>
 
-      <DirectSaleForm unitPrice={pricing.payable} />
+      <DirectSaleForm
+        unitPrice={pricing.payable}
+        couriers={couriers.map((c) => ({ id: c.id, name: c.name }))}
+      />
     </div>
   );
 }

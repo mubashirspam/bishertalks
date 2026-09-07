@@ -7,6 +7,8 @@ import { requirePermission } from "@/lib/admin-auth";
 import { audit } from "@/lib/audit";
 import { isManualPaymentMethod } from "@/lib/db/sales-channel";
 import { notifyAfterResponse } from "@/lib/notify";
+import { listActiveCouriers } from "@/lib/db/couriers";
+import { isDeliveryPriority } from "@/lib/delivery-priority";
 
 /**
  * Enter a book that was sold directly.
@@ -103,6 +105,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // ── Which service is carrying it ──────────────────────────────────────
+  //
+  // Optional: whoever is entering the sale usually knows, and when they do not
+  // the parcel lands in the delivery queue as New and gets routed there, which
+  // is what happened to every direct sale before this field existed.
+  //
+  // Checked against the live courier list rather than a list of names in this
+  // file. The id comes off a form, `courier_id` is a foreign key, and a stale
+  // hard-coded slug is how a picker starts offering a partner the shop stopped
+  // using last year. Inactive couriers are refused for the same reason the
+  // routing screen does not offer them.
+  const courierId = str(body.courier_id);
+  if (courierId) {
+    const active = await listActiveCouriers();
+    if (!active.some((c) => c.id === courierId)) {
+      return NextResponse.json(
+        { error: "That delivery service is not one we are using." },
+        { status: 400 }
+      );
+    }
+  }
+
+  // 'normal' unless somebody says otherwise. An unrecognised value is refused
+  // rather than quietly filed as normal: the column has a CHECK constraint
+  // behind it (0063), and a silent downgrade would tell the person at the
+  // counter their rush order was accepted as one.
+  const priority = str(body.delivery_priority) || "normal";
+  if (!isDeliveryPriority(priority)) {
+    return NextResponse.json({ error: "Unknown priority." }, { status: 400 });
+  }
+
   const now = new Date().toISOString();
 
   // Rupees in, paise stored — every money column in this database is paise, and
@@ -128,6 +161,15 @@ export async function POST(request: NextRequest) {
     payment_status: "paid",
     status: "confirmed",
 
+    // Routed at the counter by the person who already knows the answer, so it
+    // reaches the delivery queue as "Routed — with a courier" rather than as
+    // one more parcel somebody has to decide about. `courier_assigned_at` is
+    // stamped with it (0057) — the two are one fact, and a courier with no
+    // date on it is a row the queue cannot age.
+    courier_id: courierId || null,
+    courier_assigned_at: courierId ? now : null,
+    delivery_priority: priority,
+
     sales_channel: "manual",
     manual_payment_method: method,
     manual_payment_ref: str(body.manual_payment_ref) || null,
@@ -139,11 +181,17 @@ export async function POST(request: NextRequest) {
     // than guessed. `source` is deliberately NOT set to "manual" — see 0061.
     source: str(body.source) || "direct",
 
-    // Both, and both now. `ordered_at` is what every revenue and delivery
-    // screen sorts and filters by; `paid_at` is when the money landed. For a
-    // direct sale those are the same moment.
+    // `paid_at` only. `ordered_at` is the column every revenue and delivery
+    // screen sorts and filters by, and it is GENERATED ALWAYS AS
+    // (COALESCE(paid_at, created_at)) — see migration 0043 — so writing it is
+    // not merely redundant, Postgres refuses the whole INSERT:
+    //
+    //   cannot insert a non-DEFAULT value into column "ordered_at"
+    //
+    // Which is why no direct sale had ever saved. Setting `paid_at` gives
+    // `ordered_at` the same value the line below was trying to force, because
+    // for a direct sale the money landed the moment it was entered.
     paid_at: now,
-    ordered_at: now,
     address_submitted_at: now,
     checkout_type: "standard",
     is_signed: body.is_signed === true,
@@ -193,6 +241,11 @@ export async function POST(request: NextRequest) {
       quantity,
       payment_method: method,
       payment_ref: str(body.manual_payment_ref) || null,
+      // Both, because both are decisions somebody made at the counter rather
+      // than facts about the sale — and "who marked this urgent?" is exactly
+      // the question the history strip exists to answer.
+      courier_id: courierId || null,
+      delivery_priority: priority,
     },
   });
 

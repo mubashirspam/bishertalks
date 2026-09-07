@@ -8,6 +8,11 @@ import {
   MANUAL_PAYMENT_LABELS,
 } from "@/lib/db/sales-channel";
 import { TRAFFIC_SOURCES, SOURCE_LABELS } from "@/lib/attribution";
+import {
+  DELIVERY_PRIORITIES,
+  PRIORITY_LABELS,
+  PRIORITY_HINTS,
+} from "@/lib/delivery-priority";
 
 /**
  * The form for a book sold off the platform.
@@ -40,7 +45,14 @@ const INPUT =
   "w-full text-sm border border-neutral-200 rounded-xl px-3 py-2 bg-white " +
   "focus:outline-none focus:ring-2 focus:ring-primary-500/40 focus:border-primary-400";
 
-export default function DirectSaleForm({ unitPrice }: { unitPrice: number }) {
+export default function DirectSaleForm({
+  unitPrice,
+  couriers,
+}: {
+  unitPrice: number;
+  /** Active partners, from the couriers table — never a hard-coded list. */
+  couriers: { id: string; name: string }[];
+}) {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,6 +165,43 @@ export default function DirectSaleForm({ unitPrice }: { unitPrice: number }) {
               name="pincode" required inputMode="numeric" pattern="\d{6}"
               className={INPUT} placeholder="6 digits"
             />
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm">
+        <h2 className="font-semibold text-sm mb-1">How it goes out</h2>
+        <p className="text-xs text-neutral-500 mb-4">
+          Both optional, and both are things only the person taking the sale knows.
+          Either can be changed later from the delivery queue.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <label className={LABEL}>Delivery service</label>
+            <select name="courier_id" defaultValue="" className={INPUT}>
+              {/* Empty by default rather than guessing a partner. A parcel
+                  with no service picked lands in the queue as New, which is
+                  exactly where an undecided parcel belongs. */}
+              <option value="">Decide later</option>
+              {couriers.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-neutral-400 mt-1">
+              Picking one routes the parcel now, so it reaches the queue already
+              assigned.
+            </p>
+          </div>
+          <div>
+            <label className={LABEL}>Priority</label>
+            <select name="delivery_priority" defaultValue="normal" className={INPUT}>
+              {DELIVERY_PRIORITIES.map((p) => (
+                <option key={p} value={p}>{PRIORITY_LABELS[p]}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-neutral-400 mt-1">
+              {PRIORITY_HINTS.urgent}
+            </p>
           </div>
         </div>
       </section>

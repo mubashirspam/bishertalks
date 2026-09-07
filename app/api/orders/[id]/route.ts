@@ -30,7 +30,7 @@ export async function GET(
        address_line1, address_line2, pincode, status, payment_status,
        amount_paise, quantity, discount_paise, promo_code, notes,
        refunded_paise, refunded_at, razorpay_refund_id,
-       is_gift, gift_message, gift_charge_paise, is_signed,
+       is_gift, gift_message, gift_charge_paise, is_signed, delivery_priority,
        tracking_number, courier_name, expected_delivery,
        label_downloaded_at, label_download_count, shipped_at, delivered_at,
        courier_entered_at, assigned_agent_id, assigned_at,

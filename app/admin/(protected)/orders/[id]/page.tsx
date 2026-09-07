@@ -16,6 +16,11 @@ import {
 import { funnelWaMessage, deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import { orderStage, STAGE_LABELS as FUNNEL_LABELS, STAGE_BADGE as FUNNEL_BADGE } from "@/lib/order-stage";
 import { HELD_EVENTS, WIRE_EVENT } from "@/lib/notify-events";
+import {
+  deliveryPriority,
+  PRIORITY_BADGE,
+  PRIORITY_HINTS,
+} from "@/lib/delivery-priority";
 import ResendMessage from "./ResendMessage";
 
 const ALL_STATUSES: OrderStatus[] = [
@@ -462,6 +467,17 @@ export default function AdminOrderDetailPage() {
         </Link>
         <span className="text-neutral-300">/</span>
         <span className="font-mono text-primary-600 text-sm">{id}</span>
+        {/* Beside the order number rather than down in the delivery card:
+            whether this one jumps the queue is the first thing to know about
+            it, and the packing decision is made before anybody scrolls. */}
+        {deliveryPriority(order.delivery_priority) === "urgent" && (
+          <span
+            title={PRIORITY_HINTS.urgent}
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold border ${PRIORITY_BADGE.urgent}`}
+          >
+            ⚡ Urgent
+          </span>
+        )}
       </div>
 
       {/* Full width and above both columns, because it changes what physically

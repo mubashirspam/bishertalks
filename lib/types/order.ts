@@ -53,6 +53,14 @@ export interface Order {
   gift_charge_paise: number;
   /** Sign every copy before wrapping it (0040). Gifts only, and free (0041). */
   is_signed: boolean;
+  /**
+   * 'normal' | 'urgent' (0063). Typed in by whoever took the sale, not derived.
+   *
+   * Nullable in the type and not in the column: rows read through a select
+   * written before 0063 simply do not carry it, and `deliveryPriority()` in
+   * lib/delivery-priority.ts reads that as normal rather than throwing.
+   */
+  delivery_priority?: string | null;
   promo_code: string | null;
   discount_paise: number;
   payment_status: PaymentStatus;

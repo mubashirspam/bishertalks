@@ -12,6 +12,11 @@ import {
   DELIVERY_SHORT,
   DELIVERY_BADGE,
 } from "@/lib/delivery-stage";
+import {
+  deliveryPriority,
+  PRIORITY_BADGE,
+  PRIORITY_HINTS,
+} from "@/lib/delivery-priority";
 import { formatISTShort, formatISTDate, timeAgo } from "@/lib/format-date";
 import { deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import type { DeliveryRow } from "@/lib/db/delivery-query";
@@ -791,6 +796,7 @@ export default function DeliveryTable({
                   // here — the badge on a row and the tab it is sitting in have
                   // to come from the same place, and they used not to.
                   const s = o.delivery_stage;
+                  const urgent = deliveryPriority(o.delivery_priority) === "urgent";
                   const checked = selected.has(o.order_number);
                   return (
                     <React.Fragment key={o.id}>
@@ -883,8 +889,18 @@ export default function DeliveryTable({
                         <p className="text-neutral-500 mt-0.5">
                           {o.quantity > 1 ? `${o.quantity} books` : "1 book"}
                         </p>
-                        {(o.is_gift || o.is_signed) && (
+                        {(o.is_gift || o.is_signed || urgent) && (
                           <p className="flex flex-wrap items-center gap-1 mt-1">
+                            {/* First in the row on purpose: it is the one badge
+                                that changes what somebody does today. */}
+                            {urgent && (
+                              <span
+                                title={PRIORITY_HINTS.urgent}
+                                className={`inline-flex px-1.5 rounded-full text-[10px] font-bold border ${PRIORITY_BADGE.urgent}`}
+                              >
+                                ⚡ urgent
+                              </span>
+                            )}
                             {o.is_gift && (
                               <span
                                 title={

@@ -83,6 +83,8 @@ export interface DeliveryRow {
   courier_last_scan: string | null;
   /** What is actually happening to it — see docs/delivery-states.md. */
   handover_state: string | null;
+  /** 'normal' | 'urgent' (0063). Badged on the row; never a reason to hide one. */
+  delivery_priority: string | null;
   courier_last_scan_at: string | null;
   shipped_at: string | null;
   delivered_at: string | null;
@@ -91,7 +93,7 @@ export interface DeliveryRow {
 
 export const DELIVERY_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district,state,pincode," +
-  "amount_paise,quantity,is_gift,gift_message,is_signed," +
+  "amount_paise,quantity,is_gift,gift_message,is_signed,delivery_priority," +
   "status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
   "assigned_agent_id,assigned_at,courier_entered_at," +
   "courier_id,courier_assigned_at,courier_sent_at,courier_send_error," +
