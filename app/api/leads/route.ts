@@ -54,6 +54,11 @@ export async function POST(request: NextRequest) {
     };
     put("buyer_name", body.name);
     put("buyer_email", body.email);
+    // Captured with the rest, so a lead who comes back days later finds the
+    // house name still in the form rather than typing it twice.
+    put("house_name", body.house_name);
+    put("door_no", body.door_no);
+    put("address_type", body.address_type);
     put("address_line1", body.address1);
     put("address_line2", body.address2);
     put("city", body.city);

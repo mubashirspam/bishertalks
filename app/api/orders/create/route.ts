@@ -25,6 +25,7 @@ import { getGiftSettings } from "@/lib/db/gift";
 import { getCheckoutSettings } from "@/lib/db/checkout-settings";
 import { promoCodeAllowed } from "@/lib/checkout-settings";
 import { claimPaidTransition } from "@/lib/payment-claim";
+import { addressType } from "@/lib/address";
 
 function generateOrderNumber(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -63,6 +64,7 @@ export async function POST(request: NextRequest) {
     // losing the drop-off trail.
     const {
       name, phone, email, address1, address2, city, district, state, pincode,
+      house_name, door_no, address_type,
     } = body as Record<string, string | undefined>;
     const existingOrderNumber =
       typeof body.order_number === "string" ? body.order_number : null;
@@ -70,7 +72,7 @@ export async function POST(request: NextRequest) {
     // Under Magic Checkout, Razorpay collects these and we backfill after
     // payment — so only validate them on the standard flow.
     if (!MAGIC_CHECKOUT_ENABLED) {
-      if (!name || !phone || !address1 || !city || !state || !pincode) {
+      if (!name || !phone || !address1 || !city || !state || !pincode || !house_name) {
         return NextResponse.json(
           { error: "Please fill in all required fields." },
           { status: 400 }
@@ -353,6 +355,11 @@ export async function POST(request: NextRequest) {
       ...(email ? { buyer_email: email } : {}),
       // Present on the standard flow; null under Magic Checkout, where they're
       // backfilled from Razorpay after payment.
+      // 0064. The house by name is what a delivery agent looks for; the door
+      // number and the home/office split come with it.
+      ...(house_name ? { house_name } : {}),
+      ...(door_no ? { door_no } : {}),
+      ...(address1 ? { address_type: addressType(address_type) } : {}),
       ...(address1 ? { address_line1: address1 } : {}),
       ...(address2 ? { address_line2: address2 } : {}),
       ...(city ? { city } : {}),

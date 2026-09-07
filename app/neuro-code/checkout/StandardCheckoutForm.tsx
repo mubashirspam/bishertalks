@@ -6,6 +6,11 @@ import Link from "next/link";
 import {
   ArrowLeft, Lock, ShoppingBag, Tag, Check, User, MapPin, Loader2, Truck,
 } from "lucide-react";
+import {
+  ADDRESS_TYPES,
+  ADDRESS_TYPE_LABELS,
+  type AddressType,
+} from "@/lib/address";
 import type { ProductPricing } from "@/lib/db/courses";
 import { clampQuantity } from "@/lib/quantity";
 import type { CheckoutSettings } from "@/lib/checkout-settings";
@@ -57,6 +62,11 @@ export default function StandardCheckoutForm({
   const [phone, setPhone] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
+  // 0064. Home by default — it is what nearly every order is, and a required
+  // choice with an obvious answer is a tap taken from the customer.
+  const [addressType, setAddressType] = useState<AddressType>("home");
+  const [houseName, setHouseName] = useState("");
+  const [doorNo, setDoorNo] = useState("");
   const [address1, setAddress1] = useState("");
   const [address2, setAddress2] = useState("");
   const [pincode, setPincode] = useState("");
@@ -122,7 +132,8 @@ export default function StandardCheckoutForm({
     if (!phoneValid) return;
 
     const snapshot = JSON.stringify({
-      phone, name, email, address1, address2, city, district, state, pincode,
+      phone, name, email, houseName, doorNo, addressType,
+      address1, address2, city, district, state, pincode,
     });
     if (capturedFor.current === snapshot) return;
 
@@ -144,7 +155,8 @@ export default function StandardCheckoutForm({
     }, 900);
 
     return () => clearTimeout(t);
-  }, [phone, phoneValid, name, email, address1, address2, city, district, state, pincode]);
+  }, [phone, phoneValid, name, email, houseName, doorNo, addressType,
+      address1, address2, city, district, state, pincode]);
 
   // Pincode drives district / state / locality.
   useEffect(() => {
@@ -229,7 +241,8 @@ export default function StandardCheckoutForm({
     if (!name.trim()) e.name = "Name is required";
     if (!phoneValid) e.phone = "Enter a valid 10-digit mobile number";
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Enter a valid email";
-    if (!address1.trim()) e.address1 = "Address is required";
+    if (!houseName.trim()) e.house_name = "House or building name is required";
+    if (!address1.trim()) e.address1 = "Area / street is required";
     if (!/^\d{6}$/.test(pincode)) e.pincode = "Enter a valid 6-digit pincode";
     if (!city.trim()) e.city = "Select or enter your area";
     if (!state.trim()) e.state = "State is required";
@@ -255,6 +268,7 @@ export default function StandardCheckoutForm({
         body: JSON.stringify({
           name, phone, email,
           address1, address2, city, district, state, pincode,
+          house_name: houseName, door_no: doorNo, address_type: addressType,
           order_number: orderNumberRef.current,
           promoCode: promo?.code ?? null,
           quantity,
@@ -400,10 +414,53 @@ export default function StandardCheckoutForm({
               <MapPin className="w-4 h-4 text-primary-500" /> Delivery Address
             </h2>
 
+            {/* Two buttons, not a dropdown. There are two answers, and on a
+                phone — where nearly all of these are filled in — a dropdown
+                for two answers is a tap wasted. */}
+            <div className="flex gap-2">
+              {ADDRESS_TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setAddressType(t)}
+                  className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold border transition-colors ${
+                    addressType === t
+                      ? "bg-primary-500 border-primary-500 text-white"
+                      : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-white/10 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white"
+                  }`}
+                >
+                  {ADDRESS_TYPE_LABELS[t]}
+                </button>
+              ))}
+            </div>
+
+            {/* The field this whole change exists for: a named house is
+                findable when a street name is not. */}
+            <div>
+              <input
+                className={inputCls("house_name")}
+                placeholder={
+                  addressType === "office"
+                    ? "Office / building name *"
+                    : "House / building name *"
+                }
+                value={houseName}
+                onChange={(e) => { setHouseName(e.target.value); setErrors((p) => ({ ...p, house_name: "" })); }}
+              />
+              <Err f="house_name" />
+            </div>
+
+            <input
+              className={inputCls("door_no")}
+              placeholder="Flat / floor / door no. (optional)"
+              value={doorNo}
+              onChange={(e) => setDoorNo(e.target.value)}
+            />
+
             <div>
               <input
                 className={inputCls("address1")}
-                placeholder="House / street / area *"
+                placeholder="Area, street, locality *"
                 value={address1}
                 onChange={(e) => { setAddress1(e.target.value); setErrors((p) => ({ ...p, address1: "" })); }}
               />
