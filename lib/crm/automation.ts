@@ -74,10 +74,18 @@ export async function scheduleEvent(input: {
   orderId?: string | null;
   eventType: string;
   templateName: string;
-  afterDays: number;
+  /** Ignored when `afterMinutes` is also given. */
+  afterDays?: number;
+  /** For delays shorter than a day — a payment retry nudge, say. */
+  afterMinutes?: number;
   reason?: string;
 }): Promise<AutomationEvent | null> {
-  const when = new Date(Date.now() + input.afterDays * 86_400_000).toISOString();
+  const when = new Date(
+    Date.now() +
+      (input.afterMinutes != null
+        ? input.afterMinutes * 60_000
+        : (input.afterDays ?? 0) * 86_400_000)
+  ).toISOString();
 
   const { data, error } = await supabaseAdmin
     .from("whatsapp_automation_events")

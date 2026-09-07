@@ -4,6 +4,8 @@ import { backfillOrderFromRazorpay } from "@/lib/db/orders";
 import { sendPurchaseEmail } from "@/lib/db/order-email";
 import { redeemPromo } from "@/lib/db/promo";
 import { notifyAfterResponse } from "@/lib/notify";
+import { getContactByPhone } from "@/lib/crm/contacts";
+import { cancelRecoveryEvents } from "@/lib/crm/payment-recovery";
 
 /**
  * The pending -> paid transition and everything that follows it.
@@ -46,7 +48,7 @@ export async function claimPaidTransition(
         : {}),
     })
     .neq("payment_status", "paid")
-    .select("order_number, promo_code, status");
+    .select("order_number, promo_code, status, buyer_phone");
 
   const { data: claimed, error } =
     "orderNumber" in lookup
@@ -68,6 +70,20 @@ export async function claimPaidTransition(
   // re-confirm it but make noise in the log so someone looks.
   if (order.status === "cancelled") {
     console.error("[Paid] Payment received on cancelled order:", order.order_number);
+  }
+
+  // The proactive half of "decide at send time, not schedule time" — see
+  // recoveryEligibility() in lib/crm/payment-recovery.ts for the other half,
+  // which catches the gap between this claim and a worker run already
+  // mid-flight. A payment landing must never leave "your payment failed"
+  // queued behind it.
+  if (order.buyer_phone) {
+    try {
+      const contact = await getContactByPhone(order.buyer_phone);
+      if (contact) await cancelRecoveryEvents(contact.id);
+    } catch (e) {
+      console.error("[Paid] cancelRecoveryEvents failed:", order.order_number, e);
+    }
   }
 
   if (order.promo_code) {

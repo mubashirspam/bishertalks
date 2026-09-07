@@ -13,7 +13,8 @@ import {
 import { getContacts } from "@/lib/crm/contacts";
 import { sendTemplateMessage } from "@/lib/crm/send";
 import { crmFieldsFor, onHold } from "@/lib/crm/tags";
-import { FLOW_TEMPLATES, TEMPLATE_LANGUAGE } from "@/lib/whatsapp-templates";
+import { FLOW_TEMPLATES, CAMPAIGN_TEMPLATES, TEMPLATE_LANGUAGE } from "@/lib/whatsapp-templates";
+import { isRecoveryEvent, recoveryEligibility } from "@/lib/crm/payment-recovery";
 
 /**
  * The follow-up worker.
@@ -84,7 +85,11 @@ export async function GET(request: NextRequest) {
  *
  * What remains in this worker is the queue itself, which still drains: rows
  * put there by a customer tapping a button, one person at a time, in a
- * conversation they started.
+ * conversation they started — and, since payment-recovery was added, rows put
+ * there by an order failing or stalling, one order at a time, at the moment
+ * it happens. That is event-triggered, not time-swept: nothing here ever asks
+ * "what happened N days ago", only "what just happened to this one order" —
+ * see lib/crm/payment-recovery.ts.
  */
 
 async function drain(): Promise<{
@@ -122,7 +127,9 @@ async function runOne(
     ? C | null
     : never
 ): Promise<"sent" | "refused" | "failed" | "cancelled"> {
-  const template = event.template_name ? FLOW_TEMPLATES[event.template_name] : null;
+  const template = event.template_name
+    ? (FLOW_TEMPLATES[event.template_name] ?? CAMPAIGN_TEMPLATES[event.template_name])
+    : null;
 
   if (!template) {
     await finishEvent(event.id, {
@@ -153,6 +160,26 @@ async function runOne(
     return "cancelled";
   }
 
+  // Payment-recovery events are order-specific and re-checked against the
+  // order's current stage at send time — the whole point of the queue being
+  // a queue rather than a decision made when it was scheduled. Everything
+  // else keeps using the contact's own fields, as before.
+  let context = {
+    customerName: contact.display_name ?? "സുഹൃത്തേ",
+    orderNumber: contact.last_order_number ?? "",
+  };
+
+  if (isRecoveryEvent(event.event_type)) {
+    const verdict = await recoveryEligibility(event.event_type, event.order_id, contact.id);
+    if (!verdict.ok) {
+      await finishEvent(event.id, { status: "cancelled", error: verdict.reason });
+      return "cancelled";
+    }
+    context = { customerName: verdict.customerName, orderNumber: verdict.orderNumber };
+  }
+
+  const params = template.params(context);
+
   const result = await sendTemplateMessage({
     contact,
     // Campaign, not transactional: these are nudges, and they belong under the
@@ -163,14 +190,8 @@ async function runOne(
       category: template.category,
       language: TEMPLATE_LANGUAGE,
     },
-    params: template.params({
-      customerName: contact.display_name ?? "സുഹൃത്തേ",
-      orderNumber: contact.last_order_number ?? "",
-    }),
-    preview: fillPreview(template.body, template.params({
-      customerName: contact.display_name ?? "സുഹൃത്തേ",
-      orderNumber: contact.last_order_number ?? "",
-    })),
+    params,
+    preview: fillPreview(template.body, params),
   });
 
   if (result.ok) {

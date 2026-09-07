@@ -38,6 +38,8 @@ const EVENT_LABELS: Record<string, string> = {
   encouragement: "Reading encouragement",
   feedback_30d: "30-day feedback",
   referral_followup: "Referral follow-up",
+  payment_failed_reminder: "Payment failed — retry nudge",
+  checkout_abandoned_reminder: "Checkout abandoned — reminder",
 };
 
 export default async function AutomationPage({
@@ -118,11 +120,13 @@ async function Body({
       <p className="flex items-start gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
         <Info className="mt-0.5 h-4 w-4 shrink-0" />
         <span>
-          <strong>Only a customer&rsquo;s own button tap queues anything here.</strong>{" "}
+          <strong>Only a customer action or an order event queues anything here.</strong>{" "}
           Tapping <em>Later</em> schedules one reminder; tapping{" "}
-          <em>Recommend</em> schedules one referral follow-up. Nothing is sent
-          on a timer to people who have not replied — the reading follow-ups
-          and the 30-day feedback are{" "}
+          <em>Recommend</em> schedules one referral follow-up. A payment
+          failing or a checkout stalling schedules one payment-recovery nudge,
+          the same way — at the moment it happens, never a sweep of past
+          orders. Nothing is sent on a timer over the whole customer base —
+          the reading follow-ups and the 30-day feedback are{" "}
           <Link href="/admin/crm/campaigns" className="underline underline-offset-2">
             campaigns
           </Link>

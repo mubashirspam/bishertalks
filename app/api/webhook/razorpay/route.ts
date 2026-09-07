@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { claimPaidTransition } from "@/lib/payment-claim";
 import { recordRefund, type RefundLookup } from "@/lib/db/refunds";
+import { scheduleFailedPaymentRetry } from "@/lib/crm/payment-recovery";
 
 // Add RAZORPAY_WEBHOOK_SECRET to your .env.local
 // Get it from: Razorpay Dashboard → Settings → Webhooks → your webhook → secret
@@ -164,6 +165,14 @@ export async function POST(request: NextRequest) {
         "[Webhook] payment.failed ignored — order already paid or unknown:",
         { razorpayOrderId, paymentId: payment.id }
       );
+    } else {
+      // A courtesy on top of a fact already recorded — never let a messaging
+      // problem turn this webhook into a failure Razorpay retries.
+      for (const row of demoted as { order_number: string }[]) {
+        scheduleFailedPaymentRetry(row.order_number).catch((e) =>
+          console.error("[Webhook] scheduleFailedPaymentRetry failed:", row.order_number, e)
+        );
+      }
     }
   }
 

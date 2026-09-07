@@ -26,6 +26,7 @@ import { getCheckoutSettings } from "@/lib/db/checkout-settings";
 import { promoCodeAllowed } from "@/lib/checkout-settings";
 import { claimPaidTransition } from "@/lib/payment-claim";
 import { addressType } from "@/lib/address";
+import { scheduleCheckoutAbandoned } from "@/lib/crm/payment-recovery";
 
 function generateOrderNumber(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -383,6 +384,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "Failed to create order" },
         { status: 500 }
+      );
+    }
+
+    // A courtesy nudge if this checkout is abandoned, never a blocker on the
+    // response. Magic Checkout has no phone to message yet at this point —
+    // Razorpay collects it, and it's only backfilled after payment — so this
+    // is scoped to the standard flow, which already has one.
+    if (!MAGIC_CHECKOUT_ENABLED && normalizedPhone) {
+      scheduleCheckoutAbandoned(orderNumber).catch((e) =>
+        console.error("[Create] scheduleCheckoutAbandoned failed:", orderNumber, e)
       );
     }
 
