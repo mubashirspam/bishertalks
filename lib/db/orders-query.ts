@@ -29,6 +29,11 @@ export interface OrderRow {
   id: string;
   order_number: string;
   buyer_name: string | null;
+  /** 0064. Optional: rows read through an older select carry none, and
+      lib/address.ts renders that as the address printed before. */
+  house_name?: string | null;
+  door_no?: string | null;
+  address_type?: string | null;
   buyer_phone: string | null;
   buyer_email: string | null;
   amount_paise: number;
@@ -80,7 +85,7 @@ export const ORDER_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,buyer_email,amount_paise,quantity," +
   "is_gift,gift_message,gift_charge_paise,is_signed,discount_paise,promo_code," +
   "payment_status,refunded_paise,refunded_at,status," +
-  "address_line1,address_line2,city,district,state,pincode," +
+  "house_name,door_no,address_type,address_line1,address_line2,city,district,state,pincode," +
   "razorpay_order_id,razorpay_payment_id,checkout_type," +
   "created_at,paid_at,ordered_at,address_submitted_at," +
   "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note," +

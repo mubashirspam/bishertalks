@@ -15,6 +15,10 @@
  *     column is rejected on upload, not silently accepted with a gap.
  */
 
+// Pure, so it costs the client bundle nothing — see COURIER_SHEET_MAX below
+// for why this file avoids server-side imports.
+import { streetParts } from "@/lib/address";
+
 /**
  * How many parcels go on one sheet.
  *
@@ -159,6 +163,13 @@ export interface CourierParcel {
   order_number: string;
   buyer_name: string | null;
   buyer_phone: string | null;
+  /**
+   * 0064. Optional on the type because a caller reading through an older
+   * select simply has none, and lib/address.ts renders that exactly as this
+   * shop's addresses printed before the columns existed.
+   */
+  house_name?: string | null;
+  door_no?: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
@@ -270,7 +281,10 @@ export function courierAddress(p: CourierParcel): string {
   // Checkout asks for the town and the district separately, and for most of
   // Kerala the honest answer to both is the same word. "Kannur, Kannur" on a
   // parcel reads as a data-entry slip to the person delivering it.
-  for (const raw of [p.address_line1, p.address_line2, p.city, p.district]) {
+  // streetParts() puts door number and house name ahead of the street, and
+  // drops anything repeated; city and district follow because this one field
+  // is all a delivery boy's printed slip shows.
+  for (const raw of [...streetParts(p), p.city, p.district]) {
     const part = raw?.trim();
     if (!part) continue;
     if (parts.some((seen) => seen.toLowerCase() === part.toLowerCase())) continue;

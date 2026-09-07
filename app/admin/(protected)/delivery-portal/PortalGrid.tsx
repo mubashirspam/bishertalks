@@ -20,6 +20,7 @@ import {
 } from "@/lib/db/delivery-portal";
 import type { OrderStatus } from "@/lib/types/order";
 import { formatISTShort } from "@/lib/format-date";
+import { streetParts } from "@/lib/address";
 
 /**
  * The portal grid.
@@ -510,10 +511,11 @@ export default function PortalGrid({
     }
   }
 
+  // The same composer the label and the courier sheet use, so what an agent
+  // copies out of the portal is the address the parcel is actually posted to.
   const addressText = (r: PortalRow) =>
     [
-      r.address_line1,
-      r.address_line2,
+      ...streetParts(r),
       [r.city, r.district].filter(Boolean).join(", "),
       [r.state, r.pincode].filter(Boolean).join(" - "),
     ]

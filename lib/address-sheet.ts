@@ -1,6 +1,7 @@
 import { PdfDocument, A4, wrapText, measureText, truncate } from "@/lib/pdf";
 import { drawBarcode } from "@/lib/barcode";
 import { formatIST } from "@/lib/format-date";
+import { street as addressStreet } from "@/lib/address";
 import {
   senderFromEnv,
   sheetHeaderFromEnv,
@@ -345,7 +346,7 @@ function drawAddress(
       ? null
       : o.district;
 
-  const street = [o.address_line1, o.address_line2].filter(Boolean).join(", ");
+  const street = addressStreet(o);
   const region = [[o.city, district].filter(Boolean).join(", "), o.state]
     .filter(Boolean)
     .join(", ");

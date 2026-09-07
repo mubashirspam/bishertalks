@@ -28,7 +28,8 @@ import type { CourierParcel } from "@/lib/courier-sheet";
 
 /** What the sheet builder needs, plus the id we send to Delhivery. */
 const PARCEL_COLUMNS =
-  "order_number,buyer_name,buyer_phone,address_line1,address_line2,city," +
+  "order_number,buyer_name,buyer_phone,house_name,door_no," +
+  "address_line1,address_line2,city," +
   "district,state,pincode,amount_paise,quantity,courier_reference,is_gift";
 
 /**

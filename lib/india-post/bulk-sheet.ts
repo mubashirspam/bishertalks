@@ -1,4 +1,5 @@
 import type { XLSXSheet } from "@/lib/export";
+import { street as addressStreet } from "@/lib/address";
 import {
   parcelSize,
   phoneDigits,
@@ -601,14 +602,12 @@ export function packReceiverAddress(street: string): PackedAddress {
  * are the scarce thing.
  */
 export function receiverStreet(p: PostalParcel): string {
-  const parts: string[] = [];
-  for (const raw of [p.address_line1, p.address_line2]) {
-    const part = raw?.trim();
-    if (!part) continue;
-    if (parts.some((seen) => seen.toLowerCase() === part.toLowerCase())) continue;
-    parts.push(part);
-  }
-  return parts.join(", ");
+  // lib/address.ts owns the order — door number, house name, street, landmark —
+  // and drops anything repeated. The house name matters most here of anywhere:
+  // this string is what a rural postman gets, and it is the field that was
+  // added because "which house" is the question he cannot answer from a street
+  // name alone.
+  return addressStreet(p);
 }
 
 // ── Rows ────────────────────────────────────────────────────────────────────

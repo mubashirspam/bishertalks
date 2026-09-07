@@ -33,6 +33,9 @@ export async function PATCH(request: NextRequest) {
     // address and the customer reads it out over a call instead of filling
     // the form themselves.
     buyer_name,
+    house_name,
+    door_no,
+    address_type,
     address_line1,
     address_line2,
     city,
@@ -140,8 +143,12 @@ export async function PATCH(request: NextRequest) {
     updates.expected_delivery = expected_delivery || null;
   if (notes !== undefined) updates.notes = notes;
 
+  // 0064's three join the set, so a staff correction can add the house name to
+  // an address collected before the field existed — which is most of them, and
+  // is exactly the fix somebody makes after a parcel comes back.
   const addressFields = {
-    buyer_name, address_line1, address_line2, city, district, state, pincode,
+    buyer_name, house_name, door_no, address_type,
+    address_line1, address_line2, city, district, state, pincode,
   } as const;
   let addressEdited = false;
   for (const [col, val] of Object.entries(addressFields)) {

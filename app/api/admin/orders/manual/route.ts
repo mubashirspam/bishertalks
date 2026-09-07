@@ -6,9 +6,11 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { requirePermission } from "@/lib/admin-auth";
 import { audit } from "@/lib/audit";
 import { isManualPaymentMethod } from "@/lib/db/sales-channel";
+import { cleanName, isUsableName, NAME_MIN } from "@/lib/clean-name";
 import { notifyAfterResponse } from "@/lib/notify";
 import { listActiveCouriers } from "@/lib/db/couriers";
 import { isDeliveryPriority } from "@/lib/delivery-priority";
+import { addressType } from "@/lib/address";
 
 /**
  * Enter a book that was sold directly.
@@ -74,8 +76,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Send JSON" }, { status: 400 });
   }
 
-  const buyerName = str(body.buyer_name);
+  // Same cleaning the checkout applies (lib/clean-name.ts): emoji stripped
+  // and spacing normalised silently, because a label with 😊 on it is an
+  // .xlsx India Post refuses for the whole batch, not just this parcel.
+  const buyerName = cleanName(body.buyer_name);
   const phone = normalisePhone(str(body.buyer_phone));
+  const houseName = str(body.house_name);
+  const doorNo = str(body.door_no);
+  const addrType = addressType(body.address_type);
   const addressLine1 = str(body.address_line1);
   const city = str(body.city);
   const state = str(body.state);
@@ -87,9 +95,14 @@ export async function POST(request: NextRequest) {
   // Everything the delivery pipeline needs, refused up front rather than at the
   // courier. A parcel that cannot be addressed is not a parcel.
   const problems: string[] = [];
-  if (!buyerName) problems.push("The buyer's name");
+  if (!isUsableName(buyerName)) {
+    problems.push(`The buyer's name (at least ${NAME_MIN} letters)`);
+  }
   if (!phone) problems.push("A valid 10-digit Indian mobile number");
-  if (!addressLine1) problems.push("The address");
+  // Required here as at the checkout: this is the field added to stop parcels
+  // coming back, and a form that lets it be skipped collects nothing.
+  if (!houseName) problems.push("The house or building name");
+  if (!addressLine1) problems.push("The area, street or locality");
   if (!city) problems.push("The city");
   if (!state) problems.push("The state");
   if (!/^\d{6}$/.test(pincode)) problems.push("A six-digit pincode");
@@ -146,6 +159,9 @@ export async function POST(request: NextRequest) {
     buyer_name: buyerName,
     buyer_phone: phone,
     buyer_email: str(body.buyer_email) || null,
+    house_name: houseName,
+    door_no: doorNo || null,
+    address_type: addrType,
     address_line1: addressLine1,
     address_line2: str(body.address_line2) || null,
     city,

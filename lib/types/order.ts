@@ -54,6 +54,18 @@ export interface Order {
   /** Sign every copy before wrapping it (0040). Gifts only, and free (0041). */
   is_signed: boolean;
   /**
+   * The address, as of 0064.
+   *
+   * `house_name` is the field added to stop parcels coming back — a named
+   * house is findable when a street name is not. Optional on the type, not on
+   * the form: 5,598 addresses were collected before the column existed and
+   * lib/address.ts renders those exactly as they printed before.
+   */
+  house_name?: string | null;
+  door_no?: string | null;
+  /** 'home' | 'office'. Read through addressType() in lib/address.ts. */
+  address_type?: string | null;
+  /**
    * 'normal' | 'urgent' (0063). Typed in by whoever took the sale, not derived.
    *
    * Nullable in the type and not in the column: rows read through a select

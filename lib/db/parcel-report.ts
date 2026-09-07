@@ -24,6 +24,8 @@ export interface ReportRow {
   order_number: string;
   buyer_name: string | null;
   buyer_phone: string | null;
+  house_name?: string | null;
+  door_no?: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;

@@ -42,7 +42,7 @@ export default async function AddressPage({
   const { data: order } = await supabaseAdmin
     .from("orders")
     .select(
-      "order_number, buyer_name, address_line1, address_line2, city, district, state, pincode, payment_status"
+      "order_number, buyer_name, house_name, door_no, address_line1, address_line2, city, district, state, pincode, payment_status"
     )
     .eq("order_number", id)
     .maybeSingle();
@@ -80,6 +80,8 @@ export default async function AddressPage({
       token={t!}
       initial={{
         name: order.buyer_name,
+        houseName: order.house_name,
+        doorNo: order.door_no,
         address1: order.address_line1,
         address2: order.address_line2,
         city: order.city,

@@ -3,12 +3,19 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { MapPin, Loader2, Check, Package } from "lucide-react";
+import {
+  ADDRESS_TYPES,
+  ADDRESS_TYPE_LABELS,
+  type AddressType,
+} from "@/lib/address";
 
 interface Props {
   orderNumber: string;
   token: string;
   initial: {
     name: string | null;
+    houseName: string | null;
+    doorNo: string | null;
     address1: string | null;
     address2: string | null;
     city: string | null;
@@ -30,6 +37,11 @@ export default function AddressForm({ orderNumber, token, initial }: Props) {
   const router = useRouter();
 
   const [name, setName] = useState(initial.name ?? "");
+  // 0064. The house by name is the field this shop added because "which house"
+  // is the question a delivery agent cannot answer from a street name.
+  const [addressType, setAddressType] = useState<AddressType>("home");
+  const [houseName, setHouseName] = useState(initial.houseName ?? "");
+  const [doorNo, setDoorNo] = useState(initial.doorNo ?? "");
   const [address1, setAddress1] = useState(initial.address1 ?? "");
   const [address2, setAddress2] = useState(initial.address2 ?? "");
   const [pincode, setPincode] = useState(initial.pincode ?? "");
@@ -93,7 +105,10 @@ export default function AddressForm({ orderNumber, token, initial }: Props) {
   const submit = async () => {
     setError("");
     if (!name.trim()) return setError("Please enter your name.");
-    if (!address1.trim()) return setError("Please enter your address.");
+    if (!houseName.trim()) {
+      return setError("Please enter your house or building name.");
+    }
+    if (!address1.trim()) return setError("Please enter your area or street.");
     if (!/^\d{6}$/.test(pincode)) return setError("Please enter a valid 6-digit pincode.");
     if (!city.trim()) return setError("Please select or enter your area.");
     if (!state.trim()) return setError("Please enter your state.");
@@ -107,6 +122,7 @@ export default function AddressForm({ orderNumber, token, initial }: Props) {
           order_number: orderNumber,
           token,
           name, address1, address2, pincode, city, district, state,
+          house_name: houseName, door_no: doorNo, address_type: addressType,
         }),
       });
       const data = await res.json();
@@ -148,9 +164,45 @@ export default function AddressForm({ orderNumber, token, initial }: Props) {
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
+          {/* Home or office. Two buttons rather than a dropdown: there are
+              two answers, and a dropdown for two answers is a tap wasted on a
+              phone, which is where nearly all of these are filled in. */}
+          <div className="flex gap-2">
+            {ADDRESS_TYPES.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setAddressType(t)}
+                className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold border transition-colors ${
+                  addressType === t
+                    ? "bg-primary-500 border-primary-500 text-white"
+                    : "bg-neutral-900 border-white/10 text-neutral-400 hover:text-white"
+                }`}
+              >
+                {ADDRESS_TYPE_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
           <input
             className={inputCls}
-            placeholder="House / street / area *"
+            placeholder={
+              addressType === "office"
+                ? "Office / building name *"
+                : "House / building name *"
+            }
+            value={houseName}
+            onChange={(e) => setHouseName(e.target.value)}
+          />
+          <input
+            className={inputCls}
+            placeholder="Flat / floor / door no. (optional)"
+            value={doorNo}
+            onChange={(e) => setDoorNo(e.target.value)}
+          />
+          <input
+            className={inputCls}
+            placeholder="Area, street, locality *"
             value={address1}
             onChange={(e) => setAddress1(e.target.value)}
           />

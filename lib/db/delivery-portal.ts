@@ -195,6 +195,10 @@ export interface PortalRow {
   order_number: string;
   buyer_name: string | null;
   buyer_phone: string | null;
+  /** 0064 — composed into the copied address by lib/address.ts. */
+  house_name: string | null;
+  door_no: string | null;
+  address_type: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
@@ -302,7 +306,8 @@ export async function withPostalBarcodes<T extends { order_number: string }>(
 }
 
 const PORTAL_COLUMNS =
-  "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district," +
+  "id,order_number,buyer_name,buyer_phone,house_name,door_no,address_type," +
+  "address_line1,address_line2,city,district," +
   "state,pincode,amount_paise,quantity,is_gift,gift_message,is_signed," +
   "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
   "courier_last_scan,courier_last_scan_at,handover_state," +

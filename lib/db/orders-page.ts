@@ -55,6 +55,8 @@ export interface OrdersPageRow {
   payment_status: string;
   /** Sent back through Razorpay (0055). 0 on every order never refunded. */
   refunded_paise: number;
+  house_name?: string | null;
+  door_no?: string | null;
   address_line1: string | null;
   razorpay_order_id: string | null;
   city: string | null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Check, AlertCircle } from "lucide-react";
 import {
@@ -8,6 +8,12 @@ import {
   MANUAL_PAYMENT_LABELS,
 } from "@/lib/db/sales-channel";
 import { TRAFFIC_SOURCES, SOURCE_LABELS } from "@/lib/attribution";
+import {
+  ADDRESS_TYPES,
+  ADDRESS_TYPE_LABELS,
+  splitPastedAddress,
+  type AddressType,
+} from "@/lib/address";
 import {
   DELIVERY_PRIORITIES,
   PRIORITY_LABELS,
@@ -57,6 +63,110 @@ export default function DirectSaleForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+
+  // Pincode drives district, state and the locality list, exactly as the
+  // customer's own address form does — same /api/pincode route, same cached
+  // India Post data. Typing a Kerala district by hand forty times a week is
+  // how "Kozhikkode" and "Calicut" end up in the same column.
+  const [pincode, setPincode] = useState("");
+  const [city, setCity] = useState("");
+  const [district, setDistrict] = useState("");
+  const [state, setState] = useState("Kerala");
+  const [localities, setLocalities] = useState<string[]>([]);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [pinNote, setPinNote] = useState("");
+
+  /**
+   * Look the pincode up, once it is six digits.
+   *
+   * Called from the field's own change handler rather than an effect. There is
+   * exactly one thing that changes a pincode — somebody typing in that box —
+   * so an effect watching the value would be a second mechanism describing the
+   * same event, and it is what react-hooks/set-state-in-effect flags.
+   *
+   * `seq` guards against a slow lookup landing after a faster later one: type
+   * 673027 then correct it to 673028 and the first reply must not overwrite the
+   * second. Every response checks it is still the newest before it writes.
+   */
+  const lookupSeq = useRef(0);
+
+  async function lookupPincode(code: string) {
+    const seq = ++lookupSeq.current;
+    setPinLoading(true);
+    setPinNote("");
+    try {
+      const res = await fetch(`/api/pincode/${code}`);
+      const data = await res.json();
+      if (seq !== lookupSeq.current) return;
+
+      if (data.found) {
+        setDistrict(data.district);
+        setState(data.state);
+        setLocalities(data.localities ?? []);
+        // One post office means there is nothing to choose.
+        if (data.localities?.length === 1) setCity(data.localities[0]);
+        setPinNote(`${data.district}, ${data.state}`);
+      } else {
+        // Never a blocker. The operator has the address in front of them and
+        // can type it; a third-party lookup being down must not stop a sale
+        // being recorded.
+        setLocalities([]);
+        setPinNote("Not found — type the town and district yourself.");
+      }
+    } catch {
+      if (seq === lookupSeq.current) {
+        setPinNote("Lookup unavailable — type them yourself.");
+      }
+    } finally {
+      if (seq === lookupSeq.current) setPinLoading(false);
+    }
+  }
+
+  // 0064 fields. Controlled, because a paste into the street box distributes
+  // itself across them — see handleAddressPaste.
+  const [addrType, setAddrType] = useState<AddressType>("home");
+  const [houseName, setHouseName] = useState("");
+  const [doorNo, setDoorNo] = useState("");
+  const [line1, setLine1] = useState("");
+  const [line2, setLine2] = useState("");
+  const [pasteNote, setPasteNote] = useState("");
+
+  /**
+   * Somebody pasted a whole WhatsApp address into one box.
+   *
+   * That is what actually happens forty times a day, so the form takes the
+   * blob and distributes it rather than making the operator cut and paste five
+   * times. Only fields that are still EMPTY are filled: a paste must never
+   * overwrite something already typed, or correcting one field and pasting
+   * into another would silently undo the correction.
+   */
+  function handleAddressPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text");
+    // One line with no commas is an ordinary paste into one field. Splitting
+    // it would be worse than leaving it alone.
+    if (!/[\n,]/.test(text)) return;
+
+    e.preventDefault();
+    const parsed = splitPastedAddress(text);
+    const filled: string[] = [];
+
+    if (parsed.house_name && !houseName) { setHouseName(parsed.house_name); filled.push("house"); }
+    if (parsed.door_no && !doorNo) { setDoorNo(parsed.door_no); filled.push("door no"); }
+    if (parsed.pincode && !pincode) {
+      setPincode(parsed.pincode);
+      lookupPincode(parsed.pincode);
+      filled.push("pincode");
+    }
+    // Whatever could not be placed goes to the street box, where a human sees
+    // it. Never dropped.
+    if (parsed.rest) setLine1(line1 ? `${line1}, ${parsed.rest}` : parsed.rest);
+
+    setPasteNote(
+      filled.length
+        ? `Split the paste — filled ${filled.join(", ")}. Check each box.`
+        : "Pasted into the street box. Move the house name up if it is in there."
+    );
+  }
 
   const [quantity, setQuantity] = useState(1);
   const [amount, setAmount] = useState(String(unitPrice));
@@ -136,34 +246,127 @@ export default function DirectSaleForm({
       <section className="bg-white border border-neutral-200 rounded-2xl p-5 shadow-sm">
         <h2 className="font-semibold text-sm mb-1">Where it goes</h2>
         <p className="text-xs text-neutral-500 mb-4">
-          Copy this from their WhatsApp message. The courier will refuse anything incomplete.
+          Paste the whole address from their WhatsApp message into any box — it splits
+          itself across the fields, and you correct what it got wrong. The courier will
+          refuse anything incomplete.
         </p>
         <div className="grid sm:grid-cols-2 gap-4">
           <div className="sm:col-span-2">
-            <label className={LABEL}>Address</label>
-            <input name="address_line1" required className={INPUT} placeholder="House, street" />
+            <label className={LABEL}>This address is</label>
+            <div className="flex gap-2">
+              {ADDRESS_TYPES.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setAddrType(t)}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold border transition-colors ${
+                    addrType === t
+                      ? "bg-neutral-900 border-neutral-900 text-white"
+                      : "bg-white border-neutral-200 text-neutral-600 hover:border-neutral-400"
+                  }`}
+                >
+                  {ADDRESS_TYPE_LABELS[t]}
+                </button>
+              ))}
+            </div>
+            <input type="hidden" name="address_type" value={addrType} />
+          </div>
+
+          <div>
+            <label className={LABEL}>
+              {addrType === "office" ? "Office / building name" : "House / building name"}
+            </label>
+            <input
+              name="house_name" required className={INPUT}
+              placeholder="Thoppil House"
+              value={houseName} onChange={(e) => setHouseName(e.target.value)}
+              onPaste={handleAddressPaste}
+            />
+          </div>
+          <div>
+            <label className={LABEL}>Flat / floor / door no. (optional)</label>
+            <input
+              name="door_no" className={INPUT} placeholder="2B"
+              value={doorNo} onChange={(e) => setDoorNo(e.target.value)}
+            />
           </div>
           <div className="sm:col-span-2">
-            <label className={LABEL}>Landmark / area (optional)</label>
-            <input name="address_line2" className={INPUT} />
+            <label className={LABEL}>Area, street, locality</label>
+            <input
+              name="address_line1" required className={INPUT}
+              placeholder="Asarithodi, Nallalam"
+              value={line1} onChange={(e) => setLine1(e.target.value)}
+              onPaste={handleAddressPaste}
+            />
+            {pasteNote && (
+              <p className="text-[11px] text-amber-600 mt-1">{pasteNote}</p>
+            )}
+          </div>
+          <div className="sm:col-span-2">
+            <label className={LABEL}>Landmark (optional)</label>
+            <input
+              name="address_line2" className={INPUT}
+              placeholder="Near Ayurkerala hospital"
+              value={line2} onChange={(e) => setLine2(e.target.value)}
+            />
+          </div>
+          {/* Pincode first, because it fills in the three below it. */}
+          <div>
+            <label className={LABEL}>Pincode</label>
+            <div className="relative">
+              <input
+                name="pincode" required inputMode="numeric" pattern="\d{6}"
+                className={INPUT} placeholder="6 digits"
+                value={pincode}
+                onChange={(e) => {
+                  const next = e.target.value.replace(/\D/g, "").slice(0, 6);
+                  setPincode(next);
+                  if (next.length === 6) {
+                    lookupPincode(next);
+                  } else {
+                    // An incomplete pincode has no answer, so drop the last
+                    // one rather than leaving it on screen next to a
+                    // different number.
+                    lookupSeq.current++;
+                    setLocalities([]);
+                    setPinNote("");
+                    setPinLoading(false);
+                  }
+                }}
+              />
+              {pinLoading && (
+                <Loader2 className="w-4 h-4 animate-spin absolute right-3 top-2.5 text-neutral-400" />
+              )}
+            </div>
+            {pinNote && (
+              <p className="text-[11px] text-neutral-400 mt-1">{pinNote}</p>
+            )}
           </div>
           <div>
             <label className={LABEL}>City / town</label>
-            <input name="city" required className={INPUT} />
+            {/* A datalist, not a select: the post office names are the common
+                answers, and somebody who knows the locality better than India
+                Post does must still be able to type it. */}
+            <input
+              name="city" required className={INPUT} list="pin-localities"
+              value={city} onChange={(e) => setCity(e.target.value)}
+            />
+            <datalist id="pin-localities">
+              {localities.map((l) => <option key={l} value={l} />)}
+            </datalist>
           </div>
           <div>
-            <label className={LABEL}>District (optional)</label>
-            <input name="district" className={INPUT} />
+            <label className={LABEL}>District</label>
+            <input
+              name="district" className={INPUT}
+              value={district} onChange={(e) => setDistrict(e.target.value)}
+            />
           </div>
           <div>
             <label className={LABEL}>State</label>
-            <input name="state" required className={INPUT} defaultValue="Kerala" />
-          </div>
-          <div>
-            <label className={LABEL}>Pincode</label>
             <input
-              name="pincode" required inputMode="numeric" pattern="\d{6}"
-              className={INPUT} placeholder="6 digits"
+              name="state" required className={INPUT}
+              value={state} onChange={(e) => setState(e.target.value)}
             />
           </div>
         </div>

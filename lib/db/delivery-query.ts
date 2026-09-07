@@ -31,6 +31,16 @@ export interface DeliveryFilters {
   gift?: string;
   /** Signed copies: "yes" for the ones that need signing, or "all". */
   signed?: string;
+  /**
+   * Where the sale came from (0061): "manual" for books sold at the counter,
+   * "online" for the Razorpay checkout, or "all".
+   *
+   * A packing question, not a money one. A direct sale reaches this queue with
+   * an address somebody typed off a WhatsApp message rather than one the
+   * customer filled in themselves, so "show me only those" is how a run of
+   * hand-entered parcels gets checked before it is booked.
+   */
+  channel?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -39,6 +49,10 @@ export interface DeliveryRow {
   order_number: string;
   buyer_name: string | null;
   buyer_phone: string | null;
+  /** 0064. Composed into the printed address by lib/address.ts. */
+  house_name: string | null;
+  door_no: string | null;
+  address_type: string | null;
   address_line1: string | null;
   address_line2: string | null;
   city: string | null;
@@ -85,6 +99,8 @@ export interface DeliveryRow {
   handover_state: string | null;
   /** 'normal' | 'urgent' (0063). Badged on the row; never a reason to hide one. */
   delivery_priority: string | null;
+  /** 'online' | 'manual' (0061). Badged on the row; never a reason to hide one. */
+  sales_channel: string | null;
   courier_last_scan_at: string | null;
   shipped_at: string | null;
   delivered_at: string | null;
@@ -92,13 +108,14 @@ export interface DeliveryRow {
 }
 
 export const DELIVERY_COLUMNS =
-  "id,order_number,buyer_name,buyer_phone,address_line1,address_line2,city,district,state,pincode," +
+  "id,order_number,buyer_name,buyer_phone,house_name,door_no,address_type," +
+  "address_line1,address_line2,city,district,state,pincode," +
   "amount_paise,quantity,is_gift,gift_message,is_signed,delivery_priority," +
   "status,courier_name,tracking_number,label_downloaded_at,label_download_count," +
   "assigned_agent_id,assigned_at,courier_entered_at," +
   "courier_id,courier_assigned_at,courier_sent_at,courier_send_error," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
-  "shipped_at,delivered_at,created_at,paid_at,ordered_at,delivery_stage";
+  "shipped_at,delivered_at,created_at,paid_at,ordered_at,delivery_stage,sales_channel";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -164,6 +181,13 @@ export function buildDeliveryQuery(
   else if (filters.gift === "no") query = query.eq("is_gift", false);
 
   if (filters.signed === "yes") query = query.eq("is_signed", true);
+
+  // 'manual' | 'online'. Compared against the column rather than a helper,
+  // because this is a PostgREST filter and lib/db/sales-channel.ts holds the
+  // pair for exactly this reason — see MANUAL_SALE there.
+  if (filters.channel === "manual" || filters.channel === "online") {
+    query = query.eq("sales_channel", filters.channel);
+  }
 
   // The dates are IST calendar days; ordered_at is UTC. Converted, or the
   // filter is 5h30m out and silently drops early-morning orders.
@@ -309,5 +333,6 @@ export function parseDeliveryFilters(
     books: get("books"),
     gift: get("gift"),
     signed: get("signed"),
+    channel: get("channel"),
   };
 }

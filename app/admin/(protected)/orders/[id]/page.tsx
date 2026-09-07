@@ -16,6 +16,7 @@ import {
 import { funnelWaMessage, deliveryWaMessage, waLink, telLink } from "@/lib/wa-message";
 import { orderStage, STAGE_LABELS as FUNNEL_LABELS, STAGE_BADGE as FUNNEL_BADGE } from "@/lib/order-stage";
 import { HELD_EVENTS, WIRE_EVENT } from "@/lib/notify-events";
+import { fullAddressLines } from "@/lib/address";
 import {
   deliveryPriority,
   PRIORITY_BADGE,
@@ -94,6 +95,8 @@ export default function AdminOrderDetailPage() {
   const [courierMsg, setCourierMsg] = useState<{ text: string; bad?: boolean } | null>(null);
   const [addr, setAddr] = useState({
     buyer_name: "",
+    house_name: "",
+    door_no: "",
     address_line1: "",
     address_line2: "",
     city: "",
@@ -127,6 +130,8 @@ export default function AdminOrderDetailPage() {
         });
         setAddr({
           buyer_name: data.buyer_name ?? "",
+          house_name: data.house_name ?? "",
+          door_no: data.door_no ?? "",
           address_line1: data.address_line1 ?? "",
           address_line2: data.address_line2 ?? "",
           city: data.city ?? "",
@@ -732,11 +737,17 @@ export default function AdminOrderDetailPage() {
               <div className="pt-2 border-t border-neutral-200 text-neutral-600 leading-relaxed">
                 {order.address_line1 ? (
                   <>
-                    {order.address_line1}
-                    {order.address_line2 && <>, {order.address_line2}</>}
-                    <br />
-                    {order.city}
-                    {order.district ? `, ${order.district}` : ""}, {order.state} — {order.pincode}
+                    {/* Composed by lib/address.ts, so what is on screen is
+                        exactly what prints on the label. */}
+                    {fullAddressLines(order).map((l, i) => (
+                      <span key={i} className="block">{l}</span>
+                    ))}
+                    {!order.house_name && (
+                      <span className="mt-1.5 block text-xs text-amber-600">
+                        No house or building name — the field added to stop parcels
+                        coming back. Tap Edit and add it if you know it.
+                      </span>
+                    )}
                   </>
                 ) : order.payment_status === "paid" ? (
                   // Paid but unshippable — the case that costs real money.
@@ -760,12 +771,20 @@ export default function AdminOrderDetailPage() {
                     <label className="text-xs text-neutral-500 font-semibold block mb-1">Name</label>
                     <input className={inputCls} value={addr.buyer_name} onChange={(e) => setAddr((p) => ({ ...p, buyer_name: e.target.value }))} />
                   </div>
+                  <div>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">House / building name</label>
+                    <input className={inputCls} value={addr.house_name} onChange={(e) => setAddr((p) => ({ ...p, house_name: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Flat / door no.</label>
+                    <input className={inputCls} value={addr.door_no} onChange={(e) => setAddr((p) => ({ ...p, door_no: e.target.value }))} />
+                  </div>
                   <div className="col-span-2">
-                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Address line 1</label>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Area, street, locality</label>
                     <input className={inputCls} value={addr.address_line1} onChange={(e) => setAddr((p) => ({ ...p, address_line1: e.target.value }))} />
                   </div>
                   <div className="col-span-2">
-                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Address line 2</label>
+                    <label className="text-xs text-neutral-500 font-semibold block mb-1">Landmark</label>
                     <input className={inputCls} value={addr.address_line2} onChange={(e) => setAddr((p) => ({ ...p, address_line2: e.target.value }))} />
                   </div>
                   <div>
