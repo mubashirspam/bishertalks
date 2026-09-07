@@ -3,6 +3,7 @@ import { drawBarcode } from "@/lib/barcode";
 import { indiaPostEmblem, INDIA_POST_FORM, INDIA_POST_VIEWBOX } from "@/lib/india-post-logo";
 import { formatIST } from "@/lib/format-date";
 import type { CourierConfig } from "@/lib/couriers/types";
+import { street as addressStreet } from "@/lib/address";
 
 /**
  * Address labels, one per 4x6 page, for a thermal label printer.
@@ -52,8 +53,15 @@ const BARCODE_H = 54;
 const BARCODE_TOP = BARCODE_TEXT_Y - 11 - BARCODE_H;
 /** The heavy rule that separates the barcode from everything above it. */
 const BARCODE_RULE_Y = BARCODE_TOP - 11;
-/** Top of the contents / return-address block. */
-const DESPATCH_TOP = BARCODE_RULE_Y - 72;
+/**
+ * Top of the contents / return-address block.
+ *
+ * Lifted 10pt clear of the barcode strip, which now carries a second line —
+ * the customer and contract ids — under the contract heading. Without the
+ * lift the return address sat directly against them and the two blocks read
+ * as one.
+ */
+const DESPATCH_TOP = BARCODE_RULE_Y - 82;
 /** The address may not grow past this. */
 const ADDRESS_END = DESPATCH_TOP - 6;
 
@@ -183,6 +191,10 @@ export interface SheetHeader {
   title: string;
   customerId: string;
   contractId: string;
+  /** Where the parcel enters the post — the left half of "673001 - 690523". */
+  fromPincode: string;
+  /** The boxed letter at the top-left, or "" for no box. See CourierConfig. */
+  serviceCode: string;
 }
 
 /**
@@ -199,6 +211,8 @@ export function sheetHeaderFromEnv(): SheetHeader {
     title: process.env.SHIP_SHEET_TITLE || "PARCEL ADDRESS",
     customerId: process.env.SHIP_CUSTOMER_ID || "",
     contractId: process.env.SHIP_CONTRACT_ID || "",
+    fromPincode: process.env.SHIP_FROM_PINCODE || "",
+    serviceCode: process.env.SHIP_SERVICE_CODE || "",
   };
 }
 
@@ -217,6 +231,13 @@ export function sheetHeaderForCourier(
     title: config?.sheet_title?.trim() || fallback.title,
     customerId: config?.customer_id?.trim() || fallback.customerId,
     contractId: config?.contract_id?.trim() || fallback.contractId,
+    // Every configured courier ends its return address with the pincode, so
+    // the fallback costs nobody a config change: "…Kozhikode, Kerala 673017".
+    fromPincode:
+      config?.from_pincode?.trim() ||
+      config?.from_address?.match(/(?<!\d)(\d{6})(?!\d)(?!.*\d{6})/)?.[1] ||
+      fallback.fromPincode,
+    serviceCode: config?.label_service_code?.trim() || fallback.serviceCode,
   };
 }
 
@@ -313,6 +334,16 @@ export interface LabelSheetOptions<T extends LabelOrder> {
   /** The contract heading over the barcode. "" prints no strip at all. */
   captionFor?: LabelCaptionFor<T>;
   /**
+   * The booking account for one parcel — customer id, contract, origin
+   * pincode, service letter.
+   *
+   * Per parcel and not per run, for the same reason `sender` is: a batch can
+   * span couriers, and the customer id a counter reads has to be the one the
+   * parcel is actually booked against. Printing KKR's account on a Speed Post
+   * article is a contract claim that is simply untrue.
+   */
+  headerFor?: (order: T) => SheetHeader;
+  /**
    * Print the bench instructions for gifts and signed copies.
    *
    * On by default, because the master queue is where a batch is printed to be
@@ -335,6 +366,7 @@ export function buildLabelSheet<T extends LabelOrder>(
     sender = senderFromEnv(),
     barcodeFor = labelBarcodeValue,
     captionFor = () => "",
+    headerFor = () => sheetHeaderFromEnv(),
     packingSlips = true,
   } = options;
   const doc = new PdfDocument(LABEL_4X6.width, LABEL_4X6.height);
@@ -357,7 +389,8 @@ export function buildLabelSheet<T extends LabelOrder>(
       barcodeFor(order),
       i + 1,
       orders.length,
-      captionFor(order)
+      captionFor(order),
+      headerFor(order)
     );
 
     // A parcel that needs something done to it before the box is taped shut
@@ -512,13 +545,66 @@ function drawLabel(
   barcodeValue: string,
   index: number,
   total: number,
-  caption = ""
+  caption = "",
+  header: SheetHeader = sheetHeaderFromEnv()
 ): void {
   let cy = MARGIN + 10;
 
   // A parcel is one book unless the order says otherwise. Rows created before
   // the quantity column existed are all single copies.
   const copies = Math.max(1, o.quantity ?? 1);
+
+  // ── India Post's own top band ────────────────────────────────────────────
+  //
+  // Copied from a registered article's printed label: a boxed service letter,
+  // the destination office and its pincode set large, and the emblem at the
+  // right. It is the block a sorting office reads first, and it reads it from
+  // across a table — which is why the pincode is the biggest thing on the
+  // label and not the buyer's name.
+  //
+  // Only for a parcel with an article number. A Delhivery parcel carrying
+  // India Post's band would be a label claiming a service it is not in, and
+  // the courier's own counter would be right to refuse it.
+  const isPostal = !!o.postal_barcode?.trim();
+  const destPin = (o.pincode ?? "").replace(/\D/g, "");
+
+  if (isPostal) {
+    const BOX_W = 34;
+    const BOX_H = 30;
+
+    // The boxed letter, and only when the courier has been told what it is.
+    // See CourierConfig.label_service_code for why this is never guessed.
+    if (header.serviceCode) {
+      const code = header.serviceCode.toUpperCase().slice(0, 2);
+      doc.line(LEFT, cy - 8, LEFT + BOX_W, cy - 8, { gray: 0, width: 1.2 });
+      doc.line(LEFT, cy + BOX_H - 8, LEFT + BOX_W, cy + BOX_H - 8, { gray: 0, width: 1.2 });
+      doc.line(LEFT, cy - 8, LEFT, cy + BOX_H - 8, { gray: 0, width: 1.2 });
+      doc.line(LEFT + BOX_W, cy - 8, LEFT + BOX_W, cy + BOX_H - 8, { gray: 0, width: 1.2 });
+      doc.text(
+        LEFT + (BOX_W - measureText(code, 20, true)) / 2,
+        cy + 14,
+        code,
+        { size: 20, bold: true }
+      );
+    }
+
+    // The emblem, top right, at the size it is recognised rather than the size
+    // that fits neatly — it is the mark the counter looks for.
+    const EM_W = 46;
+    const EM_H = 23;
+    doc.drawForm(INDIA_POST_FORM, RIGHT - EM_W, cy - 6, EM_W, EM_H);
+
+    // Destination office and pincode. `city` is the post office the address
+    // resolved to, which is what their band names; the pincode underneath is
+    // the thing that actually routes the parcel.
+    const textLeft = LEFT + (header.serviceCode ? BOX_W + 12 : 0);
+    const officeW = RIGHT - EM_W - 8 - textLeft;
+    const office = truncate(o.city?.trim() || o.district?.trim() || "", officeW, 13, true);
+    if (office) doc.text(textLeft, cy + 4, office, { size: 13, bold: true });
+    if (destPin) doc.text(textLeft, cy + 22, destPin, { size: 19, bold: true });
+
+    cy += BOX_H + 4;
+  }
 
   // ── Header: prepaid marker + order number ────────────────────────────────
   doc.text(LEFT, cy, "PREPAID", { size: 9, bold: true, gray: 0.3 });
@@ -565,10 +651,10 @@ function drawLabel(
   // ── Address ──────────────────────────────────────────────────────────────
   // Everything below the name shares a fixed budget; a long address loses its
   // least important lines rather than running over the despatch block.
-  const street = [o.address_line1, o.address_line2]
-    .map((t) => t?.trim())
-    .filter(Boolean)
-    .join(", ");
+  // Composed by lib/address.ts, so the door number and house name print in the
+  // same order here as on the courier sheet and in the postal file. This is the
+  // line a postman actually reads.
+  const street = addressStreet(o);
   const area = [o.city, o.district]
     .map((t) => t?.trim())
     .filter(Boolean)
@@ -701,6 +787,36 @@ function drawLabel(
       // Stops long contract wording running under the emblem.
       maxWidth: INNER_W - emblemW - 6,
     });
+
+    // The account the article is booked against.
+    //
+    // The counter reads this to accept the parcel onto a contract at all — a
+    // contractual article with no customer id on it is one the clerk has to
+    // look up or hand back. It was configured on every India Post courier
+    // (1171865272 on the Speed Post account, 1419273334 on KKR's) and printed
+    // on the address SHEET, but never on the label stuck to the parcel, which
+    // is the copy the counter actually sees.
+    // Spelled out, not abbreviated. This line is read across a counter by
+    // somebody checking the parcel onto a contract, and "CUST" is our
+    // shorthand rather than theirs.
+    //
+    // Full black and a wider gap between the two numbers: they are the only
+    // thing on this strip a clerk has to key in, and at 7pt a grey pair
+    // separated by three spaces read as one long number.
+    const account = [
+      header.customerId && `Customer ID ${header.customerId}`,
+      header.contractId && `Contract ID ${header.contractId}`,
+    ]
+      .filter(Boolean)
+      .join("        ");
+    if (account) {
+      doc.text(LEFT, BARCODE_RULE_Y - 14, account, {
+        size: 8,
+        bold: true,
+        gray: 0,
+        maxWidth: INNER_W - emblemW - 6,
+      });
+    }
   }
 
   doc.line(LEFT, BARCODE_RULE_Y, RIGHT, BARCODE_RULE_Y, { gray: 0, width: 1.5 });
@@ -739,8 +855,36 @@ function drawLabel(
   // The number under the barcode is not decoration: it is what a packer reads
   // out when a scanner will not read the label at all.
   if (drawn) {
+    // The number, and nothing else. The contract heading is already printed on
+    // its own strip above the barcode, and repeating it here made the one line
+    // a packer reads out when a scanner fails longer than the thing they are
+    // reading out.
     const centred = LEFT + (INNER_W - measureText(barcodeValue, 13, true)) / 2;
     doc.text(centred, BARCODE_TEXT_Y, barcodeValue, { size: 13, bold: true });
+  }
+
+  // ── Where it entered the post, and where it is going ─────────────────────
+  //
+  // The banded pair at the foot of a registered article ("673001 - 690523").
+  // Both offices in one line is what lets a clerk sorting a tray see, without
+  // opening anything, whether a parcel is in the right bag.
+  //
+  // Drawn only when both halves are known: half a band is a routing claim
+  // nobody can check.
+  if (isArticle && header.fromPincode && destPin) {
+    const band = `${header.fromPincode} - ${destPin}`;
+    const h = 18;
+    const top = BARCODE_TEXT_Y + 4;
+    doc.line(LEFT, top, RIGHT, top, { gray: 0, width: 1 });
+    doc.line(LEFT, top + h, RIGHT, top + h, { gray: 0, width: 1 });
+    doc.line(LEFT, top, LEFT, top + h, { gray: 0, width: 1 });
+    doc.line(RIGHT, top, RIGHT, top + h, { gray: 0, width: 1 });
+    doc.text(
+      LEFT + (INNER_W - measureText(band, 11, true)) / 2,
+      top + 13,
+      band,
+      { size: 11, bold: true }
+    );
   }
 
   // ── Provenance, so a label found loose on a bench can be placed ──────────

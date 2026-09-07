@@ -7,6 +7,7 @@ import { portalScope } from "@/lib/delivery/scope";
 import { fetchAddressesForSheet } from "@/lib/db/delivery-portal";
 import {
   buildLabelSheet,
+  sheetHeaderForCourier,
   labelBarcodeValue,
   postalLabelBarcode,
   postalLabelCaption,
@@ -128,6 +129,7 @@ export async function POST(request: NextRequest) {
     sender: (o) => senderForCourier(configOf(o)),
     barcodeFor,
     captionFor,
+    headerFor: (o) => sheetHeaderForCourier(configOf(o)),
     // Labels only. The packing slip is bench paperwork — sign the copy, wrap
     // it, write the card — and this screen belongs to whoever is moving
     // parcels that are already packed. It was putting extra pages in the

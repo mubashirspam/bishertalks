@@ -109,6 +109,27 @@ export interface CourierConfig {
    * and the band then does not print at all.
    */
   customer_id?: string;
+  /**
+   * The booking office's pincode, for the origin–destination band India Post
+   * prints across the top of a registered article ("673001 - 690523").
+   *
+   * Optional: `sheetHeaderForCourier` falls back to the six digits at the end
+   * of `from_address`, which every configured courier already carries. Set it
+   * explicitly when the parcel is booked somewhere other than the return
+   * address — the band is about where it enters the post, not where it comes
+   * back to.
+   */
+  from_pincode?: string;
+  /**
+   * The single character India Post boxes at the top-left of a label — the
+   * service indicator the sorting office reads.
+   *
+   * Deliberately not derived. It is a code from their scheme, not from
+   * anything in this database, and a guessed letter is a parcel sorted into
+   * the wrong stream. No value means no box is drawn, which is the same rule
+   * the barcode follows: a blank space is visibly blank, a wrong one is not.
+   */
+  label_service_code?: string;
   contract_id?: string;
 
   /**

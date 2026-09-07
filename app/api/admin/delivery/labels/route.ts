@@ -13,6 +13,7 @@ import {
 import { markLabelsDownloaded } from "@/lib/db/delivery";
 import {
   buildLabelSheet,
+  sheetHeaderForCourier,
   labelBarcodeValue,
   postalLabelBarcode,
   postalLabelCaption,
@@ -141,6 +142,9 @@ export async function POST(request: NextRequest) {
     // for a parcel actually going out under one.
     captionFor: (o) =>
       configOf(o)?.tracking === "india-post" ? postalLabelCaption(configOf(o)) : "",
+    // The account the parcel is booked against, per parcel — a batch can span
+    // two India Post contracts and the counter reads the one on the label.
+    headerFor: (o) => sheetHeaderForCourier(configOf(o)),
     // Packing slips kept, deliberately — unlike the portal's route. This is
     // the queue a batch is printed from to be packed, and the slip is the only
     // place a gift message is printed at all.
