@@ -13,6 +13,7 @@ import { lastTemplateSent } from "@/lib/crm/messages";
 import { runFlowAction, payloadForTitle } from "@/lib/crm/flows";
 import { cancelEvents } from "@/lib/crm/automation";
 import { addTag } from "@/lib/crm/tags";
+import { courseQuestionIn, maybeSendCourseInfoReply } from "@/lib/crm/auto-reply";
 
 /**
  * Meta's WhatsApp webhook.
@@ -199,16 +200,26 @@ async function handleInbound(
     // After storing, and only for a message we have not already handled — a
     // redelivered webhook must not re-run a flow, or a customer gets the same
     // reply twice and a second follow-up queued.
-    if (!isNew || !payload || stopWord) return;
+    if (!isNew || stopWord) return;
 
-    // The window is judged from THIS message, not from the row we read a
-    // moment ago: on somebody's first ever message that row says they have
-    // never written, and the reply to their first tap would be refused as
-    // out-of-window.
-    const outcome = await runFlowAction(payload, {
-      ...contact,
-      last_inbound_at: new Date().toISOString(),
-    });
+    // The window is judged from THIS message, not from the row read a moment
+    // ago: on somebody's first ever message that row says they have never
+    // written, and a reply to it would be refused as out-of-window.
+    const freshContact = { ...contact, last_inbound_at: new Date().toISOString() };
+
+    // Free text with no button tap can still deserve an automated answer.
+    // Only one question is handled today, and only once per contact — see
+    // lib/crm/auto-reply.ts. Everything else stays in the inbox for staff,
+    // same as before.
+    if (!payload) {
+      if (courseQuestionIn(text)) {
+        const sent = await maybeSendCourseInfoReply(freshContact);
+        if (sent) console.log("[WhatsApp] auto-reply: course info ·", contact.phone);
+      }
+      return;
+    }
+
+    const outcome = await runFlowAction(payload, freshContact);
 
     if (!outcome.matched) {
       // A button we do not know. Left in the inbox for a person rather than

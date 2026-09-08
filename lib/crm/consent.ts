@@ -68,7 +68,7 @@ const STOP_WORDS_MALAYALAM = [
  * invisible character. Punctuation goes for the same reason: "STOP." and
  * "stop" are one intent.
  */
-function normalise(text: string): string {
+export function normalise(text: string): string {
   return text
     .toLowerCase()
     .replace(/[​-‍﻿]/g, "")
