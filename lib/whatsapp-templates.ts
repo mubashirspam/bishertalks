@@ -828,6 +828,28 @@ ${SIGNATURE}`,
       { type: "QUICK_REPLY", text: "സഹായം വേണം" },
     ],
   },
+
+  /**
+   * Acknowledges a task raised on their behalf — a complaint, a tracking
+   * question, anything staff logged in the admin's Tasks board with "notify
+   * customer" ticked. UTILITY, on the same reasoning as payment_reminder_2:
+   * it is about a specific thing this customer raised, not a sales pitch, and
+   * naming no button keeps it that way — there is nothing to click, only
+   * something to know. No order number in the body on purpose: a task is not
+   * always about one (see lib/crm/task-notify.ts), so the copy stays true for
+   * both cases rather than a variable that's sometimes blank.
+   */
+  request_registered: {
+    name: "request_registered",
+    category: "UTILITY",
+    body: `ഹായ് {{1}} 🙏
+
+നിങ്ങൾ അറിയിച്ച കാര്യം ഞങ്ങൾ receive ചെയ്തിട്ടുണ്ട്. ഞങ്ങളുടെ team ഉടൻ തന്നെ ബന്ധപ്പെടും.
+
+${SIGNATURE}`,
+    example: ["Asraf"],
+    params: (c) => [c.customerName],
+  },
 };
 
 /**

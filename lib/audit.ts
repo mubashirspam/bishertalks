@@ -116,6 +116,14 @@ export function describeAudit(row: AuditRow): string {
       return `Razorpay refunded ₹${Math.round(Number(m.refunded_paise ?? 0) / 100)}${
         m.full ? " — the full order" : ` of ₹${Math.round(Number(m.amount_paise ?? 0) / 100)}`
       }`;
+    case "task.created":
+      return `Task created: "${m.title ?? "?"}"`;
+    case "task.assigned":
+      return m.to && m.to !== "nobody" ? `Assigned to ${m.to}` : "Unassigned";
+    case "task.status_changed":
+      return `Status changed to ${m.status ?? "?"}`;
+    case "task.customer_notified":
+      return `Customer notified on WhatsApp`;
     default:
       return row.action;
   }

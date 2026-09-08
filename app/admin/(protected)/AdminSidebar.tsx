@@ -28,6 +28,7 @@ export default function AdminSidebar({
   permissions,
   unassigned,
   lowStock,
+  urgentTasks,
 }: {
   email: string;
   name: string;
@@ -40,6 +41,8 @@ export default function AdminSidebar({
    * viewer cannot see it.
    */
   lowStock: number | null;
+  /** Unsolved and flagged urgent — 0 when there's nothing worth flagging. */
+  urgentTasks: number;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -80,6 +83,11 @@ export default function AdminSidebar({
           },
         }
       : {}),
+    "/admin/tasks": {
+      count: urgentTasks,
+      title: "Urgent tasks still open",
+      tone: "bg-red-100 text-red-700",
+    },
   };
 
   /**

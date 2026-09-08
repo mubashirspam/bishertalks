@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getCurrentStaff } from "@/lib/admin-auth";
 import { countUnassignedParcels } from "@/lib/db/delivery-query";
 import { stockWarning } from "@/lib/db/inventory";
+import { urgentTaskCount } from "@/lib/db/tasks";
 import { can } from "@/lib/permissions";
 import { hasNavigation } from "@/lib/admin-nav";
 import LogoutButton from "@/components/admin/LogoutButton";
@@ -50,6 +51,7 @@ export default async function AdminLayout({
               permissions={staff.permissions}
               unassigned={0}
               lowStock={null}
+              urgentTasks={0}
             />
           }
         >
@@ -60,6 +62,7 @@ export default async function AdminLayout({
             permissions={staff.permissions}
             canSeeDelivery={can(staff, "delivery.view")}
             canSeeStock={can(staff, "inventory.view")}
+            canSeeTasks={can(staff, "tasks.view")}
           />
         </Suspense>
       )}
@@ -93,6 +96,7 @@ export default async function AdminLayout({
 async function SidebarWithCounts({
   canSeeDelivery,
   canSeeStock,
+  canSeeTasks,
   ...props
 }: {
   email: string;
@@ -101,13 +105,14 @@ async function SidebarWithCounts({
   permissions: string[];
   canSeeDelivery: boolean;
   canSeeStock: boolean;
+  canSeeTasks: boolean;
 }) {
-  // Both cached and both short-lived, so this is two tag reads rather than two
-  // queries on most page views. Asked in parallel: they answer to different
-  // tags and neither waits on the other.
-  const [unassigned, stock] = await Promise.all([
+  // Three reads in parallel rather than in sequence — they answer to
+  // different tables and none waits on another.
+  const [unassigned, stock, urgentTasks] = await Promise.all([
     canSeeDelivery ? countUnassignedParcels() : Promise.resolve(0),
     canSeeStock ? stockWarning() : Promise.resolve(null),
+    canSeeTasks ? urgentTaskCount() : Promise.resolve(0),
   ]);
 
   return (
@@ -117,6 +122,7 @@ async function SidebarWithCounts({
       // Only when it is worth interrupting for. A badge that is always there
       // is furniture, and stops being read on the day it matters.
       lowStock={stock && (stock.low || stock.oversold) ? stock.free : null}
+      urgentTasks={urgentTasks}
     />
   );
 }

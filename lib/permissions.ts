@@ -86,6 +86,10 @@ export const PERMISSIONS = {
   "crm.reply": "Reply to a customer on WhatsApp",
   "crm.consent": "Set or clear a contact's stop flag",
   "crm.campaign": "Create and run bulk campaigns, and use the kill switch",
+
+  // One shared gate rather than a view/manage split — the whole point of the
+  // task board is that anybody on it can open, assign and solve a task.
+  "tasks.view": "Create, assign and solve internal tasks",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -106,6 +110,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: "Business", permissions: ["dashboard.view", "insights.view", "reports.view", "expenses.view", "expenses.edit", "referrals.view", "referrals.payout", "staff.manage"] },
   { label: "Reference", permissions: ["templates.view"] },
   { label: "WhatsApp CRM", permissions: ["crm.view", "crm.reply", "crm.consent", "crm.campaign"] },
+  { label: "Tasks", permissions: ["tasks.view"] },
 ];
 
 // ── Roles ───────────────────────────────────────────────────────────────────
@@ -164,6 +169,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     // Not crm.campaign: bulk sending stays with the owner until enough
     // campaigns have run to know what the opt-out rate looks like.
     "crm.view", "crm.reply", "crm.consent",
+    "tasks.view",
   ],
 
   // Not delivery.complete: a partner ships and hands over, and the parcel is
@@ -184,6 +190,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "templates.view",
     // Support answer customers; they do not decide who may be messaged.
     "crm.view", "crm.reply",
+    "tasks.view",
   ],
 };
 

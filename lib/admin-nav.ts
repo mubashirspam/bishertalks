@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
   Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
-  MessageSquare, Inbox, Boxes, BarChart3, Receipt,
+  MessageSquare, Inbox, Boxes, BarChart3, Receipt, ListChecks,
 } from "lucide-react";
 import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -63,6 +63,7 @@ export const NAV: NavItem[] = [
   // question rather than to do the day's work.
   { href: "/admin/crm", label: "WhatsApp CRM", icon: Inbox, permission: "crm.view" },
   { href: "/admin/templates", label: "Message templates", icon: MessageSquare, permission: "templates.view" },
+  { href: "/admin/tasks", label: "Tasks", icon: ListChecks, permission: "tasks.view" },
   // Last on purpose: for an agent it's the only item, and for everyone else
   // it's the screen someone else works in, not part of the owner's daily run.
   { href: "/admin/delivery-portal", label: "Delivery portal", icon: ClipboardCheck, permission: "delivery.portal" },
