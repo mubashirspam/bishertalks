@@ -1,6 +1,23 @@
 import { revalidateTag } from "next/cache";
 
 /**
+ * `revalidateTag` throws "Invariant: static generation store missing" outside
+ * a Next.js request — which every one-off backfill script in scripts/ is, the
+ * moment it calls into a DB-layer function that happens to revalidate a tag
+ * as a side effect. A stale cache for up to a minute is what these tags are
+ * already documented to tolerate; crashing the write that triggered the
+ * revalidation is strictly worse than that, and the whole reason this
+ * happened live: an RTO backfill's stock credit died here after one order.
+ */
+function safeRevalidate(tag: string, options: { expire: number }): void {
+  try {
+    revalidateTag(tag, options);
+  } catch {
+    // Outside a request — nothing rendered this tag to invalidate anyway.
+  }
+}
+
+/**
  * Every cached read of course/module/lesson data carries this tag, so a single
  * revalidation call after any admin edit refreshes the whole public catalogue.
  */
@@ -24,7 +41,7 @@ export function revalidateCourses(): void {
   // revalidates, which would make admin edits look like they hadn't saved.
   // `updateTag` is not an option — it throws outside Server Actions, and these
   // mutations run in route handlers.
-  revalidateTag(COURSES_TAG, { expire: 0 });
+  safeRevalidate(COURSES_TAG, { expire: 0 });
 }
 
 /**
@@ -45,7 +62,7 @@ export const LANDING_CACHE_SECONDS = 300;
  * forget it.
  */
 export function revalidateLanding(): void {
-  revalidateTag(LANDING_TAG, { expire: 0 });
+  safeRevalidate(LANDING_TAG, { expire: 0 });
 }
 
 /**
@@ -65,7 +82,7 @@ export const GIFT_TAG = "gift";
 export const GIFT_CACHE_SECONDS = 300;
 
 export function revalidateGift(): void {
-  revalidateTag(GIFT_TAG, { expire: 0 });
+  safeRevalidate(GIFT_TAG, { expire: 0 });
 }
 
 /**
@@ -96,7 +113,7 @@ export const DELIVERY_CACHE_SECONDS = 60;
  * assigning a parcel to an agent, routing it to a courier, or cancelling it.
  */
 export function revalidateDelivery(): void {
-  revalidateTag(DELIVERY_TAG, { expire: 0 });
+  safeRevalidate(DELIVERY_TAG, { expire: 0 });
 }
 
 /**
@@ -125,5 +142,5 @@ export const INVENTORY_CACHE_SECONDS = 60;
  * revalidateDelivery above, so a third route added later cannot forget.
  */
 export function revalidateInventory(): void {
-  revalidateTag(INVENTORY_TAG, { expire: 0 });
+  safeRevalidate(INVENTORY_TAG, { expire: 0 });
 }

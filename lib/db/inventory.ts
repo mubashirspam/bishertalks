@@ -8,6 +8,7 @@ import {
   revalidateInventory,
 } from "@/lib/db/cache-tags";
 import { MOVEMENT_KINDS, type MovementKind } from "@/lib/inventory-movements";
+import { isStockLocation, type StockLocation } from "@/lib/stock-location";
 
 // The vocabulary lives in a module that imports nothing, so the admin form can
 // read it without dragging this file — and `supabaseAdmin` with it — into the
@@ -96,6 +97,59 @@ export async function getBookStock(): Promise<BookStock | null> {
   };
 }
 
+export interface LocationStock {
+  /** null is the general pool — printed stock nobody has recorded moving yet. */
+  location: StockLocation | null;
+  /** The general pool's own inflow is print runs; a shelf's is what moved onto it. */
+  printedOrTransferredIn: number;
+  shippedOut: number;
+  committed: number;
+  cameBack: number;
+  cancelled: number;
+  adjustIn: number;
+  adjustOut: number;
+  returnedToStock: number;
+  onHand: number;
+  free: number;
+}
+
+/**
+ * Stock split by whose shelf it's on — KKR, Ajmal, Mubashir, and the general
+ * pool (0069). Always four rows once the migration is applied; empty array
+ * when it has not been, same degrade contract as `getBookStock`.
+ *
+ * The four rows sum back to exactly what `getBookStock()` says — nothing here
+ * creates or destroys a book, it only says more precisely where each one is.
+ */
+export async function getBookStockByLocation(): Promise<LocationStock[]> {
+  const { data, error } = await supabaseAdmin
+    .from("book_stock_by_location")
+    .select(
+      "location,printed_or_transferred_in,shipped_out,committed,came_back," +
+        "cancelled,adjust_in,adjust_out,returned_to_stock,on_hand,free"
+    );
+
+  if (error) {
+    console.error("[Inventory] book_stock_by_location unreadable — is 0069 applied?", error.message);
+    return [];
+  }
+
+  const n = (v: unknown) => Number(v ?? 0);
+  return ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+    location: isStockLocation(row.location) ? row.location : null,
+    printedOrTransferredIn: n(row.printed_or_transferred_in),
+    shippedOut: n(row.shipped_out),
+    committed: n(row.committed),
+    cameBack: n(row.came_back),
+    cancelled: n(row.cancelled),
+    adjustIn: n(row.adjust_in),
+    adjustOut: n(row.adjust_out),
+    returnedToStock: n(row.returned_to_stock),
+    onHand: n(row.on_hand),
+    free: n(row.free),
+  }));
+}
+
 export interface PrintRun {
   id: string;
   edition: number;
@@ -129,13 +183,17 @@ export interface StockMovement {
   order_number: string | null;
   actor_email: string | null;
   created_at: string;
+  /** Whose shelf this happened on, or null for the general pool (0069). */
+  location: StockLocation | null;
+  /** Where a transfer left from — null means the general pool (0074). */
+  from_location: StockLocation | null;
 }
 
 /** The movement log, newest first. Empty when 0056 is not applied. */
 export async function listStockMovements(limit = 50): Promise<StockMovement[]> {
   const { data, error } = await supabaseAdmin
     .from("stock_movements")
-    .select("id,kind,copies,reason,order_number,actor_email,created_at")
+    .select("id,kind,copies,reason,order_number,actor_email,created_at,location,from_location")
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -223,6 +281,14 @@ export interface NewMovement {
   orderNumber?: string | null;
   actorId?: string | null;
   actorEmail?: string | null;
+  /** Whose shelf this happened on. Required for 'in_transfer', optional otherwise. */
+  location?: StockLocation | null;
+  /**
+   * Where a transfer left from (0074) — a named shelf, or null/omitted for
+   * the general pool, which is what every transfer has always meant. Only
+   * read when `kind` is 'in_transfer'; ignored otherwise.
+   */
+  fromLocation?: StockLocation | null;
 }
 
 /**
@@ -259,6 +325,25 @@ export async function recordMovement(
     return { ok: false, error: "Say why. A correction with no reason is one nobody can check." };
   }
 
+  // A transfer with nowhere to go is not a transfer — the database enforces
+  // this too (0069), but the person typing gets a sentence instead of a
+  // constraint violation. Any other kind may carry a shelf or not; only
+  // 'in_transfer' requires one.
+  const location = input.location && isStockLocation(input.location) ? input.location : null;
+  if (input.kind === "in_transfer" && !location) {
+    return { ok: false, error: "Which shelf did these move onto?" };
+  }
+
+  // Only meaningful on a transfer — null (the general pool) on any other
+  // kind, same reasoning `location` gets ignored where it isn't a transfer.
+  const fromLocation =
+    input.kind === "in_transfer" && input.fromLocation && isStockLocation(input.fromLocation)
+      ? input.fromLocation
+      : null;
+  if (fromLocation && fromLocation === location) {
+    return { ok: false, error: "That shelf can't transfer to itself." };
+  }
+
   const { error } = await supabaseAdmin.from("stock_movements").insert({
     kind: input.kind,
     copies,
@@ -266,6 +351,8 @@ export async function recordMovement(
     order_number: input.orderNumber?.trim() || null,
     actor_id: input.actorId ?? null,
     actor_email: input.actorEmail ?? null,
+    location,
+    from_location: fromLocation,
   });
 
   if (error) {

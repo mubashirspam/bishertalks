@@ -19,6 +19,11 @@ export const MOVEMENT_KINDS = [
   "in_returned",
   "in_correction",
   "out_correction",
+  // Moved out of the general pool onto a named shelf — KKR, Ajmal or
+  // Mubashir (0069). The only kind that always carries a location: it reads
+  // as "in" for the shelf it lands on and, by construction, as an equal "out"
+  // of the general pool it left — see book_stock_by_location.
+  "in_transfer",
 ] as const;
 
 export type MovementKind = (typeof MOVEMENT_KINDS)[number];
@@ -32,6 +37,7 @@ export const MOVEMENT_LABELS: Record<MovementKind, string> = {
   in_returned: "Came back and is sellable again",
   in_correction: "Stocktake found more",
   out_correction: "Stocktake found fewer",
+  in_transfer: "Moved onto a shelf (KKR / Ajmal / Mubashir)",
 };
 
 /**

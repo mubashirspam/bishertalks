@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { recordMovement, MOVEMENT_KINDS, type MovementKind } from "@/lib/db/inventory";
+import { isStockLocation } from "@/lib/stock-location";
 import { audit } from "@/lib/audit";
 
 /**
@@ -30,6 +31,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unknown kind of movement" }, { status: 400 });
   }
 
+  const location = isStockLocation(body.location) ? body.location : null;
+  const fromLocation = isStockLocation(body.from_location) ? body.from_location : null;
+
   const result = await recordMovement({
     kind,
     copies: Number(body.copies),
@@ -37,6 +41,8 @@ export async function POST(request: NextRequest) {
     orderNumber: typeof body.order_number === "string" ? body.order_number : null,
     actorId: auth.staff.id,
     actorEmail: auth.staff.email,
+    location,
+    fromLocation,
   });
 
   if (!result.ok) {
@@ -56,6 +62,8 @@ export async function POST(request: NextRequest) {
       copies: Math.trunc(Number(body.copies)),
       reason: String(body.reason ?? "").trim(),
       ...(body.order_number ? { order_number: body.order_number } : {}),
+      ...(location ? { location } : {}),
+      ...(fromLocation ? { from_location: fromLocation } : {}),
     },
   });
 

@@ -8,6 +8,11 @@ import {
   MOVEMENT_LABELS,
   type MovementKind,
 } from "@/lib/inventory-movements";
+import {
+  STOCK_LOCATIONS,
+  STOCK_LOCATION_LABELS,
+  type StockLocation,
+} from "@/lib/stock-location";
 
 /**
  * The two ways stock changes by hand.
@@ -88,12 +93,19 @@ function MovementForm({ onClose }: { onClose: () => void }) {
   const [copies, setCopies] = useState("");
   const [reason, setReason] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
+  const [location, setLocation] = useState<StockLocation | "">("");
+  // Where a transfer leaves from — blank means the general pool, same as it
+  // always has (0074). Only asked for when moving stock, and only offered
+  // as options other than wherever it's going TO.
+  const [fromLocation, setFromLocation] = useState<StockLocation | "">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // The one kind that asks which parcel came back, because that is the only
   // one where a specific order is the reason.
   const isReturn = kind === "in_returned";
+  // The one kind a shelf isn't optional for — see recordMovement.
+  const isTransfer = kind === "in_transfer";
 
   async function save() {
     setBusy(true);
@@ -107,6 +119,8 @@ function MovementForm({ onClose }: { onClose: () => void }) {
           copies: Number(copies),
           reason,
           order_number: isReturn ? orderNumber : null,
+          location: location || null,
+          from_location: isTransfer ? fromLocation || null : null,
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -131,7 +145,13 @@ function MovementForm({ onClose }: { onClose: () => void }) {
           <label className={label}>What happened</label>
           <select
             value={kind}
-            onChange={(e) => setKind(e.target.value as MovementKind)}
+            onChange={(e) => {
+              setKind(e.target.value as MovementKind);
+              // Stale once it's not a transfer any more — the field about
+              // to disappear shouldn't quietly ride along into what happens
+              // to be typed next.
+              setFromLocation("");
+            }}
             className={field}
           >
             {MOVEMENT_KINDS.map((k) => (
@@ -166,6 +186,44 @@ function MovementForm({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
+        {isTransfer && (
+          <div>
+            <label className={label}>From</label>
+            <select
+              value={fromLocation}
+              onChange={(e) => setFromLocation(e.target.value as StockLocation | "")}
+              className={field}
+            >
+              <option value="">General pool</option>
+              {STOCK_LOCATIONS.filter((l) => l !== location).map((l) => (
+                <option key={l} value={l}>
+                  {STOCK_LOCATION_LABELS[l]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <div>
+          <label className={label}>
+            {isTransfer ? "Onto which shelf" : "Whose shelf (optional)"}
+          </label>
+          <select
+            value={location}
+            onChange={(e) => setLocation(e.target.value as StockLocation | "")}
+            className={field}
+          >
+            <option value="">{isTransfer ? "Pick one…" : "General pool"}</option>
+            {STOCK_LOCATIONS
+              .filter((l) => !isTransfer || l !== fromLocation)
+              .map((l) => (
+                <option key={l} value={l}>
+                  {STOCK_LOCATION_LABELS[l]}
+                </option>
+              ))}
+          </select>
+        </div>
+
         <div className="sm:col-span-2">
           <label className={label}>Why</label>
           <input
@@ -182,7 +240,7 @@ function MovementForm({ onClose }: { onClose: () => void }) {
       <div className="mt-4 flex items-center gap-2">
         <button
           onClick={save}
-          disabled={busy || !copies || !reason.trim()}
+          disabled={busy || !copies || !reason.trim() || (isTransfer && !location)}
           className="flex items-center gap-1.5 rounded-lg bg-neutral-900 px-4 py-2 text-xs font-semibold text-white transition hover:bg-neutral-700 disabled:opacity-40"
         >
           {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}

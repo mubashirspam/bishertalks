@@ -4,6 +4,7 @@ import { can } from "@/lib/permissions";
 import StockForms from "./StockForms";
 import {
   getBookStock,
+  getBookStockByLocation,
   listPrintRuns,
   listStockMovements,
   salesRate,
@@ -11,6 +12,7 @@ import {
   movementAdds,
   MOVEMENT_LABELS,
 } from "@/lib/db/inventory";
+import { STOCK_LOCATION_LABELS } from "@/lib/stock-location";
 import { formatISTShort } from "@/lib/format-date";
 
 export const dynamic = "force-dynamic";
@@ -31,8 +33,9 @@ const WARN_DAYS = 21;
 export default async function InventoryPage() {
   const staff = await requirePageAccess("inventory.view");
 
-  const [stock, runs, movements, rate] = await Promise.all([
+  const [stock, byLocation, runs, movements, rate] = await Promise.all([
     getBookStock(),
+    getBookStockByLocation(),
     listPrintRuns(),
     listStockMovements(50),
     salesRate(7),
@@ -179,6 +182,69 @@ export default async function InventoryPage() {
         </p>
       </section>
 
+      {/* ── By shelf ────────────────────────────────────────────────────────
+          Same three numbers as above, split by whose physical stack of books
+          each one comes off. "General" is print runs nobody has recorded
+          moving onto a named shelf yet — see migration 0069. */}
+      {byLocation.length > 0 && (
+        <section className="mb-6 rounded-2xl border border-neutral-200 bg-white p-5">
+          <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            By shelf
+          </h2>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs text-neutral-500">
+                <tr>
+                  <th className="py-1.5 pr-4 font-semibold">Shelf</th>
+                  <th className="py-1.5 pr-4 font-semibold text-right">On hand</th>
+                  <th className="py-1.5 pr-4 font-semibold text-right">Committed</th>
+                  <th className="py-1.5 font-semibold text-right">Free</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...byLocation]
+                  // General first, then the three shelves in a fixed order —
+                  // never alphabetical on a table three people check daily.
+                  .sort((a, b) => {
+                    const order = [null, "kkr", "ajmal", "mubashir"] as const;
+                    return order.indexOf(a.location) - order.indexOf(b.location);
+                  })
+                  .map((row) => {
+                    const rowOversold = row.free < 0;
+                    return (
+                      <tr key={row.location ?? "general"} className="border-t border-neutral-100">
+                        <td className="py-2 pr-4 font-medium text-neutral-800">
+                          {row.location ? STOCK_LOCATION_LABELS[row.location] : "General"}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums text-neutral-700">
+                          {row.onHand.toLocaleString("en-IN")}
+                        </td>
+                        <td className="py-2 pr-4 text-right tabular-nums text-neutral-500">
+                          {row.committed.toLocaleString("en-IN")}
+                        </td>
+                        <td
+                          className={`py-2 text-right tabular-nums font-semibold ${
+                            rowOversold ? "text-red-700" : "text-neutral-900"
+                          }`}
+                        >
+                          {row.free.toLocaleString("en-IN")}
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-3 border-t border-neutral-100 pt-3 text-xs leading-relaxed text-neutral-500">
+            A book joins a shelf only once a stock correction records it moving
+            there — printed stock starts in General. Which shelf an order draws
+            down: KKR Logistics or KKR India Post routes it to KKR, Mubashir
+            Logistic to Mubashir, a direct sale to whoever entered it (if their
+            login has a shelf set), everything else stays in General.
+          </p>
+        </section>
+      )}
+
       <StockForms canManage={can(staff, "inventory.manage")} />
 
       {/* ── Print runs ──────────────────────────────────────────────────────── */}
@@ -257,6 +323,18 @@ export default async function InventoryPage() {
                         <span className="font-medium text-neutral-800">
                           {MOVEMENT_LABELS[m.kind]}
                         </span>
+                        {m.kind === "in_transfer" && m.location && (
+                          <span className="ml-1.5 inline-flex rounded-full bg-neutral-100 px-1.5 text-[10px] font-bold text-neutral-600 align-middle">
+                            {m.from_location ? STOCK_LOCATION_LABELS[m.from_location] : "General"}
+                            {" → "}
+                            {STOCK_LOCATION_LABELS[m.location]}
+                          </span>
+                        )}
+                        {m.kind !== "in_transfer" && m.location && (
+                          <span className="ml-1.5 inline-flex rounded-full bg-neutral-100 px-1.5 text-[10px] font-bold text-neutral-600 align-middle">
+                            {STOCK_LOCATION_LABELS[m.location]}
+                          </span>
+                        )}
                         <span className="block text-xs text-neutral-500">
                           {m.reason}
                           {m.order_number ? ` · ${m.order_number}` : ""}
