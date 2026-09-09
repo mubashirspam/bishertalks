@@ -128,7 +128,7 @@ export default async function ThankYouPage({
               screenshot and come back to, and "why has it not arrived" on day
               six is a support message this line prevents. */}
           <p className="text-[11px] text-neutral-500 pt-1">
-            4th edition — dispatched as soon as your order is confirmed.
+            5th edition — dispatched as soon as your order is confirmed.
             Your NLP course is already unlocked below.
           </p>
         </div>

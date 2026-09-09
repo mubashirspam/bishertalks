@@ -67,7 +67,7 @@ export function PackageItems({
             Neuro Code
           </p>
           <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5">
-            Paperback by Bisher KC · 4th edition
+            Paperback by Bisher KC · 5th edition
           </p>
           {/* Said on the line itself, not only in the delivery note below. The
               basket is what someone re-reads before paying, and "pre-order" is
@@ -435,7 +435,7 @@ export function DeliveryPromise({ preorder }: { preorder: PreorderFacts }) {
           <Truck className="w-3.5 h-3.5 text-neutral-600 dark:text-neutral-300" />
         </span>
         <span>
-          4th edition — delivery in{" "}
+          5th edition — delivery in{" "}
           <strong className="text-neutral-900 dark:text-white font-semibold">
             {preorder.deliveryDays} days
           </strong>
@@ -466,7 +466,7 @@ export function DeliveryPromise({ preorder }: { preorder: PreorderFacts }) {
           <span>
             This price holds until{" "}
             <strong className="font-semibold">{preorder.day}</strong>. It goes up
-            for the 4th edition after that.
+            for the 5th edition after that.
           </span>
         </div>
       )}

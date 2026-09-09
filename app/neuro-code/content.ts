@@ -12,19 +12,19 @@ import { PREORDER_DELIVERY_RANGE } from "@/lib/preorder";
  * foreground colour and the second in orange.
  */
 
-export const EDITION = "4th Edition";
+export const EDITION = "5th Edition";
 
 /**
  * The launch campaign.
  *
  * This replaced the Independence Day dressing, which came out with August 15.
  * The situation it has to explain is genuinely different from a seasonal offer:
- * the book being sold is the 4th edition and it is still being printed, so a
+ * the book being sold is the 5th edition and it is still being printed, so a
  * buyer is reserving a copy rather than taking one off a shelf. The page has to
  * say that plainly — hiding it to protect the conversion rate buys a refund and
  * a bad review a fortnight later.
  *
- * The order it says things in is deliberate: the 4th edition is open for
+ * The order it says things in is deliberate: the 5th edition is open for
  * pre-booking, the course arrives immediately, the book takes longer, and the
  * price holds until Saturday. What happened to the previous edition is not the
  * page's business; how long this one takes is.
@@ -35,15 +35,15 @@ export const EDITION = "4th Edition";
 export const PREORDER = {
   /** The badge over the headline. What is open, not what has closed. */
   badge: "ഇപ്പോൾ ലഭ്യമാണ്",
-  title: "നാലാം പതിപ്പ് ഇപ്പോൾ ഓർഡർ ചെയ്യാം",
+  title: "അഞ്ചാം പതിപ്പ് ഇപ്പോൾ ഓർഡർ ചെയ്യാം",
 
   /** Social proof, said as a readership rather than as a print run. */
-  readers: "3,500+ വായനക്കാർ വായിച്ചുകഴിഞ്ഞു",
+  readers: "6,000+ വായനക്കാർ വായിച്ചുകഴിഞ്ഞു",
 
   /** The deadline, and what happens after it. */
   deadline: "ഈ വില {day} വരെ മാത്രം",
   deadlineNote:
-    "{day}യ്ക് ശേഷം നാലാം പതിപ്പിന്റെ വില വർധിക്കും.",
+    "{day}യ്ക് ശേഷം അഞ്ചാം പതിപ്പിന്റെ വില വർധിക്കും.",
 
   /** Over the countdown. The same deadline, said as a quantity of time left. */
   countdownLead: "ഈ വില അവസാനിക്കാൻ",
@@ -70,7 +70,7 @@ export const PREORDER = {
     "ഇന്ത്യയിൽ എവിടെയും സൗജന്യ ഡെലിവറി.",
 
   /** One line under the course name in the hero card. */
-  offerLead: "Neuro Code നാലാം പതിപ്പിനൊപ്പം NLP Mastery Course സൗജന്യം",
+  offerLead: "Neuro Code അഞ്ചാം പതിപ്പിനൊപ്പം NLP Mastery Course സൗജന്യം",
 };
 
 /**
@@ -90,9 +90,9 @@ export const HERO = {
     "പാറ്റേണുകളാണ്. അത്തരം പാറ്റേണുകളുടെ കോഡുകൾ തിരിച്ചറിയാനും, " +
     "മാറ്റിയെഴുതാനും, ജീവിതത്തെ പുതിയ രീതിയിൽ കാണാനും സഹായിക്കുന്ന ഒരു " +
     "മലയാള പുസ്തകം — NEURO CODE.",
-  cta: "ഇപ്പോൾ നാലാം പതിപ്പ് ഓർഡർ ചെയ്യാം",
+  cta: "ഇപ്പോൾ അഞ്ചാം പതിപ്പ് ഓർഡർ ചെയ്യാം",
   rating: "4.9",
-  readers: "3,500+ വായനക്കാർ",
+  readers: "6,000+ വായനക്കാർ",
 };
 
 // ── Problems ────────────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ export const OFFER = {
   badge: "ORDERS OPEN",
   titleTop: "NEURO CODE",
   titleAccent: "— 30 DAYS NLP COURSE",
-  bookLine: "NEURO CODE — 4th EDITION",
+  bookLine: "NEURO CODE — 5th EDITION",
   courseLine: "30 DAYS NLP COURSE",
   mrpRupees: 3000,
   /** The struck-through price every "Order Now" button compares against. */
@@ -338,7 +338,7 @@ export const SECTION_TITLES = {
 export const FINAL_CTA = {
   line1: "നിങ്ങളുടെ പാറ്റേണുകൾ മാറ്റാൻ",
   accent: "ഇന്ന് തുടങ്ങാം",
-  sub: "നാലാം പതിപ്പ് · സൗജന്യ ഡെലിവറി · NLP കോഴ്‌സ് ഉടൻ",
+  sub: "അഞ്ചാം പതിപ്പ് · സൗജന്യ ഡെലിവറി · NLP കോഴ്‌സ് ഉടൻ",
 };
 
 /** Every call to action on the page says the same thing. */
