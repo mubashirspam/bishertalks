@@ -2,17 +2,23 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
+import { supabaseAdmin } from "@/lib/supabase/admin";
 import { setDeliveryStatus, notifyStatusChange } from "@/lib/db/delivery";
 import { auditMany } from "@/lib/audit";
 import {
   isPortalStatus,
   setCourierEntered,
   setTrackingNumber,
+  setCourierChannel,
+  setReturnReason,
+  COURIER_CHANNELS,
   courierOf,
   PORTAL_STATUS_STEPS,
 } from "@/lib/db/delivery-portal";
 import { can } from "@/lib/permissions";
 import { portalScope, mayHandle } from "@/lib/delivery/scope";
+import { ensureReferences } from "@/lib/db/courier-reference";
+import { allocateBarcodes } from "@/lib/db/postal-barcodes";
 
 /**
  * One tick in the delivery portal.
@@ -34,6 +40,11 @@ export async function POST(request: NextRequest) {
   // Optional on a shipped tick, and sendable on its own to correct one later.
   const tracking =
     typeof body.tracking_number === "string" ? body.tracking_number : undefined;
+  // Only meaningful alongside status: "returned" — an agent typing why a
+  // parcel came back. Overwrites whatever a courier scan already recorded,
+  // deliberately: a person correcting the record wins over an automatic guess.
+  const returnReason =
+    typeof body.return_reason === "string" ? body.return_reason : undefined;
 
   if (!orderNumber) {
     return NextResponse.json({ error: "Missing order_number" }, { status: 400 });
@@ -61,6 +72,43 @@ export async function POST(request: NextRequest) {
           { status: 403 }
         );
       }
+    } catch {
+      return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    }
+  }
+
+  // Which of KKR Logistics' own routes actually carried this one — Delhivery
+  // (the default), DTDC, Trackon, or reassigned outright to the India Post
+  // channel. See setCourierChannel for why this refuses on anything that
+  // isn't already a KKR parcel.
+  if (typeof body.channel === "string") {
+    if (!(COURIER_CHANNELS as readonly string[]).includes(body.channel)) {
+      return NextResponse.json({ error: "Unknown channel" }, { status: 400 });
+    }
+    try {
+      const result = await setCourierChannel(orderNumber, body.channel as typeof COURIER_CHANNELS[number]);
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+
+      // Same two housekeeping steps the routing screen does at assignment —
+      // best-effort, because a parcel that changed channel is still routed
+      // even if a reference or an article number could not be minted.
+      try {
+        await ensureReferences([orderNumber], result.courier);
+      } catch (e) {
+        console.warn("[Portal] reference not re-minted for channel change:", e);
+      }
+      if (body.channel === "india_post") {
+        try {
+          await allocateBarcodes(result.courier.id, [orderNumber]);
+        } catch (e) {
+          console.warn("[Portal] article number not allotted for channel change:", e);
+        }
+      }
+
+      await auditMany(auth.staff, "order.courier_channel", "order", [orderNumber], {
+        channel: body.channel,
+      });
+      return NextResponse.json({ ok: true, channel: body.channel });
     } catch {
       return NextResponse.json({ error: "Update failed" }, { status: 500 });
     }
@@ -125,6 +173,26 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // An unpaid COD parcel cannot be ticked Delivered on its own — the courier
+  // collecting cash and the parcel changing hands are the same moment, so
+  // recording them separately is how an order ends up marked delivered and
+  // never gets paid for. collectCodPayment() (the portal's Collect action)
+  // does both writes together; this plain tick refuses instead of doing half
+  // of that.
+  if (status === "delivered") {
+    const { data: codCheck } = await supabaseAdmin
+      .from("orders")
+      .select("delivery_mode, payment_status")
+      .eq("order_number", orderNumber)
+      .maybeSingle();
+    if (codCheck?.delivery_mode === "cod" && codCheck.payment_status !== "paid") {
+      return NextResponse.json(
+        { error: "This is cash on delivery — use Collect, not Delivered, to close it off." },
+        { status: 400 }
+      );
+    }
+  }
+
   try {
     // Before the status change, not after: notifyStatusChange re-reads the
     // order to build the message, so this is what puts the tracking ID in the
@@ -146,10 +214,22 @@ export async function POST(request: NextRequest) {
       await setCourierEntered(orderNumber, true, { onlyIfUnset: true }).catch(() => {});
     }
 
+    // Why, for a parcel just marked returned by hand. Unconditional — see
+    // setReturnReason — because a person typing this in is a deliberate
+    // correction, not a guess to be protected from being overwritten.
+    if (status === "returned" && returnReason?.trim()) {
+      await setReturnReason(orderNumber, returnReason).catch((e) =>
+        console.warn("[Portal] return reason not saved:", orderNumber, e)
+      );
+    }
+
     await auditMany(auth.staff, "order.status", "order", updated, {
       status,
       via: "portal",
       ...(tracking !== undefined ? { tracking_number: tracking.trim() || null } : {}),
+      ...(status === "returned" && returnReason?.trim()
+        ? { return_reason: returnReason.trim() }
+        : {}),
     });
 
     // Shipped and delivered are the two the customer hears about; the rest are

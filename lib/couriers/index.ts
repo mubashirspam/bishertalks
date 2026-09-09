@@ -16,10 +16,15 @@ export {
   canTrack,
   referenceCode,
   referenceIsPrivate,
+  trackingIdLabel,
   DEFAULT_REFERENCE_CODE,
+  COURIER_SERVICES,
+  COURIER_SERVICE_LABELS,
+  isCourierService,
   type Courier,
   type CourierConfig,
   type CourierHandoff,
+  type CourierService,
 } from "./types";
 
 export { publicTracking, type PublicTracking } from "./public-track";

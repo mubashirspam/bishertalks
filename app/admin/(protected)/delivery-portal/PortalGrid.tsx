@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, RefreshCw, RefreshCcwDot, Undo2 } from "lucide-react";
+import { Check, Copy, Pencil, RefreshCw, RefreshCcwDot, Undo2, X } from "lucide-react";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import PortalExport from "./PortalExport";
 import PortalAllotArticles from "./PortalAllotArticles";
@@ -15,9 +15,14 @@ import {
   ENTERED_LABEL,
   ENTERED_HINT,
   TRACKING_MAX,
+  RETURN_REASON_MAX,
+  COURIER_CHANNELS,
+  COURIER_CHANNEL_LABELS,
   type PortalRow,
   type PortalStatusStep,
+  type CourierChannel,
 } from "@/lib/db/delivery-portal";
+import { COURIER_SERVICE_LABELS, isCourierService } from "@/lib/couriers";
 import type { OrderStatus } from "@/lib/types/order";
 import { formatISTShort } from "@/lib/format-date";
 import { streetParts } from "@/lib/address";
@@ -37,9 +42,11 @@ export default function PortalGrid({
   rows,
   startIndex,
   courierNames,
+  courierTrackingLabels,
   courierId,
   syncCourierId,
   postalCourierIds,
+  kkrChannelCourierIds,
   live,
   mayComplete,
 }: {
@@ -47,6 +54,10 @@ export default function PortalGrid({
   startIndex: number;
   /** id → name, so a routed parcel can say who is taking it. */
   courierNames: Record<string, string>;
+  /** id → what that courier calls its own tracking number — "Waybill",
+   * "Article number", "DTDC number" — so the input asks for the right thing.
+   * See trackingIdLabel() in lib/couriers/types.ts. */
+  courierTrackingLabels: Record<string, string>;
   /** The courier being looked at, or null for all of them. */
   courierId: string | null;
   /**
@@ -66,6 +77,14 @@ export default function PortalGrid({
    * is offered, and a Delhivery parcel must never be able to take one.
    */
   postalCourierIds: string[];
+  /**
+   * The two courier rows a parcel can move between with the channel switch —
+   * KKR Logistics itself (Delhivery/DTDC/Trackon) and its separate India Post
+   * row (0068). A row whose courier isn't one of these two gets no switch at
+   * all — see setCourierChannel for why offering it more widely would be a
+   * mis-click waiting to happen.
+   */
+  kkrChannelCourierIds: string[];
   /**
    * Can we ask this courier where the parcels are?
    *
@@ -120,7 +139,28 @@ export default function PortalGrid({
    * stray click away.
    */
   const [articleEdit, setArticleEdit] = useState<Record<string, string>>({});
+  /**
+   * Rows whose tracking ID box is open for editing.
+   *
+   * Absent means the cell shows the saved number as plain text — a fact,
+   * until the pencil is pressed on purpose. Same reasoning as `articleEdit`
+   * just above: editing a parcel's identity should never be one stray click
+   * or a blur event away.
+   */
+  const [trackingEditing, setTrackingEditing] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  /** Which returned row has its Reship panel open, if any — one at a time. */
+  const [reshipping, setReshipping] = useState<string | null>(null);
+  const [reshipCourier, setReshipCourier] = useState("");
+  const [reshipTracking, setReshipTracking] = useState("");
+  const [reshipBusy, setReshipBusy] = useState(false);
+  /** Which row is being marked Returned right now, if any — one at a time. */
+  const [returningReason, setReturningReason] = useState<string | null>(null);
+  const [returnReasonDraft, setReturnReasonDraft] = useState("");
+  /** Order number currently collecting, or null — one at a time, like reship. */
+  const [collectBusy, setCollectBusy] = useState<string | null>(null);
+  /** Order number currently switching channel, or null. */
+  const [channelBusy, setChannelBusy] = useState<string | null>(null);
   /**
    * A pending undo waiting on "yes, really".
    *
@@ -168,6 +208,16 @@ export default function PortalGrid({
 
   /** Routed to India Post and still without an article number. */
   const needsArticle = (r: PortalRow): boolean => isPostal(r) && !r.postal_barcode;
+
+  /** May this row's channel be switched — is it on one of KKR's two rows? */
+  const isKkrChannel = (r: PortalRow): boolean =>
+    !!r.courier_id && kkrChannelCourierIds.includes(r.courier_id);
+
+  /** What this row's own courier calls its number, service override first. */
+  const trackingLabelOf = (r: PortalRow): string =>
+    isCourierService(r.courier_service)
+      ? `${COURIER_SERVICE_LABELS[r.courier_service]} number`
+      : (r.courier_id && courierTrackingLabels[r.courier_id]) || "Tracking ID";
 
   /**
    * Can this parcel go on a sheet?
@@ -322,7 +372,13 @@ export default function PortalGrid({
    * it messages the customer, so a parcel shipped with a tracking ID quotes it
    * in the "on its way" WhatsApp rather than a follow-up nobody sends.
    */
-  async function setStatus(row: PortalRow, status: OrderStatus, trackingId?: string) {
+  async function setStatus(
+    row: PortalRow,
+    status: OrderStatus,
+    trackingId?: string,
+    /** Only meaningful with status "returned" — see the Return column. */
+    returnReason?: string
+  ) {
     const previous = statusOf(row);
     const previousTracking = trackingOf(row);
     const withTracking = trackingId !== undefined;
@@ -343,6 +399,7 @@ export default function PortalGrid({
           order_number: row.order_number,
           status,
           ...(withTracking ? { tracking_number: trackingId } : {}),
+          ...(returnReason?.trim() ? { return_reason: returnReason.trim() } : {}),
         }),
       });
       if (!res.ok) {
@@ -358,6 +415,112 @@ export default function PortalGrid({
       setError(e instanceof Error ? e.message : "Update failed");
     } finally {
       setSaving((s) => ({ ...s, [row.order_number]: false }));
+    }
+  }
+
+  /**
+   * Send a returned parcel out again — a new courier, a new waybill, and the
+   * old attempt kept in the order's history rather than overwritten.
+   *
+   * Not `setStatus`: this changes more than the status column, and the server
+   * route does the reset (courier, tracking, the courier-API bookkeeping) in
+   * one write. `router.refresh()` picks up the new row afterward — reshipping
+   * moves a parcel back to Confirmed, which usually takes it off a "Returned"
+   * filter, so there is nothing useful to hold optimistically here.
+   */
+  async function doReship(row: PortalRow) {
+    setReshipBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/delivery/reship", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_number: row.order_number,
+          courier_id: reshipCourier || null,
+          tracking_number: reshipTracking || null,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Reship failed (${res.status})`);
+      }
+      setReshipping(null);
+      setReshipCourier("");
+      setReshipTracking("");
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Reship failed");
+    } finally {
+      setReshipBusy(false);
+    }
+  }
+
+  /**
+   * Mark a parcel Returned, with whatever reason was typed — see
+   * setReturnReason in lib/db/delivery-portal.ts. The reason is optional: a
+   * blank box still marks the parcel returned, it just leaves why unsaid,
+   * same as a courier scan that gave no explanation.
+   */
+  async function doMarkReturned(row: PortalRow) {
+    const reason = returnReasonDraft;
+    setReturningReason(null);
+    setReturnReasonDraft("");
+    await setStatus(row, "returned", undefined, reason);
+  }
+
+  /**
+   * Confirm the courier collected cash on a COD parcel, and mark it
+   * delivered in the same action — see collectCodPayment() in
+   * lib/db/delivery.ts for why those are one write rather than two ticks.
+   */
+  async function doCollectCod(row: PortalRow) {
+    setCollectBusy(row.order_number);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/delivery/collect-cod", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: row.order_number }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Collection failed (${res.status})`);
+      }
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Collection failed");
+    } finally {
+      setCollectBusy(null);
+    }
+  }
+
+  /**
+   * Move a parcel between KKR Logistics' own routes.
+   *
+   * A full refresh rather than an optimistic patch: switching channel can
+   * also move the parcel onto a different courier row (India Post) and mint
+   * a fresh reference or article number server-side, and re-reading the row
+   * is simpler than keeping all three in step by hand.
+   */
+  async function changeChannel(row: PortalRow, channel: CourierChannel) {
+    setChannelBusy(row.order_number);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/delivery/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ order_number: row.order_number, channel }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Update failed (${res.status})`);
+      }
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setChannelBusy(null);
     }
   }
 
@@ -430,25 +593,63 @@ export default function PortalGrid({
     }
   }
 
+  /** Close the article number editor without saving. */
+  function cancelArticleEdit(row: PortalRow) {
+    setArticleEdit((a) => {
+      const next = { ...a };
+      delete next[row.order_number];
+      return next;
+    });
+  }
+
   /** What's in this row's box: what's been typed, else what's saved. */
   const draftOf = (row: PortalRow): string =>
     row.order_number in drafts ? drafts[row.order_number] : (trackingOf(row) ?? "");
 
-  function submitTracking(row: PortalRow) {
-    const value = draftOf(row).trim();
+  /**
+   * The tracking ID box, open/confirm/cancel — never a status change.
+   *
+   * Some couriers (KKR Logistics' DTDC and Trackon services, chiefly) hand
+   * back their consignment number the moment the address is booked into
+   * their system, well before the parcel physically ships. Tying the number
+   * to a status tick — as this used to, shipping the parcel the moment one
+   * was typed in — meant the number was either lost for a day or two, or a
+   * premature Shipped tick was forced just to have somewhere to save it.
+   * Confirmed, Packed and Shipped are plain buttons now; this is the one
+   * place the number itself is edited, and it opens deliberately rather than
+   * sitting open — same reasoning as the article number editor above.
+   */
+  function openTrackingEdit(row: PortalRow) {
+    setDrafts((d) => ({ ...d, [row.order_number]: trackingOf(row) ?? "" }));
+    setTrackingEditing((s) => new Set(s).add(row.order_number));
+  }
+
+  function cancelTrackingEdit(row: PortalRow) {
     setDrafts((d) => {
       const next = { ...d };
       delete next[row.order_number];
       return next;
     });
+    setTrackingEditing((s) => {
+      const next = new Set(s);
+      next.delete(row.order_number);
+      return next;
+    });
+  }
 
-    // A tracking ID for a parcel that hasn't gone out yet means it is going out
-    // now — that is where the number comes from. Ship it in the same call.
-    if (reached(statusOf(row), "shipped")) {
-      void saveTracking(row, value);
-    } else if (value) {
-      void setStatus(row, "shipped", value);
-    }
+  function confirmTrackingEdit(row: PortalRow) {
+    const value = draftOf(row).trim();
+    setTrackingEditing((s) => {
+      const next = new Set(s);
+      next.delete(row.order_number);
+      return next;
+    });
+    setDrafts((d) => {
+      const next = { ...d };
+      delete next[row.order_number];
+      return next;
+    });
+    void saveTracking(row, value);
   }
 
   /** Untick Confirmed — the address is no longer in the courier's system. */
@@ -545,6 +746,20 @@ export default function PortalGrid({
     delivered: "bg-green-600 border-green-600",
   };
 
+  /** When this step actually happened — the date each tick answers for. */
+  const stepDateOf = (r: PortalRow, step: PortalStatusStep): string | null => {
+    switch (step) {
+      case "processing":
+        return r.processing_at;
+      case "shipped":
+        return r.shipped_at;
+      case "out_for_delivery":
+        return r.out_for_delivery_at;
+      case "delivered":
+        return r.delivered_at;
+    }
+  };
+
   /**
    * Is there anything to tick for a sheet?
    *
@@ -567,80 +782,31 @@ export default function PortalGrid({
         </p>
       )}
 
-      {/* A courier with live tracking replaces the whole spreadsheet ritual:
-          there is nothing to copy out and nothing to upload, so the bar offers
-          the one thing that is useful — go and ask them where these are. */}
-      {(live || syncCourierId) && (
+      {/* One top bar for everything that acts on the page, rather than the
+          plain reading a courier's own words used to need explaining — the
+          buttons' own titles do that now. Left is what's picked, if
+          anything; right is everything that can be done with it or with the
+          page as a whole. */}
+      {(showPick || live || syncCourierId) && (
         <div
           className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-neutral-100 bg-neutral-50/60 ${
             error ? "" : "rounded-t-2xl"
           }`}
         >
-          <span className="text-xs text-neutral-600">
-            {live
-              ? "Status comes straight from the courier — waybill and last scan below."
-              : "Pick a courier above to see its waybills, or sync everything now."}
-          </span>
+          {showPick && (
+            <span className="text-xs text-neutral-600">
+              {pickedRows.length ? (
+                <>
+                  <strong className="text-neutral-900">{pickedRows.length}</strong> of{" "}
+                  {COURIER_SHEET_MAX} picked for the courier sheet
+                </>
+              ) : (
+                <>Tick up to {COURIER_SHEET_MAX} new parcels to build a courier sheet</>
+              )}
+            </span>
+          )}
 
-          {syncNote && <span className="text-xs text-neutral-500">{syncNote}</span>}
-
-          <span className="ml-auto flex items-center gap-2">
-            <button
-              onClick={() => syncNow(false)}
-              disabled={syncing || !rows.length || !live}
-              title={live ? "Ask about the parcels on this page" : "Pick a courier above first"}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
-              {syncing ? "Asking the courier…" : "Sync this page"}
-            </button>
-
-            {/* The sweep. Silent by design — it catches up on parcels that
-                moved days ago, and telling those customers their book has
-                shipped when it is already on their shelf is worse than saying
-                nothing. */}
-            <button
-              onClick={() => {
-                const ok = window.confirm(
-                  "Sync every parcel the courier can be asked about?\n\n" +
-                    "This takes a minute or two and sends no messages to customers — " +
-                    "it is catching up on history, not reporting news."
-                );
-                if (ok) void syncNow(true);
-              }}
-              disabled={syncing || !syncCourierId}
-              title="Ask about every unfinished parcel, whatever is filtered"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
-            >
-              <RefreshCcwDot className="w-3.5 h-3.5" />
-              Sync everything
-            </button>
-          </span>
-        </div>
-      )}
-
-      {/* The sheet bar. Only new parcels can be ticked, so it has nothing to
-          offer a page whose parcels are all already with the courier. It stays
-          available on a live courier too: the spreadsheet is how a day's
-          parcels still go out when the API is unavailable or switched off. */}
-      {showPick && (
-        <div
-          className={`flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-neutral-100 bg-neutral-50/60 ${
-            error ? "" : "rounded-t-2xl"
-          }`}
-        >
-          <span className="text-xs text-neutral-600">
-            {pickedRows.length ? (
-              <>
-                <strong className="text-neutral-900">{pickedRows.length}</strong> of{" "}
-                {COURIER_SHEET_MAX} picked for the courier sheet
-              </>
-            ) : (
-              <>Tick up to {COURIER_SHEET_MAX} new parcels to build a courier sheet</>
-            )}
-          </span>
-
-          {pickedRows.length > 0 && (
+          {showPick && pickedRows.length > 0 && (
             <button
               onClick={() => {
                 setPicked(new Set());
@@ -652,34 +818,72 @@ export default function PortalGrid({
             </button>
           )}
 
-          {capped && (
+          {showPick && capped && (
             <span className="text-xs text-amber-700">
               One sheet holds {COURIER_SHEET_MAX} — download these, then pick the next lot.
             </span>
           )}
 
+          {syncNote && <span className="text-xs text-neutral-500">{syncNote}</span>}
+
           <span className="ml-auto flex items-center gap-2">
-            {/* First in the bar because it comes first in the work: a Speed
-                Post parcel with no article number cannot be booked and its
-                label prints with an empty barcode. Only the ticked parcels
-                that actually need one are sent, so the button disappears the
-                moment there is nothing to do. */}
-            <PortalAllotArticles
-              orderNumbers={pickedRows.filter(needsArticle).map((r) => r.order_number)}
-              onDone={() => router.refresh()}
-            />
-            {/* Two paper options, and they are not alternatives: the A4 sheet
-                is ten addresses to be cut up on an office printer, this is one
-                4x6 label per page for a thermal roll. The label is what goes
-                on the parcel and carries the scannable barcode, so it sits
-                nearer the Excel button — but the sheet stays for whoever has
-                no label printer that morning. */}
-            <PortalAddressPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
-            <PortalLabelPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
-            <PortalExport
-              orderNumbers={pickedRows.map((r) => r.order_number)}
-              onDone={sheetDownloaded}
-            />
+            {showPick && (
+              <>
+                {/* First because it comes first in the work: a Speed Post
+                    parcel with no article number cannot be booked and its
+                    label prints with an empty barcode. Only the ticked
+                    parcels that actually need one are sent, so the button
+                    disappears the moment there is nothing to do. */}
+                <PortalAllotArticles
+                  orderNumbers={pickedRows.filter(needsArticle).map((r) => r.order_number)}
+                  onDone={() => router.refresh()}
+                />
+                {/* Two paper options, and they are not alternatives: the A4
+                    sheet is ten addresses to be cut up on an office printer,
+                    this is one 4x6 label per page for a thermal roll. */}
+                <PortalAddressPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
+                <PortalLabelPdf orderNumbers={pickedRows.map((r) => r.order_number)} />
+                <PortalExport
+                  orderNumbers={pickedRows.map((r) => r.order_number)}
+                  onDone={sheetDownloaded}
+                />
+              </>
+            )}
+
+            {(live || syncCourierId) && (
+              <>
+                <button
+                  onClick={() => syncNow(false)}
+                  disabled={syncing || !rows.length || !live}
+                  title={live ? "Ask about the parcels on this page" : "Pick a courier above first"}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncing ? "animate-spin" : ""}`} />
+                  {syncing ? "Asking the courier…" : "Sync this page"}
+                </button>
+
+                {/* The sweep. Silent by design — it catches up on parcels
+                    that moved days ago, and telling those customers their
+                    book has shipped when it is already on their shelf is
+                    worse than saying nothing. */}
+                <button
+                  onClick={() => {
+                    const ok = window.confirm(
+                      "Sync every parcel the courier can be asked about?\n\n" +
+                        "This takes a minute or two and sends no messages to customers — " +
+                        "it is catching up on history, not reporting news."
+                    );
+                    if (ok) void syncNow(true);
+                  }}
+                  disabled={syncing || !syncCourierId}
+                  title="Ask about every unfinished parcel, whatever is filtered"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-300 bg-white text-xs font-semibold text-neutral-700 hover:border-neutral-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                >
+                  <RefreshCcwDot className="w-3.5 h-3.5" />
+                  Sync everything
+                </button>
+              </>
+            )}
           </span>
         </div>
       )}
@@ -709,10 +913,15 @@ export default function PortalGrid({
                 />
               </th>
               )}
-              {(live
-                ? ["#", "Assigned", "Name", "Mobile", "Address", "Pincode", "Waybill", "Courier status"]
-                : ["#", "Assigned", "Name", "Mobile", "Address", "Pincode", "Reference"]
-              ).map((h) => (
+              {[
+                "#",
+                "Assigned",
+                "Name",
+                "Mobile",
+                "Address",
+                "Tracking ID",
+                ...(live ? ["Courier status"] : []),
+              ].map((h) => (
                 <th
                   key={h}
                   className="px-3 py-2.5 font-semibold text-neutral-500 uppercase tracking-wider whitespace-nowrap border-r border-neutral-100"
@@ -747,11 +956,19 @@ export default function PortalGrid({
               const canPick = isNew(r);
               const isPicked = canPick && picked.has(r.order_number);
 
+              const isUrgent = r.delivery_priority === "urgent";
+
               return (
                 <tr
                   key={r.id}
                   className={`border-b border-neutral-100 last:border-0 transition-colors ${
-                    isPicked ? "bg-emerald-50/60" : "hover:bg-neutral-50/70"
+                    isUrgent ? "border-l-4 border-l-red-400" : ""
+                  } ${
+                    isPicked
+                      ? "bg-emerald-50/60"
+                      : isUrgent
+                        ? "bg-red-50/50 hover:bg-red-50/80"
+                        : "hover:bg-neutral-50/70"
                   } ${busy ? "opacity-60" : ""}`}
                 >
                   {/* Blank rather than a disabled box on a parcel that has
@@ -809,6 +1026,38 @@ export default function PortalGrid({
                     {r.quantity > 1 && (
                       <span className="ml-1.5 inline-flex px-1.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold align-middle">
                         {r.quantity} books
+                      </span>
+                    )}
+                    {/* Set at the counter on a direct sale (0063) — the buyer
+                        is waiting on a date, not just a delivery. First of
+                        the badges on purpose: this is the one that changes
+                        which parcel gets packed first. */}
+                    {r.delivery_priority === "urgent" && (
+                      <span
+                        title="Urgent — pack and hand over today"
+                        className="ml-1.5 inline-flex px-1.5 rounded-full bg-red-100 text-red-800 border border-red-200 text-[10px] font-bold align-middle"
+                      >
+                        URGENT
+                      </span>
+                    )}
+                    {/* Visible here too, not only as the Collect button below —
+                        this is the column someone scans down the whole page,
+                        and "which of these still need cash collected" is a
+                        question worth answering at a glance. */}
+                    {r.delivery_mode === "cod" && (
+                      <span
+                        title={
+                          r.payment_status === "paid"
+                            ? "Cash on delivery — already collected"
+                            : "Cash on delivery — not collected yet"
+                        }
+                        className={`ml-1.5 inline-flex px-1.5 rounded-full text-[10px] font-bold align-middle border ${
+                          r.payment_status === "paid"
+                            ? "bg-green-50 text-green-700 border-green-200"
+                            : "bg-amber-100 text-amber-800 border-amber-200"
+                        }`}
+                      >
+                        COD
                       </span>
                     )}
                     {/* Same reasoning as the copy count: a parcel that went out
@@ -883,70 +1132,19 @@ export default function PortalGrid({
                     </div>
                   </td>
 
+                  {/* One column for whatever this courier calls its own
+                      number — waybill, article number, DTDC or Trackon
+                      number. Read-only text until the small pencil is
+                      pressed: a number that agrees with what the courier has
+                      on file is a fact, not a box to sit open, and a stray
+                      click or a phone brushing the screen must not silently
+                      change it. Confirm and Cancel are separate, explicit
+                      buttons rather than blur-to-save — the same reasoning. */}
                   <td className={`${cell} whitespace-nowrap border-r border-neutral-100`}>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono text-neutral-700">{r.pincode ?? "—"}</span>
-                      {r.pincode && (
-                        <CopyButton
-                          title="Copy pincode"
-                          active={copied === `${r.order_number}:pin`}
-                          onClick={() => copy(`${r.order_number}:pin`, r.pincode!)}
-                        />
-                      )}
-                    </div>
-                  </td>
-
-                  {/* On a live courier this is the waybill — the number the
-                      customer tracks with, and the one to quote on the phone.
-                      Otherwise it is our own reference, which is all the Excel
-                      channel ever gives us back. */}
-                  <td className={`${cell} whitespace-nowrap border-r border-neutral-100`}>
-                    {live ? (
-                      r.tracking_number ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-neutral-700">
-                            {r.tracking_number}
-                          </span>
-                          <CopyButton
-                            title="Copy waybill"
-                            active={copied === `${r.order_number}:awb`}
-                            onClick={() => copy(`${r.order_number}:awb`, r.tracking_number!)}
-                          />
-                        </div>
-                      ) : (
-                        // No waybill on a live courier means they have no record
-                        // of it — usually a sheet that was never uploaded. Worth
-                        // saying, not worth a dash.
-                        <span
-                          title="The courier has no record of this parcel yet"
-                          className="text-amber-700 text-[11px] font-medium"
-                        >
-                          Not with them
-                        </span>
-                      )
-                    ) : isPostal(r) ? (
-                      // India Post's article number, which is a different kind
-                      // of thing from a reference: it comes out of a finite
-                      // allotment, it is what their booking file is keyed by,
-                      // and it is what every scan from the counter onwards is
-                      // recorded against. Its absence is a job to do — the
-                      // parcel cannot be booked or labelled without one — so
-                      // it says so rather than printing a dash.
-                      r.postal_barcode ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-mono text-neutral-800 font-semibold">
-                            {r.postal_barcode}
-                          </span>
-                          <CopyButton
-                            title="Copy article number"
-                            active={copied === `${r.order_number}:art`}
-                            onClick={() => copy(`${r.order_number}:art`, r.postal_barcode!)}
-                          />
-                        </div>
-                      ) : r.order_number in articleEdit ? (
+                    {isPostal(r) ? (
+                      r.order_number in articleEdit ? (
                         // Typing one in by hand. Uppercased as it is typed
-                        // because that is the only form the format allows, and
-                        // correcting it afterwards is a refusal nobody needs.
+                        // because that is the only form the format allows.
                         <span className="flex items-center gap-1">
                           <input
                             autoFocus
@@ -959,12 +1157,7 @@ export default function PortalGrid({
                             }
                             onKeyDown={(e) => {
                               if (e.key === "Enter") void saveArticle(r, articleEdit[r.order_number]);
-                              if (e.key === "Escape")
-                                setArticleEdit((a) => {
-                                  const next = { ...a };
-                                  delete next[r.order_number];
-                                  return next;
-                                });
+                              if (e.key === "Escape") cancelArticleEdit(r);
                             }}
                             placeholder="CX054909015IN"
                             maxLength={13}
@@ -974,56 +1167,150 @@ export default function PortalGrid({
                           <button
                             onClick={() => void saveArticle(r, articleEdit[r.order_number])}
                             disabled={!!saving[r.order_number]}
-                            title="Save this article number"
-                            className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 disabled:opacity-40"
+                            title="Confirm this article number"
+                            className="text-emerald-700 hover:text-emerald-900 disabled:opacity-40"
                           >
-                            Save
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => cancelArticleEdit(r)}
+                            disabled={!!saving[r.order_number]}
+                            title="Cancel"
+                            className="text-neutral-400 hover:text-neutral-700 disabled:opacity-40"
+                          >
+                            <X className="w-3.5 h-3.5" />
                           </button>
                         </span>
                       ) : (
-                        // Editable only while the parcel is unconfirmed. Once
-                        // it is on a booking file India Post holds, the number
-                        // there and the number here have to agree — so the
-                        // prompt goes back to being a statement of fact.
-                        <span className="flex items-center gap-1.5">
-                          <span
-                            title={
-                              enteredOf(r)
-                                ? "No article number, and this parcel is already confirmed with the courier"
-                                : "No India Post article number yet — tick it and press Allot article numbers, or type one in"
-                            }
-                            className="text-amber-700 text-[11px] font-medium"
-                          >
-                            No article number
-                          </span>
+                        <div className="flex items-center gap-1.5">
+                          {r.postal_barcode ? (
+                            <>
+                              <span className="font-mono text-neutral-800 font-semibold">
+                                {r.postal_barcode}
+                              </span>
+                              <CopyButton
+                                title="Copy article number"
+                                active={copied === `${r.order_number}:art`}
+                                onClick={() => copy(`${r.order_number}:art`, r.postal_barcode!)}
+                              />
+                            </>
+                          ) : (
+                            // India Post's article number is a finite
+                            // allotment — its absence is a job to do, not a
+                            // dash: the parcel cannot be booked or labelled
+                            // without one.
+                            <span
+                              title={
+                                enteredOf(r)
+                                  ? "No article number, and this parcel is already confirmed with the courier"
+                                  : "No India Post article number yet — tick it and press Allot article numbers, or type one in"
+                              }
+                              className="text-amber-700 text-[11px] font-medium"
+                            >
+                              No article number
+                            </span>
+                          )}
+                          {/* Editable only while the parcel is unconfirmed.
+                              Once it is on a booking file India Post holds,
+                              the number there and the number here have to
+                              agree, so there is nothing left to correct from
+                              this side. */}
                           {!enteredOf(r) && (
                             <button
                               onClick={() =>
-                                setArticleEdit((a) => ({ ...a, [r.order_number]: "" }))
+                                setArticleEdit((a) => ({
+                                  ...a,
+                                  [r.order_number]: r.postal_barcode ?? "",
+                                }))
                               }
-                              title="Type in a number from a counter receipt"
-                              className="text-[11px] font-semibold text-neutral-500 underline underline-offset-2 hover:text-neutral-800"
+                              title={r.postal_barcode ? "Edit article number" : "Type in a number from a counter receipt"}
+                              className="text-neutral-400 hover:text-neutral-700"
                             >
-                              Enter
+                              <Pencil className="w-3 h-3" />
                             </button>
                           )}
-                        </span>
+                        </div>
                       )
-                    ) : r.courier_reference ? (
-                      <div className="flex items-center gap-1.5">
-                        <span className="font-mono text-neutral-700">
-                          {r.courier_reference}
-                        </span>
-                        <CopyButton
-                          title="Copy reference number"
-                          active={copied === `${r.order_number}:ref`}
-                          onClick={() =>
-                            copy(`${r.order_number}:ref`, r.courier_reference!)
+                    ) : trackingEditing.has(r.order_number) ? (
+                      <span className="flex items-center gap-1">
+                        <input
+                          autoFocus
+                          value={draftOf(r)}
+                          onChange={(e) =>
+                            setDrafts((d) => ({ ...d, [r.order_number]: e.target.value }))
                           }
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") confirmTrackingEdit(r);
+                            if (e.key === "Escape") cancelTrackingEdit(r);
+                          }}
+                          maxLength={TRACKING_MAX}
+                          placeholder={trackingLabelOf(r)}
+                          className="w-24 px-1.5 py-0.5 rounded border border-purple-300 font-mono text-[11px] focus:border-purple-500 focus:outline-none"
                         />
-                      </div>
+                        <button
+                          onClick={() => confirmTrackingEdit(r)}
+                          title="Confirm"
+                          className="text-emerald-700 hover:text-emerald-900"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => cancelTrackingEdit(r)}
+                          title="Cancel"
+                          className="text-neutral-400 hover:text-neutral-700"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </span>
                     ) : (
-                      <span className="text-neutral-300">—</span>
+                      <div className="flex items-center gap-1.5">
+                        {r.tracking_number ? (
+                          <>
+                            <span className="font-mono text-neutral-700">{r.tracking_number}</span>
+                            <CopyButton
+                              title="Copy tracking ID"
+                              active={copied === `${r.order_number}:awb`}
+                              onClick={() => copy(`${r.order_number}:awb`, r.tracking_number!)}
+                            />
+                          </>
+                        ) : (
+                          <span className="text-neutral-300 text-[11px]">—</span>
+                        )}
+                        <button
+                          onClick={() => openTrackingEdit(r)}
+                          title={`Edit ${trackingLabelOf(r).toLowerCase()} — saving it never changes the parcel's status`}
+                          className="text-neutral-400 hover:text-neutral-700"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Which of KKR's own routes this actually goes by — the
+                        default is Delhivery, but some days it's DTDC or
+                        Trackon, and India Post through KKR is a different
+                        row entirely. Only offered on a KKR parcel; see
+                        setCourierChannel. */}
+                    {isKkrChannel(r) && (
+                      <select
+                        value={
+                          isPostal(r)
+                            ? "india_post"
+                            : isCourierService(r.courier_service)
+                              ? r.courier_service
+                              : "delhivery"
+                        }
+                        onChange={(e) => changeChannel(r, e.target.value as CourierChannel)}
+                        disabled={channelBusy === r.order_number}
+                        title="Which of KKR's own routes this parcel actually goes by"
+                        className="mt-1 block w-full text-[10px] border border-neutral-200 rounded px-1 py-0.5 bg-white text-neutral-500 disabled:opacity-50"
+                      >
+                        {COURIER_CHANNELS.map((c) => (
+                          <option key={c} value={c}>
+                            {COURIER_CHANNEL_LABELS[c]}
+                          </option>
+                        ))}
+                      </select>
                     )}
                   </td>
 
@@ -1055,6 +1342,11 @@ export default function PortalGrid({
                         enteredOf(r) ? askUndoEntered(r) : toggleEntered(r)
                       }
                     />
+                    {r.courier_entered_at && (
+                      <div className="mt-1 text-[10px] text-neutral-400 leading-tight">
+                        {formatISTShort(r.courier_entered_at)}
+                      </div>
+                    )}
                   </td>
 
                   {PORTAL_STATUS_STEPS.map((step) => {
@@ -1067,77 +1359,215 @@ export default function PortalGrid({
                     // see that a parcel arrived — the courier's scan sets it —
                     // they just cannot be the one to say so.
                     const locked = step === "delivered" && !mayComplete;
+                    // Cash hasn't been collected yet — the plain Delivered
+                    // tick is refused server-side for exactly this row (see
+                    // the guard in app/api/admin/delivery/portal/route.ts),
+                    // so it isn't offered here either. Collect is the one
+                    // action that both confirms the cash and delivers it.
+                    const codUnpaid = !on && r.delivery_mode === "cod" && r.payment_status !== "paid";
 
                     return (
                       <td key={step} className="px-2 py-2 text-center border-r border-neutral-100">
-                        <Tick
-                          on={on}
-                          muted={status === "returned"}
-                          tone={STEP_TONE[step]}
-                          disabled={!!busy || locked}
-                          title={
-                            locked
-                              ? "The courier's scan closes this off — you don't need to tick it"
-                              : guarded
-                                ? `Undo — ${PORTAL_STEP_LABELS[step]}`
-                                : `Mark ${PORTAL_STEP_LABELS[step].toLowerCase()}`
-                          }
-                          onClick={() =>
-                            locked ? undefined : guarded ? askUndoStep(r, step) : setStatus(r, step)
-                          }
-                        />
-
-                        {/* Shipped is the one stage with a number attached to
-                            it. Always on show, always optional: the tick above
-                            still ships a parcel on its own, for the couriers
-                            that give us nothing to type in here. */}
-                        {step === "shipped" && (
-                          <input
-                            value={draftOf(r)}
-                            onChange={(e) =>
-                              setDrafts((d) => ({ ...d, [r.order_number]: e.target.value }))
+                        {step === "delivered" && codUnpaid && mayComplete ? (
+                          <button
+                            onClick={() => doCollectCod(r)}
+                            disabled={!!busy || collectBusy === r.order_number}
+                            title={`Confirm ₹${Math.round(r.amount_paise / 100).toLocaleString("en-IN")} collected, and mark delivered`}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 hover:text-amber-950 border border-amber-300 bg-amber-50 rounded-md px-2 py-1 transition-colors disabled:opacity-50"
+                          >
+                            {collectBusy === r.order_number
+                              ? "…"
+                              : `Collect ₹${Math.round(r.amount_paise / 100).toLocaleString("en-IN")}`}
+                          </button>
+                        ) : (
+                          <Tick
+                            on={on}
+                            muted={status === "returned"}
+                            tone={STEP_TONE[step]}
+                            disabled={!!busy || locked || (step === "delivered" && codUnpaid)}
+                            title={
+                              step === "delivered" && codUnpaid
+                                ? "Cash on delivery — use Collect, shown once you have access to it"
+                                : locked
+                                  ? "The courier's scan closes this off — you don't need to tick it"
+                                  : guarded
+                                    ? `Undo — ${PORTAL_STEP_LABELS[step]}`
+                                    : `Mark ${PORTAL_STEP_LABELS[step].toLowerCase()}`
                             }
-                            onBlur={() => submitTracking(r)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") e.currentTarget.blur();
-                              if (e.key === "Escape") {
-                                setDrafts((d) => {
-                                  const next = { ...d };
-                                  delete next[r.order_number];
-                                  return next;
-                                });
-                                e.currentTarget.blur();
-                              }
-                            }}
-                            maxLength={TRACKING_MAX}
-                            placeholder="Tracking ID"
-                            title="Optional. Entering one on an unshipped parcel ships it and sends the customer the number."
-                            className="mt-1.5 w-28 px-1.5 py-1 rounded border border-neutral-200 bg-neutral-50 font-mono text-[11px] text-center placeholder:font-sans placeholder:text-neutral-400 focus:outline-none focus:bg-white focus:border-purple-500 transition-colors"
+                            onClick={() =>
+                              locked || codUnpaid ? undefined : guarded ? askUndoStep(r, step) : setStatus(r, step)
+                            }
                           />
                         )}
+
+                        {/* The date this step happened, and — only while this
+                            is where the parcel actually is right now — the
+                            courier's own words for where that is. Once a
+                            later step is reached the location is stale and
+                            says nothing useful, so it stops showing; the date
+                            it happened is the one thing worth keeping. */}
+                        {(() => {
+                          const stepDate = stepDateOf(r, step);
+                          if (!on || !stepDate) return null;
+                          const isCurrent = status === step;
+                          return (
+                            <div className="mt-1 text-[10px] text-neutral-400 leading-tight">
+                              <div>{formatISTShort(stepDate)}</div>
+                              {isCurrent && r.courier_last_scan && (
+                                <div
+                                  className="text-neutral-500 truncate max-w-[7rem]"
+                                  title={r.courier_last_scan}
+                                >
+                                  {r.courier_last_scan}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </td>
                     );
                   })}
 
-                  <td className="px-2 py-2 text-center">
+                  <td className="px-2 py-2 text-center align-top">
                     {status === "returned" ? (
-                      <button
-                        onClick={() => setStatus(r, "shipped")}
-                        title="Undo — put it back to Shipped"
-                        className="inline-flex items-center gap-1 text-[11px] text-rose-700 font-semibold hover:text-rose-900 transition-colors"
-                      >
-                        <span className="w-4 h-4 rounded border bg-rose-500 border-rose-500 inline-flex items-center justify-center">
-                          <Check className="w-3 h-3 text-white" strokeWidth={3} />
-                        </span>
-                        <Undo2 className="w-3 h-3" />
-                      </button>
+                      <div className="space-y-1.5">
+                        <button
+                          onClick={() => setStatus(r, "shipped")}
+                          title="Undo — put it back to Shipped"
+                          className="inline-flex items-center gap-1 text-[11px] text-rose-700 font-semibold hover:text-rose-900 transition-colors"
+                        >
+                          <span className="w-4 h-4 rounded border bg-rose-500 border-rose-500 inline-flex items-center justify-center">
+                            <Check className="w-3 h-3 text-white" strokeWidth={3} />
+                          </span>
+                          <Undo2 className="w-3 h-3" />
+                        </button>
+
+                        {/* Why, and when — the two questions "it came back"
+                            leaves open. The reason is whichever of the two
+                            sources got there first: the courier's own scan
+                            text, or what an agent typed marking it by hand —
+                            see setReturnReason. */}
+                        <div className="text-[10px] text-neutral-500 leading-tight text-left">
+                          {r.returned_at && <div>{formatISTShort(r.returned_at)}</div>}
+                          {r.return_reason ? (
+                            <div className="text-rose-700" title={r.return_reason}>
+                              {r.return_reason}
+                            </div>
+                          ) : (
+                            <div className="text-neutral-400 italic">No reason recorded</div>
+                          )}
+                        </div>
+
+                        {/* Send it out again — a different capability from
+                            ticking Returned itself in the same way Delivered
+                            is: it settles more than one column, so it stays
+                            behind mayComplete rather than being offered to
+                            everyone who can work the queue. */}
+                        {mayComplete &&
+                          (reshipping === r.order_number ? (
+                            <div className="text-left bg-neutral-50 border border-neutral-200 rounded-lg p-2 w-48 space-y-1.5">
+                              <select
+                                value={reshipCourier}
+                                onChange={(e) => setReshipCourier(e.target.value)}
+                                className="w-full text-[11px] border border-neutral-200 rounded px-1.5 py-1 bg-white"
+                              >
+                                <option value="">Pick a courier…</option>
+                                {Object.entries(courierNames).map(([id, name]) => (
+                                  <option key={id} value={id}>
+                                    {name}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                value={reshipTracking}
+                                onChange={(e) => setReshipTracking(e.target.value)}
+                                placeholder="New waybill (optional)"
+                                maxLength={TRACKING_MAX}
+                                className="w-full text-[11px] border border-neutral-200 rounded px-1.5 py-1 font-mono placeholder:font-sans"
+                              />
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() => doReship(r)}
+                                  disabled={reshipBusy}
+                                  className="flex-1 text-[10px] font-semibold bg-primary-500 hover:bg-primary-600 text-white rounded px-2 py-1 transition-colors disabled:opacity-50"
+                                >
+                                  {reshipBusy ? "Sending…" : "Confirm"}
+                                </button>
+                                <button
+                                  onClick={() => {
+                                    setReshipping(null);
+                                    setReshipCourier("");
+                                    setReshipTracking("");
+                                  }}
+                                  disabled={reshipBusy}
+                                  className="text-[10px] text-neutral-500 hover:text-neutral-900 px-1.5 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setReshipping(r.order_number)}
+                              title="Send it out again with a new courier and waybill"
+                              className="inline-flex items-center gap-1 text-[11px] text-primary-700 font-semibold hover:text-primary-900 transition-colors"
+                            >
+                              <RefreshCcwDot className="w-3 h-3" /> Reship
+                            </button>
+                          ))}
+                      </div>
+                    ) : returningReason === r.order_number ? (
+                      // Opened deliberately rather than marking returned on
+                      // the spot — same reasoning as Reship above: this is a
+                      // moment worth a second's thought, and the reason is
+                      // worth capturing while somebody actually has it in
+                      // front of them, not reconstructed from memory later.
+                      <div className="text-left bg-neutral-50 border border-neutral-200 rounded-lg p-2 w-48 space-y-1.5">
+                        <input
+                          autoFocus
+                          value={returnReasonDraft}
+                          onChange={(e) => setReturnReasonDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void doMarkReturned(r);
+                            if (e.key === "Escape") {
+                              setReturningReason(null);
+                              setReturnReasonDraft("");
+                            }
+                          }}
+                          placeholder="Why? (optional)"
+                          maxLength={RETURN_REASON_MAX}
+                          className="w-full text-[11px] border border-neutral-200 rounded px-1.5 py-1 placeholder:text-neutral-400"
+                        />
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => void doMarkReturned(r)}
+                            disabled={!!busy}
+                            className="flex-1 text-[10px] font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded px-2 py-1 transition-colors disabled:opacity-50"
+                          >
+                            {busy ? "Saving…" : "Mark returned"}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setReturningReason(null);
+                              setReturnReasonDraft("");
+                            }}
+                            disabled={!!busy}
+                            className="text-[10px] text-neutral-500 hover:text-neutral-900 px-1.5 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     ) : (
                       <Tick
                         on={false}
                         tone="bg-rose-500 border-rose-500"
                         disabled={!!busy}
                         title="Mark returned to us"
-                        onClick={() => setStatus(r, "returned")}
+                        onClick={() => {
+                          setReturnReasonDraft("");
+                          setReturningReason(r.order_number);
+                        }}
                       />
                     )}
                   </td>

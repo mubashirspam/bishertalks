@@ -297,3 +297,69 @@ export function referenceCode(
 export function referenceIsPrivate(courier: Pick<Courier, "handoff"> | null | undefined): boolean {
   return courier?.handoff === "manual";
 }
+
+/**
+ * What THIS courier calls the number on the parcel — not our own reference
+ * (see `referenceCode` above, which is ours and never printed by a partner
+ * that issues its own numbers), the one their own system tracks it by.
+ *
+ * Read off `config.tracking` first, for the two carriers with a real
+ * integration behind that key. Everyone else — a KKR Logistics row that
+ * ships through DTDC, say — has no such config field to fill in, so the
+ * fallback reads the courier's own NAME instead. That means naming a new
+ * courier "KKR Logistics — Trackon" is the whole setup: no config screen to
+ * find, no key to get right.
+ */
+const NAME_LABELS: { match: RegExp; label: string }[] = [
+  { match: /delhivery/i, label: "Waybill" },
+  { match: /india\s*post/i, label: "Article number" },
+  { match: /dtdc/i, label: "DTDC number" },
+  { match: /trackon/i, label: "Trackon number" },
+];
+
+/**
+ * Which network KKR Logistics actually sent a parcel through, when the
+ * courier row itself does not say (migration 0068).
+ *
+ * Not a wider "which carrier" concept: India Post going through KKR is
+ * already its own courier row (kkr-india-post) with its own account and its
+ * own article-number allotment, so a parcel that really goes by post is
+ * reassigned to that row rather than tagged with a service here. This only
+ * covers the two networks KKR Logistics has no separate machinery for.
+ */
+export type CourierService = "dtdc" | "trackon";
+
+export const COURIER_SERVICES: readonly CourierService[] = ["dtdc", "trackon"];
+
+export const COURIER_SERVICE_LABELS: Record<CourierService, string> = {
+  dtdc: "DTDC",
+  trackon: "Trackon",
+};
+
+export function isCourierService(v: unknown): v is CourierService {
+  return v === "dtdc" || v === "trackon";
+}
+
+/**
+ * What THIS courier calls the number on the parcel.
+ *
+ * `service` wins over everything else when set — it is the parcel's own
+ * record of which network actually carried it, which for KKR Logistics can
+ * differ from what the courier row's own name or config would guess.
+ */
+export function trackingIdLabel(
+  courier: Pick<Courier, "name" | "config"> | null | undefined,
+  service?: string | null
+): string {
+  if (service === "dtdc") return "DTDC number";
+  if (service === "trackon") return "Trackon number";
+
+  if (!courier) return "Tracking ID";
+  if (courier.config?.tracking === "delhivery") return "Waybill";
+  if (courier.config?.tracking === "india-post") return "Article number";
+
+  for (const { match, label } of NAME_LABELS) {
+    if (match.test(courier.name)) return label;
+  }
+  return "Tracking ID";
+}

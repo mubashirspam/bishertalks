@@ -10,7 +10,9 @@ import { cleanName, isUsableName, NAME_MIN } from "@/lib/clean-name";
 import { notifyAfterResponse } from "@/lib/notify";
 import { listActiveCouriers } from "@/lib/db/couriers";
 import { isDeliveryPriority } from "@/lib/delivery-priority";
+import { isDeliveryMode } from "@/lib/delivery-mode";
 import { addressType } from "@/lib/address";
+import { allocateBarcodes } from "@/lib/db/postal-barcodes";
 
 /**
  * Enter a book that was sold directly.
@@ -34,12 +36,20 @@ import { addressType } from "@/lib/address";
  *
  * WHAT IT DOES DO
  *
- * Writes a `paid` order in `confirmed` status with `sales_channel = 'manual'`,
- * which is exactly the shape the delivery pipeline already understands. From
- * that moment it routes, labels, hands over and tracks like any other parcel,
- * and every revenue, book and stock figure ignores it.
+ * Writes an order in `confirmed` status with `sales_channel = 'manual'`, which
+ * is exactly the shape the delivery pipeline already understands. From that
+ * moment it routes, labels, hands over and tracks like any other parcel, and
+ * every revenue, book and stock figure ignores it.
  *
- * The customer is messaged exactly as an online buyer is — the same
+ * `payment_status` is `paid` unless `delivery_mode` is `cod` — cash collected
+ * by the courier at the door rather than money already in hand (0067). A COD
+ * sale is just as real and just as ready to ship; it simply hasn't been paid
+ * for yet, which is why it gets no `manual_payment_method` and no automated
+ * "payment received" WhatsApp below. See lib/delivery-mode.ts and
+ * collectCodPayment() in lib/db/delivery.ts, which is what actually marks one
+ * paid, at the moment the courier hands it over.
+ *
+ * A prepaid direct sale is messaged exactly as an online buyer is — the same
  * `confirmed` notification the paid transition fires, and every delivery
  * update after it. They bought a book and are waiting for it; how the rupees
  * travelled is this shop's bookkeeping problem, not theirs.
@@ -90,7 +100,20 @@ export async function POST(request: NextRequest) {
   const pincode = str(body.pincode).replace(/\D/g, "");
   const quantity = Math.max(1, Math.floor(Number(body.quantity) || 1));
   const amountRupees = Number(body.amount_rupees);
-  const method = str(body.manual_payment_method) || "upi";
+
+  // 'normal' unless somebody says otherwise. An unrecognised value is refused
+  // rather than quietly filed as normal, same reasoning as delivery_priority
+  // below — a silent downgrade would tell the person at the counter their COD
+  // sale was accepted as already paid.
+  const deliveryModeInput = str(body.delivery_mode) || "normal";
+  if (!isDeliveryMode(deliveryModeInput)) {
+    return NextResponse.json({ error: "Unknown delivery mode." }, { status: 400 });
+  }
+  const isCod = deliveryModeInput === "cod";
+
+  // Nothing has been paid on a COD sale, so there is no "how they paid" to
+  // ask for — that question is answered later, when the courier collects it.
+  const method = str(body.manual_payment_method) || (isCod ? "" : "upi");
 
   // Everything the delivery pipeline needs, refused up front rather than at the
   // courier. A parcel that cannot be addressed is not a parcel.
@@ -107,9 +130,9 @@ export async function POST(request: NextRequest) {
   if (!state) problems.push("The state");
   if (!/^\d{6}$/.test(pincode)) problems.push("A six-digit pincode");
   if (!Number.isFinite(amountRupees) || amountRupees < 0) {
-    problems.push("The amount paid, in rupees");
+    problems.push(isCod ? "The amount due, in rupees" : "The amount paid, in rupees");
   }
-  if (!isManualPaymentMethod(method)) problems.push("How they paid");
+  if (!isCod && !isManualPaymentMethod(method)) problems.push("How they paid");
 
   if (problems.length) {
     return NextResponse.json(
@@ -130,9 +153,11 @@ export async function POST(request: NextRequest) {
   // using last year. Inactive couriers are refused for the same reason the
   // routing screen does not offer them.
   const courierId = str(body.courier_id);
+  let routedCourier: Awaited<ReturnType<typeof listActiveCouriers>>[number] | null = null;
   if (courierId) {
     const active = await listActiveCouriers();
-    if (!active.some((c) => c.id === courierId)) {
+    routedCourier = active.find((c) => c.id === courierId) ?? null;
+    if (!routedCourier) {
       return NextResponse.json(
         { error: "That delivery service is not one we are using." },
         { status: 400 }
@@ -171,11 +196,14 @@ export async function POST(request: NextRequest) {
     quantity,
     amount_paise: amountPaise,
 
-    // Paid, because the money is already in hand — that is what makes this
-    // worth entering. Confirmed, because it is a real parcel waiting to be
-    // routed, which is precisely where an online order lands once paid.
-    payment_status: "paid",
+    // Paid immediately unless this is COD — then the money is not in hand yet
+    // and stays 'pending' until collectCodPayment() flips it, at the moment
+    // the courier hands the parcel over (see lib/db/delivery.ts). Confirmed
+    // either way, because both are a real parcel waiting to be routed — a COD
+    // sale is a confirmed commitment, not a maybe.
+    payment_status: isCod ? "pending" : "paid",
     status: "confirmed",
+    delivery_mode: deliveryModeInput,
 
     // Routed at the counter by the person who already knows the answer, so it
     // reaches the delivery queue as "Routed — with a courier" rather than as
@@ -187,8 +215,10 @@ export async function POST(request: NextRequest) {
     delivery_priority: priority,
 
     sales_channel: "manual",
-    manual_payment_method: method,
-    manual_payment_ref: str(body.manual_payment_ref) || null,
+    // Null on COD: nothing has been paid, so there is no method or reference
+    // to record yet. Both get written for real once collectCodPayment() runs.
+    manual_payment_method: isCod ? null : method,
+    manual_payment_ref: isCod ? null : str(body.manual_payment_ref) || null,
     manual_entered_by: staff.id,
     manual_entered_at: now,
 
@@ -206,8 +236,12 @@ export async function POST(request: NextRequest) {
     //
     // Which is why no direct sale had ever saved. Setting `paid_at` gives
     // `ordered_at` the same value the line below was trying to force, because
-    // for a direct sale the money landed the moment it was entered.
-    paid_at: now,
+    // for a prepaid direct sale the money landed the moment it was entered.
+    //
+    // Left null on COD — nothing has landed yet, so `ordered_at` falls back
+    // to `created_at` instead, which is honest: this order's date is the day
+    // it was confirmed, not a payment date that hasn't happened.
+    paid_at: isCod ? null : now,
     address_submitted_at: now,
     checkout_type: "standard",
     is_signed: body.is_signed === true,
@@ -247,6 +281,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // India Post, routed at the counter: give it an article number on the spot,
+  // the same moment the routing screen does it (see /api/admin/delivery/courier).
+  // Never fails the sale — a parcel routed with the allotment empty is still a
+  // parcel, and the portal's Allot button picks it up once a range is loaded.
+  if (routedCourier?.config?.tracking === "india-post") {
+    try {
+      await allocateBarcodes(routedCourier.id, [inserted.order_number]);
+    } catch (e) {
+      console.warn("[ManualOrder] article number not allotted:", e);
+    }
+  }
+
   await audit({
     actor: staff,
     action: "order.manual_created",
@@ -255,8 +301,9 @@ export async function POST(request: NextRequest) {
     meta: {
       amount_paise: amountPaise,
       quantity,
-      payment_method: method,
-      payment_ref: str(body.manual_payment_ref) || null,
+      delivery_mode: deliveryModeInput,
+      payment_method: isCod ? null : method,
+      payment_ref: isCod ? null : str(body.manual_payment_ref) || null,
       // Both, because both are decisions somebody made at the counter rather
       // than facts about the sale — and "who marked this urgent?" is exactly
       // the question the history strip exists to answer.
@@ -265,11 +312,17 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  // The same notification an online order gets when its payment lands. Fired
-  // after the response so a slow WhatsApp call cannot make saving the order
-  // look like it failed — and never awaited, because a message that does not
-  // send is not a reason to lose a parcel that does exist.
-  notifyAfterResponse(inserted.order_number, "confirmed");
+  // The same notification an online order gets when its payment lands —
+  // skipped on COD, because that template says an amount was paid, and on a
+  // COD sale nothing has been. There is no automated equivalent yet; staff
+  // send the cod_pending message from lib/wa-message.ts by hand until there
+  // is one. Fired after the response so a slow WhatsApp call cannot make
+  // saving the order look like it failed — and never awaited, because a
+  // message that does not send is not a reason to lose a parcel that does
+  // exist.
+  if (!isCod) {
+    notifyAfterResponse(inserted.order_number, "confirmed");
+  }
 
   return NextResponse.json({ order_number: inserted.order_number });
 }

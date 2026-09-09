@@ -86,12 +86,12 @@ export async function POST(request: NextRequest) {
   // routed straight to their courier — and shown to them on the same screen —
   // got "none of those parcels can go on a sheet" every time.
   const scope = portalScope(auth.staff);
-  const courierId = scope.seesEveryone ? null : scope.courierId;
+  const courierId = scope.seesEveryone ? null : scope.courierIds;
 
   // A partner login with no courier linked is scoped to nothing, and nothing is
   // what it gets. Answered here rather than by an empty query so the message
   // says what is actually wrong.
-  if (!scope.seesEveryone && !courierId) {
+  if (!scope.seesEveryone && !courierId?.length) {
     return NextResponse.json(
       { error: "Your login isn't linked to a delivery partner yet." },
       { status: 403 }

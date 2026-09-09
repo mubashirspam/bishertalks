@@ -13,6 +13,11 @@ const STAGES = [
   { label: "Payment started", value: "payment_started" },
   { label: "Payment not started", value: "lead" },
   { label: "Payment failed", value: "failed" },
+  // Confirmed, not unpaid in the usual sense — cash is due at the door, not
+  // missing. Its own stage rather than folded into "Payment started": that
+  // one is a maybe, this is a sale, and the two must not read the same way
+  // in a tab count. See lib/order-stage.ts and lib/delivery-mode.ts.
+  { label: "COD — awaiting cash", value: "cod_pending" },
   // Money actually sent back through Razorpay — not the same as a cancelled
   // order, most of which were never refunded. See migration 0055.
   { label: "Refunded", value: "refunded" },

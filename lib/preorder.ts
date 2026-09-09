@@ -1,7 +1,7 @@
 import { istDayEndUTC } from "@/lib/format-date";
 
 /**
- * The 4th edition pre-booking.
+ * The 5th edition pre-booking.
  *
  * Every order taken from now is a pre-order against a print run that has not
  * arrived yet. (Background, not copy: the pages deliberately do not discuss the
@@ -39,7 +39,7 @@ export type PreorderFacts = {
 };
 
 /** Which edition is being taken orders for. */
-export const EDITION_NUMBER = 4;
+export const EDITION_NUMBER = 5;
 
 /**
  * The delivery promise, in days, and deliberately not "business days".
@@ -204,7 +204,7 @@ export function preorderArrivesBy(now: Date = new Date()): string {
 }
 
 /**
- * The first day the 4th edition actually goes out, as YYYY-MM-DD.
+ * The first day the 5th edition actually goes out, as YYYY-MM-DD.
  *
  * A date rather than the word "തിങ്കളാഴ്ച", for the same reason
  * LAUNCH_OFFER_LAST_DAY is a date: a weekday typed into a Malayalam string is
@@ -224,7 +224,7 @@ export function editionDispatchDayLabelMl(): string {
 }
 
 /**
- * What the 4th edition will cost once the pre-order window closes, in rupees.
+ * What the 5th edition will cost once the pre-order window closes, in rupees.
  *
  * NOT what anyone is charged. That is the scheduled price on the Checkout tab
  * (`checkout_settings.next_book_offer_rupees`, migration 0048), and it is what

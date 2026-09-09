@@ -41,6 +41,8 @@ export interface DeliveryFilters {
    * hand-entered parcels gets checked before it is booked.
    */
   channel?: string;
+  /** A DeliveryMode ('normal' | 'cod'), or "all". */
+  deliveryMode?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -105,6 +107,11 @@ export interface DeliveryRow {
   shipped_at: string | null;
   delivered_at: string | null;
   created_at: string;
+  /** 'normal' | 'cod' (0067) — see lib/delivery-mode.ts. */
+  delivery_mode: string | null;
+  /** Not 'paid' on a COD row until the courier collects it — that's expected,
+   * not a problem; see ready_for_delivery in the same migration. */
+  payment_status: string | null;
 }
 
 export const DELIVERY_COLUMNS =
@@ -115,7 +122,8 @@ export const DELIVERY_COLUMNS =
   "assigned_agent_id,assigned_at,courier_entered_at," +
   "courier_id,courier_assigned_at,courier_sent_at,courier_send_error," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
-  "shipped_at,delivered_at,created_at,paid_at,ordered_at,delivery_stage,sales_channel";
+  "shipped_at,delivered_at,created_at,paid_at,ordered_at,delivery_stage,sales_channel," +
+  "delivery_mode,payment_status";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 
@@ -142,7 +150,10 @@ export function buildDeliveryQuery(
   let query = supabaseAdmin
     .from("portal_orders")
     .select(countOnly ? "id" : columns, { count: "exact", head: countOnly })
-    .eq("payment_status", "paid")
+    // Paid, or COD and deliberately not paid yet — see 0067 for why this is a
+    // generated column rather than `payment_status = 'paid' OR delivery_mode
+    // = 'cod'` written out here.
+    .eq("ready_for_delivery", true)
     .not("address_line1", "is", null)
     .order("ordered_at", { ascending: filters.sort === "oldest" });
 
@@ -187,6 +198,10 @@ export function buildDeliveryQuery(
   // pair for exactly this reason — see MANUAL_SALE there.
   if (filters.channel === "manual" || filters.channel === "online") {
     query = query.eq("sales_channel", filters.channel);
+  }
+
+  if (filters.deliveryMode === "normal" || filters.deliveryMode === "cod") {
+    query = query.eq("delivery_mode", filters.deliveryMode);
   }
 
   // The dates are IST calendar days; ordered_at is UTC. Converted, or the
@@ -334,5 +349,6 @@ export function parseDeliveryFilters(
     gift: get("gift"),
     signed: get("signed"),
     channel: get("channel"),
+    deliveryMode: get("mode"),
   };
 }

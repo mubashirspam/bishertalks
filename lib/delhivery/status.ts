@@ -60,11 +60,24 @@ const TERMINAL = new Set(["delivered", "returned", "cancelled"]);
 export function statusFromScan(scan: DelhiveryScan): OrderStatus | null {
   const type = scan.statusType.trim().toUpperCase();
   const text = scan.status.trim().toLowerCase();
-  const isRto = text.includes("rto") || text.includes("dto") || type === "RT";
+
+  // `StatusType` carries "Returned" on every scan of the return journey — not
+  // just the short "RT" code this originally checked for. Their own tracking
+  // report shows it plainly: a parcel mid-RTO comes back as
+  // Status "In Transit" / StatusType "Returned", and only the completing scan
+  // is Status "RTO" / StatusType "Delivered". Checking `text` alone for "rto"
+  // missed every one of the in-between scans — they read as ordinary forward
+  // "in transit" and, worse, could advance a parcel that was on its way BACK
+  // as though it were still on its way out.
+  const isRto = text.includes("rto") || text.includes("dto") || type === "RT" || type === "RETURNED";
 
   // ── The return journey ────────────────────────────────────────────────────
   // Back in our hands. This is the only RTO scan that changes anything.
-  if (isRto && (text.includes("delivered") || text.includes("received"))) {
+  // "Delivered" here means the RETURN was delivered — to us, not the
+  // customer — which is why this checks `type` (their disposition field)
+  // and not `text` alone: the status word for that exact scan is "RTO", not
+  // "RTO Delivered", and "delivered" only ever shows up in StatusType.
+  if (isRto && (type === "DELIVERED" || text.includes("delivered") || text.includes("received"))) {
     return "returned";
   }
   // In RTO transit — record the scan, leave the status. The parcel is still

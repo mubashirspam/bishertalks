@@ -172,6 +172,10 @@ export default function DirectSaleForm({
   const [amount, setAmount] = useState(String(unitPrice));
   /** Set once the operator types their own figure — see the note above. */
   const [amountEdited, setAmountEdited] = useState(false);
+  /** Paid now, or paid to the courier at the door — see lib/delivery-mode.ts.
+   * Drives whether "how they paid" even makes sense to ask yet. */
+  const [deliveryMode, setDeliveryMode] = useState<"normal" | "cod">("normal");
+  const isCod = deliveryMode === "cod";
 
   const expected = unitPrice * quantity;
   const differs = amountEdited && Number(amount) !== expected;
@@ -416,9 +420,51 @@ export default function DirectSaleForm({
           Total revenue, Today, This week or This month — those are checked against
           Razorpay, and this never went through Razorpay.
         </p>
+
+        {/* Determines everything below it — there's nothing to ask about
+            "how they paid" until they actually have. */}
+        <div className="mb-4">
+          <label className={LABEL}>How is this paid?</label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDeliveryMode("normal")}
+              className={`px-3.5 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                !isCod
+                  ? "bg-neutral-900 text-white border-neutral-900"
+                  : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400"
+              }`}
+            >
+              Paid already
+            </button>
+            <button
+              type="button"
+              onClick={() => setDeliveryMode("cod")}
+              className={`px-3.5 py-2 rounded-xl border text-sm font-medium transition-colors ${
+                isCod
+                  ? "bg-amber-600 text-white border-amber-600"
+                  : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400"
+              }`}
+            >
+              Cash on delivery
+            </button>
+          </div>
+          {isCod && (
+            <p className="text-[11px] text-neutral-500 mt-1.5">
+              Nothing is recorded as paid yet. The courier collects it, and marking that
+              done — from the delivery portal — is what settles this order&apos;s payment.
+            </p>
+          )}
+          {/* Hidden rather than removed from the DOM entirely is tempting, but a
+              hidden select still submits its value — and a leftover "upi" on a
+              COD order would tell the API this was already paid. Not rendering
+              it at all is the only way to be sure the field simply isn't there. */}
+          <input type="hidden" name="delivery_mode" value={deliveryMode} />
+        </div>
+
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
-            <label className={LABEL}>Amount paid (₹)</label>
+            <label className={LABEL}>{isCod ? "Amount due (₹)" : "Amount paid (₹)"}</label>
             <input
               name="amount_rupees" required type="number" min="0" step="1"
               className={INPUT}
@@ -454,21 +500,27 @@ export default function DirectSaleForm({
               onChange={(e) => changeQuantity(Number(e.target.value))}
             />
           </div>
-          <div>
-            <label className={LABEL}>How they paid</label>
-            <select name="manual_payment_method" defaultValue="upi" className={INPUT}>
-              {MANUAL_PAYMENT_METHODS.map((m) => (
-                <option key={m} value={m}>{MANUAL_PAYMENT_LABELS[m]}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={LABEL}>Reference (optional)</label>
-            <input
-              name="manual_payment_ref" className={INPUT}
-              placeholder="UPI txn id, or a note"
-            />
-          </div>
+          {/* Nothing to ask yet on a COD sale — see lib.delivery-mode.ts and the
+              API route, which stores neither as null until it's actually paid. */}
+          {!isCod && (
+            <>
+              <div>
+                <label className={LABEL}>How they paid</label>
+                <select name="manual_payment_method" defaultValue="upi" className={INPUT}>
+                  {MANUAL_PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>{MANUAL_PAYMENT_LABELS[m]}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={LABEL}>Reference (optional)</label>
+                <input
+                  name="manual_payment_ref" className={INPUT}
+                  placeholder="UPI txn id, or a note"
+                />
+              </div>
+            </>
+          )}
           <div>
             <label className={LABEL}>Came from</label>
             <select name="source" defaultValue="direct" className={INPUT}>

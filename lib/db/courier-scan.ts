@@ -7,6 +7,7 @@ import {
   type DelhiveryScan,
 } from "@/lib/delhivery/status";
 import { recordScan } from "@/lib/db/courier-send";
+import { setReturnReason } from "@/lib/db/delivery-portal";
 import type { OrderStatus } from "@/lib/types/order";
 
 /**
@@ -127,6 +128,16 @@ export async function applyCarrierScan(
 
   const updated = await setDeliveryStatus([order.order_number], next);
   if (!updated.length) return { order_number: order.order_number, moved_to: null };
+
+  // The courier's own words are the reason, kept exactly as first recorded —
+  // onlyIfUnset so a second scan (another RTO leg, a retry) never quietly
+  // replaces why THIS return happened. Best-effort: a parcel that moved but
+  // whose reason failed to save is still correctly moved.
+  if (next === "returned") {
+    await setReturnReason(order.order_number, scan.description, { onlyIfUnset: true }).catch(
+      (e) => console.warn("[Scan] return reason not saved:", order.order_number, e)
+    );
+  }
 
   // Same notification path as a tick in the portal, so the customer gets one
   // message about their parcel however we found out it had arrived — unless

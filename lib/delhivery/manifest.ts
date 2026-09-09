@@ -202,8 +202,11 @@ export async function existingWaybill(
   }
 }
 
+/** How many parcels are ever mid-flight to Delhivery at once. See manifestParcels. */
+const MANIFEST_CONCURRENCY = 5;
+
 /**
- * Hand parcels to Delhivery, one call each.
+ * Hand parcels to Delhivery, one call each, several in flight at once.
  *
  * Their create API takes an array, and this used to send the whole selection in
  * a single request. That is the efficient shape and the wrong one: a call
@@ -212,10 +215,21 @@ export async function existingWaybill(
  * exactly how six parcels ended up sitting at Delhivery while our screens said
  * "Not with them".
  *
- * One parcel per call makes the blast radius one parcel. A timeout costs a
- * single order, we know precisely which, and the other forty-nine are unharmed.
- * The cost is fifty requests instead of one, which for a shop sending a few
- * dozen parcels a day is a trade worth making every time.
+ * One parcel per call keeps the blast radius one parcel: a timeout costs a
+ * single order, we know precisely which, and the rest are unharmed. That
+ * property does not need the calls to run one after another, only that each
+ * is independent and its own outcome is recorded before the next matters —
+ * which is exactly what a small worker pool gives, at a fraction of the wait.
+ * `MANIFEST_CONCURRENCY` bounds it deliberately: enough to matter, low enough
+ * that neither Delhivery's own rate limit nor the database recording each
+ * result ever sees more than a handful of requests at once.
+ *
+ * `onResult`, when given, fires the moment each parcel's own outcome is known
+ * — before the next one even starts, let alone the whole batch finishes. A
+ * caller that persists inside it (as both routes here do) shrinks the window
+ * where a killed request could lose track of a parcel from "the whole batch"
+ * down to "whichever handful were still in flight" — the same number this
+ * function ever has in the air at once.
  *
  * Each parcel is checked for an existing shipment first, so this is safe to
  * run again over anything: a parcel Delhivery already has is adopted, never
@@ -226,12 +240,28 @@ export async function existingWaybill(
  */
 export async function manifestParcels(
   parcels: CourierParcel[],
-  settings: DelhiverySettings
+  settings: DelhiverySettings,
+  onResult?: (result: ManifestResult) => void | Promise<void>
 ): Promise<ManifestResult[]> {
-  const out: ManifestResult[] = [];
-  for (const parcel of parcels) {
-    out.push(await manifestOne(parcel, settings));
+  const out: ManifestResult[] = new Array(parcels.length);
+  let next = 0;
+
+  async function worker() {
+    for (;;) {
+      const i = next++;
+      if (i >= parcels.length) return;
+      const result = await manifestOne(parcels[i], settings);
+      out[i] = result;
+      if (onResult) await onResult(result);
+    }
   }
+
+  const workers = Array.from(
+    { length: Math.min(MANIFEST_CONCURRENCY, parcels.length) },
+    worker
+  );
+  await Promise.all(workers);
+
   return out;
 }
 

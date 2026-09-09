@@ -10,7 +10,7 @@ import { allocateBarcodes } from "@/lib/db/postal-barcodes";
 import { serviceabilityFor, recordServiceability } from "@/lib/db/serviceability";
 import { canSendAutomatically } from "@/lib/couriers";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
-import { manifestParcels } from "@/lib/delhivery/manifest";
+import { manifestParcels, type ManifestResult } from "@/lib/delhivery/manifest";
 import { DelhiveryError } from "@/lib/delhivery/client";
 import {
   claimForSend,
@@ -363,10 +363,13 @@ export async function POST(request: NextRequest) {
 
     if (claimed.length) {
       const numbers = claimed.map((p) => p.order_number);
-      try {
-        const results = await manifestParcels(claimed, readiness.settings);
 
-        for (const r of results) {
+      // Persisted the moment THIS parcel's own outcome is known, not after the
+      // whole claimed batch finishes — see manifestParcels. Wrapped in its own
+      // try/catch so a database hiccup recording one parcel can never stop the
+      // others in the same run from being recorded at all.
+      const onResult = async (r: ManifestResult) => {
+        try {
           if (r.ok && r.waybill) {
             try {
               await recordSent(r.order_number, r.waybill);
@@ -404,8 +407,24 @@ export async function POST(request: NextRequest) {
             await releaseClaim(r.order_number, r.error ?? "Refused");
             mark(r.order_number, "refused", { error: r.error ?? "Refused" });
           }
+        } catch (e) {
+          // The claim stays either way — safer to leave a parcel looking
+          // routed-but-unresolved than to risk a second manifest for one that
+          // may already exist at Delhivery. Sync finds it from here.
+          console.error("[Courier] could not record outcome for", r.order_number, e);
+          markSendUncertain([r.order_number], "Outcome recorded late — check Sync").catch(() => {});
+          mark(r.order_number, "held", {
+            error: "Sent to Delhivery, but this screen could not record it. Use Sync to check.",
+          });
         }
+      };
+
+      try {
+        await manifestParcels(claimed, readiness.settings, onResult);
       } catch (e) {
+        // manifestOne never throws, so reaching here means something broke
+        // before any per-parcel outcome was even attempted — not a single
+        // parcel's send failing, which onResult above already handled.
         const err = e instanceof DelhiveryError ? e : null;
         if (!err || err.kind === "unknown") {
           // We never found out. The claim stays: this is exactly the case

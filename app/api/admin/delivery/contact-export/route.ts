@@ -83,14 +83,22 @@ export async function GET(request: NextRequest) {
       // the same rule the portal page itself applies, and the reason this is
       // resolved here rather than trusted from the query string.
       const scope = portalScope(auth.staff);
-      if (!scope.seesEveryone && !scope.courierId) {
+      if (!scope.seesEveryone && !scope.courierIds.length) {
         return NextResponse.json(
           { error: "Your login isn't linked to a delivery partner yet." },
           { status: 403 }
         );
       }
 
-      const courierId = scope.seesEveryone ? params.get("courier") || null : scope.courierId;
+      // A multi-courier partner (0071) narrowing the portal view to one of
+      // their own couriers gets that same narrowing here — "download what I
+      // filtered" applies to which courier just as much as any other filter.
+      const urlCourier = params.get("courier");
+      const courierId = scope.seesEveryone
+        ? urlCourier || null
+        : urlCourier && scope.courierIds.includes(urlCourier)
+          ? urlCourier
+          : scope.courierIds;
       const status = params.get("status") || undefined;
       const handover = params.get("handover");
 

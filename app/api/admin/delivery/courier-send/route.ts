@@ -6,7 +6,7 @@ import { requirePermission } from "@/lib/admin-auth";
 import { getCourier } from "@/lib/db/couriers";
 import { canSendAutomatically } from "@/lib/couriers";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
-import { manifestParcels } from "@/lib/delhivery/manifest";
+import { manifestParcels, type ManifestResult } from "@/lib/delhivery/manifest";
 import { checkPincodes } from "@/lib/delhivery/serviceability";
 import { DelhiveryError } from "@/lib/delhivery/client";
 import {
@@ -157,79 +157,100 @@ export async function POST(request: NextRequest) {
 
   const claimedNumbers = sendable.map((p) => p.order_number);
 
-  let results;
-  try {
-    results = await manifestParcels(sendable, settings);
-  } catch (e) {
-    const err = e instanceof DelhiveryError ? e : null;
+  // Per-parcel outcomes. Delhivery rejects individual shipments inside a batch
+  // it otherwise accepted, so the successes and the failures both matter.
+  const sent: string[] = [];
+  // Order numbers, not just a count — needed below to work out which claimed
+  // parcels onResult never got to, if the run breaks early.
+  const heldNumbers: string[] = [];
+  // Seeded with the addresses Delhivery doesn't reach, so one list answers
+  // "what didn't go, and why" whatever the reason was.
+  const failed: { order_number: string; error: string }[] = [...unserviceable];
 
-    // The dangerous branch. We do not know whether Delhivery created these, so
-    // the claim stays and a human decides — never an automatic retry.
+  // Persisted the moment THIS parcel's own outcome is known, not after the
+  // whole claimed batch finishes — see manifestParcels. Wrapped in its own
+  // try/catch so a database hiccup recording one parcel can never stop the
+  // others in the same run from being recorded at all.
+  const onResult = async (r: ManifestResult) => {
+    try {
+      if (r.ok && r.waybill) {
+        try {
+          await recordSent(r.order_number, r.waybill);
+          sent.push(r.order_number);
+        } catch {
+          // The parcel IS at Delhivery; only our bookkeeping failed. Keep the
+          // claim and say so — releasing it would invite a duplicate send.
+          await markSendUncertain(
+            [r.order_number],
+            `Delhivery accepted it (waybill ${r.waybill}) but we could not save that`
+          );
+          failed.push({
+            order_number: r.order_number,
+            error: `Sent, but not recorded. Waybill ${r.waybill} — enter it by hand.`,
+          });
+        }
+      } else if (r.uncertain) {
+        // Delhivery either could not say, or said the package might have been
+        // saved. Releasing the claim here is what offers a second manifest
+        // for a shipment that may already exist, and hands one customer two
+        // parcels. Hold it; Sync now asks by order number and can settle it
+        // either way.
+        await markSendUncertain([r.order_number], r.error ?? "Outcome unknown");
+        heldNumbers.push(r.order_number);
+      } else {
+        await releaseClaim(r.order_number, r.error ?? "Refused");
+        failed.push({ order_number: r.order_number, error: r.error ?? "Refused" });
+      }
+    } catch (e) {
+      // The claim stays either way — safer to leave a parcel looking
+      // routed-but-unresolved than to risk a second manifest for one that may
+      // already exist at Delhivery. Sync finds it from here.
+      console.error("[Courier] could not record outcome for", r.order_number, e);
+      markSendUncertain([r.order_number], "Outcome recorded late — check Sync").catch(() => {});
+      heldNumbers.push(r.order_number);
+    }
+  };
+
+  try {
+    await manifestParcels(sendable, settings, onResult);
+  } catch (e) {
+    // manifestOne never throws, so reaching here means something broke before
+    // any per-parcel outcome was even attempted — not a single parcel's send
+    // failing, which onResult above already handled. Whatever onResult has
+    // already recorded stands; only the parcels it never got to are unknown.
+    const err = e instanceof DelhiveryError ? e : null;
+    const settled = new Set([
+      ...sent,
+      ...heldNumbers,
+      ...failed.map((f) => f.order_number),
+    ]);
+    const unresolved = claimedNumbers.filter((n) => !settled.has(n));
+
     if (!err || err.kind === "unknown") {
       await markSendUncertain(
-        claimedNumbers,
+        unresolved,
         err?.message ?? "The send did not complete"
       );
-      console.error("[Courier] send outcome unknown:", claimedNumbers, e);
+      console.error("[Courier] send outcome unknown:", unresolved, e);
       return NextResponse.json(
         {
           error:
-            "We could not confirm what happened. These parcels are held until " +
-            "someone checks Delhivery — they may already be there.",
-          held: claimedNumbers.length,
+            "We could not confirm what happened to some of these. They are " +
+            "held until someone checks Delhivery — they may already be there.",
+          sent: sent.length,
+          held: heldNumbers.length + unresolved.length,
+          failed,
         },
         { status: 502 }
       );
     }
 
-    // A definite refusal of the whole batch: give every claim back.
-    await Promise.all(
-      claimedNumbers.map((n) => releaseClaim(n, err.message))
-    );
+    await Promise.all(unresolved.map((n) => releaseClaim(n, err.message)));
     console.error("[Courier] send rejected:", err.message, err.body);
     return NextResponse.json(
-      { error: `Delhivery refused the batch: ${err.message}` },
+      { error: `Delhivery refused the rest of the batch: ${err.message}` },
       { status: 400 }
     );
-  }
-
-  // Per-parcel outcomes. Delhivery rejects individual shipments inside a batch
-  // it otherwise accepted, so the successes and the failures both matter.
-  const sent: string[] = [];
-  let held = 0;
-  // Seeded with the addresses Delhivery doesn't reach, so one list answers
-  // "what didn't go, and why" whatever the reason was.
-  const failed: { order_number: string; error: string }[] = [...unserviceable];
-
-  for (const r of results) {
-    if (r.ok && r.waybill) {
-      try {
-        await recordSent(r.order_number, r.waybill);
-        sent.push(r.order_number);
-      } catch {
-        // The parcel IS at Delhivery; only our bookkeeping failed. Keep the
-        // claim and say so — releasing it would invite a duplicate send.
-        await markSendUncertain(
-          [r.order_number],
-          `Delhivery accepted it (waybill ${r.waybill}) but we could not save that`
-        );
-        failed.push({
-          order_number: r.order_number,
-          error: `Sent, but not recorded. Waybill ${r.waybill} — enter it by hand.`,
-        });
-      }
-    } else if (r.uncertain) {
-      // Delhivery either could not say, or said the package might have been
-      // saved. Releasing the claim here — which this route used to do, having
-      // no branch for it — is what offers a second manifest for a shipment
-      // that may already exist, and hands one customer two parcels. Hold it;
-      // Sync now asks by order number and can settle it either way.
-      await markSendUncertain([r.order_number], r.error ?? "Outcome unknown");
-      held++;
-    } else {
-      await releaseClaim(r.order_number, r.error ?? "Refused");
-      failed.push({ order_number: r.order_number, error: r.error ?? "Refused" });
-    }
   }
 
   if (sent.length) {
@@ -243,7 +264,7 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({
     sent: sent.length,
-    held,
+    held: heldNumbers.length,
     failed,
     skipped,
     courier: courier.name,

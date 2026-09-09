@@ -73,6 +73,10 @@ export interface Order {
    * lib/delivery-priority.ts reads that as normal rather than throwing.
    */
   delivery_priority?: string | null;
+  /** 'normal' | 'cod' (0067) — see lib/delivery-mode.ts. Optional for the same
+   * reason delivery_priority is: a select written before this column existed
+   * simply doesn't carry it, and deliveryMode() reads that as normal. */
+  delivery_mode?: string | null;
   promo_code: string | null;
   discount_paise: number;
   payment_status: PaymentStatus;

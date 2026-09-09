@@ -75,9 +75,9 @@ export async function POST(request: NextRequest) {
   }
 
   const scope = portalScope(auth.staff);
-  const courierId = scope.seesEveryone ? null : scope.courierId;
+  const courierId = scope.seesEveryone ? null : scope.courierIds;
 
-  if (!scope.seesEveryone && !courierId) {
+  if (!scope.seesEveryone && !courierId?.length) {
     return NextResponse.json(
       { error: "Your login isn't linked to a delivery partner yet." },
       { status: 403 }

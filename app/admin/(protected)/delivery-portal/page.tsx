@@ -8,16 +8,18 @@ import {
   portalTracking,
   portalPacking,
   portalSearch,
+  portalDeliveryMode,
   type PortalSort,
   type PortalTracking,
   type PortalPacking,
   type PortalSearch,
+  type CourierScope,
 } from "@/lib/db/delivery-portal";
-import { listDeliveryAgents } from "@/lib/db/staff";
+import type { DeliveryMode } from "@/lib/delivery-mode";
 import { portalScope } from "@/lib/delivery/scope";
 import { can } from "@/lib/permissions";
 import { listCouriers } from "@/lib/db/couriers";
-import { canTrack } from "@/lib/couriers";
+import { canTrack, trackingIdLabel } from "@/lib/couriers";
 import { isHandoverState } from "@/lib/delivery/handover";
 import { delhiveryReadiness } from "@/lib/delhivery/config";
 import { SkeletonTable } from "@/components/admin/Skeleton";
@@ -39,23 +41,30 @@ interface Args {
   status?: string;
   /** Which end of the queue is on top — it applies on top of the filters. */
   sort: PortalSort;
-  /** Which courier's parcels, or null for all of them. */
-  courierId: string | null;
+  /**
+   * What actually restricts the query — one id, several (an unfiltered
+   * multi-courier partner login, 0071), or null for no restriction.
+   */
+  courierId: CourierScope;
+  /**
+   * The one courier explicitly picked from the dropdown, if any — by an
+   * owner narrowing the whole queue, or by a multi-courier partner narrowing
+   * their own. Distinct from `courierId` because live-tracking only makes
+   * sense once a single courier is in view, and a partner scoped to several
+   * couriers with no filter set has no single one of them "chosen".
+   */
+  filterCourierId: string | null;
   /** Whether the courier has a record of it, or null for either. */
   tracking: PortalTracking | null;
   /** A handover state to narrow to, or null for all of them. */
   handover: string | null;
   /** Gift / signed / neither, or null for all of them. */
   packing: PortalPacking | null;
+  /** 'normal' | 'cod', or null for both. */
+  deliveryMode: DeliveryMode | null;
+  /** Show only urgent parcels — never a reason to hide one otherwise. */
+  urgentOnly: boolean;
   pageNum: number;
-  /**
-   * Which named agent to narrow to, or null for all of them.
-   *
-   * A filter now, and only ever a filter — it is what an owner picks to see one
-   * person's work. It stopped being how a partner is confined in 0047; that is
-   * `courierId` below.
-   */
-  agentId: string | null;
   /**
    * One order number, mobile or name to narrow to, or null for everything.
    *
@@ -93,32 +102,42 @@ export default async function DeliveryPortalPage({
   const scope = portalScope(staff);
   const seesEveryone = scope.seesEveryone;
 
-  const [agents, couriers] = await Promise.all([
-    seesEveryone ? listDeliveryAgents() : Promise.resolve([]),
-    listCouriers(),
-  ]);
+  const couriers = await listCouriers();
 
   const params = await searchParams;
-  const picked = seesEveryone && params.agent ? params.agent : null;
+
+  // A single courier explicitly picked from the dropdown — by an owner
+  // narrowing the whole queue, or by a multi-courier partner (0071) narrowing
+  // their own. Ignored if it names a courier that login cannot see: the URL
+  // is not proof of anything, and this is the one place that would otherwise
+  // let a partner widen their own scope by editing it.
+  const filterCourierId =
+    params.courier && (seesEveryone || scope.courierIds.includes(params.courier))
+      ? params.courier
+      : null;
 
   const args: Args = {
     date: params.date,
     dateTo: params.to,
-    status: params.status,
+    // "New" — the not-yet-routed to-do list — is what the portal opens on. An
+    // explicit `?status=all` (written by the dropdown's All option, not by
+    // clearing the param) is what actually asks for everything.
+    status: params.status ?? "new",
     sort: portalSort(params.sort),
-    // Theirs, not the URL's. `?courier=` is a filter for someone who may see
-    // every courier and is ignored for everyone else — the value below is read
-    // from their own staff row, so there is no parameter to edit.
-    courierId: seesEveryone ? params.courier || null : scope.courierId,
+    // The explicit pick if there is one; otherwise every courier for an
+    // owner, or every courier this partner login is linked to.
+    courierId: filterCourierId ?? (seesEveryone ? null : scope.courierIds),
+    filterCourierId,
     tracking: portalTracking(params.tracking),
     handover: isHandoverState(params.handover) ? params.handover : null,
     packing: portalPacking(params.packing),
+    deliveryMode: portalDeliveryMode(params.mode),
+    urgentOnly: params.urgent === "1",
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
     // Not gated on `seesEveryone`: a partner searching their own queue is
     // narrowing rows they were already being shown, and the scope above still
     // pins them to their own courier whatever they type.
     search: portalSearch(params.q),
-    agentId: seesEveryone ? picked : null,
     seesEveryone,
     mayComplete: can(staff, "delivery.complete"),
   };
@@ -126,7 +145,7 @@ export default async function DeliveryPortalPage({
   // A partner login nobody has linked to a courier yet. It is scoped to
   // nothing, and an empty grid would read as "no work today" — which is the
   // one wrong thing to tell somebody whose parcels are sitting on a shelf.
-  if (!seesEveryone && !scope.courierId) {
+  if (!seesEveryone && !scope.courierIds.length) {
     return (
       <div className="bg-white border border-neutral-200 rounded-2xl p-12 text-center shadow-sm">
         <p className="font-semibold text-neutral-800">
@@ -143,13 +162,17 @@ export default async function DeliveryPortalPage({
   return (
     <NavigationPending>
       <PortalFilters
-        agents={agents}
-        // Empty for a partner: there is one courier they could pick and it is
-        // already picked. Same treatment the agent dropdown gets.
         couriers={
           seesEveryone
             ? couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))
-            : []
+            // A multi-courier partner (0071) gets the picker too, but only
+            // among their own — and only once there is more than one to pick
+            // between, or it would be a dropdown offering a single option.
+            : scope.courierIds.length > 1
+              ? couriers
+                  .filter((c) => scope.courierIds.includes(c.id))
+                  .map((c) => ({ id: c.id, name: c.name }))
+              : []
         }
         trackedCourierIds={couriers.filter(canTrack).map((c) => c.id)}
         // Plain, and offered to everyone the portal is: a partner downloading
@@ -182,14 +205,16 @@ async function PortalCount(args: Args) {
     args.status,
     args.pageNum,
     PER_PAGE,
-    args.agentId,
+    null,
     args.sort,
     args.courierId,
     args.tracking,
     args.handover,
     args.packing,
     args.dateTo,
-    args.search
+    args.search,
+    args.deliveryMode,
+    args.urgentOnly
   );
   return (
     <>
@@ -204,14 +229,16 @@ async function PortalRows(args: Args) {
     args.status,
     args.pageNum,
     PER_PAGE,
-    args.agentId,
+    null,
     args.sort,
     args.courierId,
     args.tracking,
     args.handover,
     args.packing,
     args.dateTo,
-    args.search
+    args.search,
+    args.deliveryMode,
+    args.urgentOnly
   );
 
   // The article number for any of these parcels that has one. See
@@ -222,12 +249,20 @@ async function PortalRows(args: Args) {
   // agent can tell at a glance which ones they still have to hand over.
   const couriers = await listCouriers();
   const courierNames = Object.fromEntries(couriers.map((c) => [c.id, c.name]));
+  // What THIS courier calls its own tracking number — Waybill, Article
+  // number, DTDC number — so the input asks for the right thing instead of a
+  // generic "Tracking ID" whatever the parcel is routed to. See trackingIdLabel().
+  const courierTrackingLabels = Object.fromEntries(
+    couriers.map((c) => [c.id, trackingIdLabel(c)])
+  );
 
   // Is the courier being looked at one we can ask for live status? Worked out
   // on the server because it needs the API token, which must not reach the
   // browser. When true the grid shows waybills and the courier's own scans
   // instead of asking someone to keep a spreadsheet in their head.
-  const chosen = args.courierId ? couriers.find((c) => c.id === args.courierId) : null;
+  const chosen = args.filterCourierId
+    ? couriers.find((c) => c.id === args.filterCourierId)
+    : null;
   const live = !!chosen && canTrack(chosen) && delhiveryReadiness(chosen.config).ready;
 
   // Whichever courier the sweep should ask. The one being looked at wherever
@@ -246,6 +281,15 @@ async function PortalRows(args: Args) {
   // a Delhivery parcel must never take one.
   const postalCourierIds = couriers
     .filter((c) => c.config?.tracking === "india-post")
+    .map((c) => c.id);
+
+  // The two rows a parcel can move between with the channel switch — KKR
+  // Logistics' own default (Delhivery, DTDC or Trackon) and the separate
+  // India Post channel (0068). Sent down so the grid only offers the switch
+  // where it means something; see setCourierChannel for why it refuses
+  // everywhere else anyway.
+  const kkrChannelCourierIds = couriers
+    .filter((c) => c.slug === "delhivery-sheet" || c.slug === "kkr-india-post")
     .map((c) => c.id);
 
   const askable = (c: (typeof couriers)[number]) =>
@@ -275,14 +319,13 @@ async function PortalRows(args: Args) {
     // "newest" is the default, so it stays out of the URL — same as the
     // filter bar writes it, or Next would treat the two as different pages.
     if (args.sort === "oldest") sp.set("sort", args.sort);
-    if (args.seesEveryone && args.courierId) sp.set("courier", args.courierId);
+    if (args.filterCourierId) sp.set("courier", args.filterCourierId);
     if (args.tracking) sp.set("tracking", args.tracking);
     if (args.handover) sp.set("handover", args.handover);
     if (args.packing) sp.set("packing", args.packing);
+    if (args.deliveryMode) sp.set("mode", args.deliveryMode);
+    if (args.urgentOnly) sp.set("urgent", "1");
     if (args.search) sp.set("q", args.search.raw);
-    // Only when it's a filter someone chose. An agent's own id is who they
-    // are, not where they are, and has no business in a shareable link.
-    if (args.seesEveryone && args.agentId) sp.set("agent", args.agentId);
     if (p > 1) sp.set("page", String(p));
     const qs = sp.toString();
     return `/admin/delivery-portal${qs ? `?${qs}` : ""}`;
@@ -294,9 +337,11 @@ async function PortalRows(args: Args) {
         rows={parcels}
         startIndex={args.pageNum * PER_PAGE}
         courierNames={courierNames}
-        courierId={args.courierId}
+        courierTrackingLabels={courierTrackingLabels}
+        courierId={args.filterCourierId}
         syncCourierId={syncCourier?.id ?? null}
         postalCourierIds={postalCourierIds}
+        kkrChannelCourierIds={kkrChannelCourierIds}
         live={live}
         mayComplete={args.mayComplete}
       />

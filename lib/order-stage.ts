@@ -9,7 +9,10 @@ export type OrderStage =
   | "paid_no_address"
   | "complete"
   /** Money went back through Razorpay (0055). Not the same as cancelled. */
-  | "refunded";
+  | "refunded"
+  /** A confirmed direct sale, cash due when the courier hands it over — not
+   * a payment that never started. See lib/delivery-mode.ts and 0067. */
+  | "cod_pending";
 
 interface StageInput {
   razorpay_order_id: string | null;
@@ -21,6 +24,16 @@ interface StageInput {
    * refunded orders under "Paid".
    */
   refunded_paise: number;
+  /**
+   * 'cod' | 'normal' | undefined — optional, unlike the fields above. A COD
+   * sale is confirmed and simply hasn't been paid for yet, not a payment that
+   * never started, and this is what tells the two apart. Optional because
+   * every OTHER caller — online orders, existing screens that haven't loaded
+   * the column — has no COD orders to misclassify: `delivery_mode` is only
+   * ever 'cod' on a direct sale, and undefined here behaves exactly as it did
+   * before this field existed.
+   */
+  delivery_mode?: string | null;
 }
 
 export function orderStage(o: StageInput): OrderStage {
@@ -41,6 +54,11 @@ export function orderStage(o: StageInput): OrderStage {
     return o.address_line1 ? "complete" : "paid_no_address";
   }
   if (o.payment_status === "failed") return "failed";
+  // Before the razorpay_order_id fallback below: a COD sale never has one —
+  // it was never sent to Razorpay at all — and without this check it would
+  // fall into "lead", which reads as nobody ever started paying. They did;
+  // the shop just agreed to collect it later.
+  if (o.delivery_mode === "cod") return "cod_pending";
   if (!o.razorpay_order_id) return "lead";
   return "payment_started";
 }
@@ -52,6 +70,7 @@ export const STAGE_LABELS: Record<OrderStage, string> = {
   paid_no_address: "Paid — needs address",
   complete: "Paid",
   refunded: "Refunded",
+  cod_pending: "COD — cash on delivery",
 };
 
 export const STAGE_BADGE: Record<OrderStage, string> = {
@@ -64,6 +83,10 @@ export const STAGE_BADGE: Record<OrderStage, string> = {
   // never arrived and a refund is money that arrived and went back, and at a
   // glance down a column those must not look like the same thing.
   refunded: "bg-rose-50 text-rose-700 border-rose-300",
+  // Blue rather than payment_started's amber on purpose: those two must not
+  // look like the same kind of unpaid. One is a lead that might never
+  // convert; this is a confirmed sale waiting on a courier, not a customer.
+  cod_pending: "bg-blue-50 text-blue-700 border-blue-200",
 };
 
 /** Stages that need someone to act. Drives the admin's attention buckets. */
@@ -82,7 +105,15 @@ export function applyStageFilter<T extends {
 }>(query: T, stage: OrderStage): T {
   switch (stage) {
     case "lead":
-      return query.is("razorpay_order_id", null).neq("payment_status", "paid");
+      // Excludes COD explicitly, same reasoning as the paid buckets excluding
+      // refunds below: a COD order also has no razorpay_order_id and is also
+      // not payment_status = 'paid', so without this it would show up twice —
+      // once here, once under its own tab. Mirrors orderStage()'s ordering,
+      // and the two have to be changed together.
+      return query
+        .is("razorpay_order_id", null)
+        .neq("payment_status", "paid")
+        .neq("delivery_mode", "cod");
     case "payment_started":
       return query
         .not("razorpay_order_id", "is", null)
@@ -106,5 +137,7 @@ export function applyStageFilter<T extends {
         .not("address_line1", "is", null);
     case "refunded":
       return query.gt("refunded_paise", 0);
+    case "cod_pending":
+      return query.eq("delivery_mode", "cod").neq("payment_status", "paid");
   }
 }

@@ -28,9 +28,10 @@ import type { CurrentStaff } from "@/lib/admin-auth";
  * transcription, and — because their file lists the numbers — lets us verify
  * our check-digit arithmetic against theirs before a single parcel is posted.
  *
- * Gated on `delivery.assign`, like the rest of the courier admin: deciding
- * which numbers this shop posts under is the same authority as deciding which
- * courier a parcel goes to.
+ * Gated on `delivery.barcodes` — its own capability, split out from the rest
+ * of the courier admin: entering an allotment off a booklet or a portal
+ * export is a counter task, not a decision about which couriers exist or
+ * where a parcel is routed.
  */
 
 /** Bigger than any allotment they issue, and small enough to parse in memory. */
@@ -43,7 +44,7 @@ const MAX_UPLOAD_BYTES = 8 * 1024 * 1024;
  * have more than one postal partner row.
  */
 export async function GET(request: NextRequest) {
-  const auth = await requirePermission("delivery.assign");
+  const auth = await requirePermission("delivery.barcodes");
   if (!auth.ok) return auth.response;
 
   const courierId = request.nextUrl.searchParams.get("courier_id") ?? "";
@@ -63,7 +64,7 @@ export async function GET(request: NextRequest) {
  * where somebody has an allotment letter and no file.
  */
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("delivery.assign");
+  const auth = await requirePermission("delivery.barcodes");
   if (!auth.ok) return auth.response;
 
   const contentType = request.headers.get("content-type") ?? "";

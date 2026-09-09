@@ -34,23 +34,30 @@ import {
 const MAX_LABELS = 300;
 
 /**
- * Parcels per request when routing a selection. One.
+ * Parcels per request when routing a selection.
  *
- * This was the whole selection in a single call, then ten at a time, and both
- * were wrong for the same reason: whatever a failing request covers is what
- * ends up in an unknown state. Fifty parcels in one call that times out is
- * fifty orders nobody can safely retry — which is exactly how six of them came
- * to be sitting at Delhivery while these screens said "Not with them".
+ * This was the whole selection in a single call, and that was wrong: whatever
+ * a failing request covers is what ends up in an unknown state. Fifty parcels
+ * in one call that times out is fifty orders nobody can safely retry — which
+ * is exactly how six of them came to be sitting at Delhivery while these
+ * screens said "Not with them". It was then dropped to one at a time, which
+ * fixed that at the cost of a slow, fully sequential run.
  *
- * One parcel per request makes that number one. The run is slower and says so,
- * the bar counts real parcels rather than batches, and a failure names the
- * single order it cost. `manifestParcels` sends one shipment per Delhivery call
- * for the same reason, so the blast radius is one parcel end to end.
+ * The blast radius was never really about how many parcels one HTTP request
+ * names — it is about whether each parcel's own outcome is recorded before
+ * the next one matters. `manifestParcels` now gives every parcel in a request
+ * its own independent Delhivery call, several in flight at once, and records
+ * each one's result the moment it is known rather than waiting for the whole
+ * request to finish — so a failure still costs exactly the parcels it
+ * touched, not the batch. This number just sets how many order numbers ride
+ * in one HTTP request; matching it to that same concurrency (see
+ * MANIFEST_CONCURRENCY in lib/delhivery/manifest.ts) means one request is
+ * roughly one Delhivery round trip wide, not five.
  *
  * Safe to run again over anything: every parcel is checked against Delhivery
  * before it is created, so one that already exists is adopted, not duplicated.
  */
-const ROUTE_CHUNK = 1;
+const ROUTE_CHUNK = 5;
 
 /**
  * One line in the live log — a parcel, and where the run has got to with it.

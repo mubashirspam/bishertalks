@@ -47,7 +47,7 @@ export function loginPhone(phone: string | null | undefined): string {
  * No order number in it deliberately; the customer has no use for one, and it
  * makes the message read like a thank-you rather than a ticket.
  *
- * It also carries the 4th-edition pre-booking news, because this is the first
+ * It also carries the 5th-edition pre-booking news, because this is the first
  * thing a buyer hears after paying and "it ships in 5–7 days" is no longer
  * true: the book is being printed. Saying so here, next to the price they are
  * NOT being charged, is what stops the "where is my book" message on day six.
@@ -63,8 +63,8 @@ function paidThankYouMessage(o: {
 *നിങ്ങളുടെ ഓർഡർ സ്വീകരിച്ചിരിക്കുന്നു!* ✅
 Neuro Code ബുക്ക് ഓർഡർ ചെയ്തതിന് ഒരുപാട് നന്ദി ❤️
 
-📦 കഴിഞ്ഞ ദിവസങ്ങളിൽ കൂടുതൽ ഓർഡർ വന്നതിനാൽ Neuro Code മൂന്നാം പതിപ്പ് കഴിഞ്ഞു. നാലാം പതിപ്പ് *${editionDispatchDayLabelMl()}* മുതലാണ് വിതരണം ചെയ്യുക.
-നാലാം പതിപ്പിന് *${NEXT_EDITION_PRICE} രൂപ* ആയിരിക്കും വില. But നിങ്ങൾ already ഓർഡർ ചെയ്തതിനാൽ same വിലയിൽ തന്നെ നൽകും.
+📦 കഴിഞ്ഞ ദിവസങ്ങളിൽ കൂടുതൽ ഓർഡർ വന്നതിനാൽ Neuro Code നാലാം പതിപ്പ് കഴിഞ്ഞു. അഞ്ചാം പതിപ്പ് *${editionDispatchDayLabelMl()}* മുതലാണ് വിതരണം ചെയ്യുക.
+അഞ്ചാം പതിപ്പിന് *${NEXT_EDITION_PRICE} രൂപ* ആയിരിക്കും വില. But നിങ്ങൾ already ഓർഡർ ചെയ്തതിനാൽ same വിലയിൽ തന്നെ നൽകും.
 
 🎁 ഒപ്പം ലഭിക്കുന്ന *സൗജന്യ NLP കോഴ്‌സ്* ഇപ്പോൾ തന്നെ തുടങ്ങാം:
 ${courseUrl()}
@@ -89,6 +89,10 @@ interface FunnelInput {
   address_line1: string | null;
   /** Read by orderStage(), and quoted in the refund message below. */
   refunded_paise: number;
+  /** Read by orderStage() — see lib/delivery-mode.ts. Optional like it is
+   * there: a caller that hasn't loaded the column simply never sees the
+   * cod_pending case below, which is the same as before this field existed. */
+  delivery_mode?: string | null;
 }
 
 export function funnelWaMessage(o: FunnelInput): string {
@@ -128,6 +132,21 @@ _Bisher Talks_`;
     // gap that produces "where is my money" messages.
     case "refunded":
       return `Hi ${name}, your order ${o.order_number} has been refunded. ₹${Math.round(o.refunded_paise / 100).toLocaleString("en-IN")} has been sent back to the account you paid from — banks usually take 5–7 working days to show it. Do let us know if you don't see it by then.`;
+    // Confirmed, not chased — a COD sale needs no nudge to pay, only the same
+    // "you're set" reassurance paidThankYouMessage gives, with the one line
+    // that's actually different: the courier collects cash, not us.
+    case "cod_pending":
+      return `${greeting}
+*നിങ്ങളുടെ ഓർഡർ സ്ഥിരീകരിച്ചു* ✅
+Neuro Code ബുക്ക് ഓർഡർ ചെയ്തതിന് ഒരുപാട് നന്ദി ❤️
+
+💰 ഡെലിവറി സമയത്ത് പണം നൽകിയാൽ മതി (Cash on Delivery).
+
+🎁 ഒപ്പം ലഭിക്കുന്ന *സൗജന്യ NLP കോഴ്‌സ്* ഇപ്പോൾ തന്നെ തുടങ്ങാം:
+${courseUrl()}
+കയറാൻ നിങ്ങളുടെ മൊബൈൽ നമ്പർ മാത്രം മതി: *${loginPhone(o.buyer_phone)}*
+
+_Bisher Talks_`;
   }
 }
 

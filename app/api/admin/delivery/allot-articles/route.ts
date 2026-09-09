@@ -57,9 +57,9 @@ export async function POST(request: NextRequest) {
   // The scope is the guard, exactly as on the sheet routes: the order numbers
   // came from a browser and prove nothing about whose parcels they are.
   const scope = portalScope(auth.staff);
-  const scopedCourier = scope.seesEveryone ? null : scope.courierId;
+  const scopedCourier = scope.seesEveryone ? null : scope.courierIds;
 
-  if (!scope.seesEveryone && !scopedCourier) {
+  if (!scope.seesEveryone && !scopedCourier?.length) {
     return NextResponse.json(
       { error: "Your login isn't linked to a delivery partner yet." },
       { status: 403 }
@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     .eq("payment_status", "paid")
     .not("courier_id", "is", null);
 
-  if (scopedCourier) query = query.eq("courier_id", scopedCourier);
+  if (scopedCourier?.length) query = query.in("courier_id", scopedCourier);
 
   const { data, error } = await query;
 

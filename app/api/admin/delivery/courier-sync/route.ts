@@ -72,7 +72,14 @@ export async function POST(request: NextRequest) {
   // movements — of a competitor's parcels.
   const scope = portalScope(auth.staff);
   const asked = typeof body.courier_id === "string" ? body.courier_id : "";
-  const courierId = scope.seesEveryone ? asked : (scope.courierId ?? "");
+  // A sync asks one courier's own API at a time, so this stays a single id
+  // even for a multi-courier partner (0071) — they name which of their own
+  // couriers they mean, exactly as the portal's own sync button does.
+  const courierId = scope.seesEveryone
+    ? asked
+    : scope.courierIds.includes(asked)
+      ? asked
+      : "";
 
   /**
    * Sweep everything rather than one screenful.

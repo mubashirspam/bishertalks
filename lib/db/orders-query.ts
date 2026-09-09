@@ -79,6 +79,9 @@ export interface OrderRow {
   /** Only ever set on a direct sale. */
   manual_payment_method: string | null;
   manual_payment_ref: string | null;
+  /** 'normal' | 'cod' (0067) — see lib/delivery-mode.ts. Read by orderStage()
+   * to tell a confirmed COD sale apart from a payment that never started. */
+  delivery_mode: string | null;
 }
 
 export const ORDER_COLUMNS =
@@ -89,7 +92,7 @@ export const ORDER_COLUMNS =
   "razorpay_order_id,razorpay_payment_id,checkout_type," +
   "created_at,paid_at,ordered_at,address_submitted_at," +
   "source,first_source,utm_campaign,follow_up_status,follow_up_at,follow_up_note," +
-  "sales_channel,manual_payment_method,manual_payment_ref";
+  "sales_channel,manual_payment_method,manual_payment_ref,delivery_mode";
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 

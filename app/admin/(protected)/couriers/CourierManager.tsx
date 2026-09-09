@@ -30,6 +30,8 @@ export default function CourierManager({
   couriers,
   delhivery,
   canComplete,
+  canManage,
+  canBarcodes,
 }: {
   couriers: Courier[];
   /** Whether the one integrated partner can actually be used yet. */
@@ -43,6 +45,20 @@ export default function CourierManager({
    * ever going to say no is noise. Same rule as the portal's download button.
    */
   canComplete: boolean;
+  /**
+   * May this person add, switch off, delete a courier, or edit what prints on
+   * its address sheets? `delivery.assign` — the same trust as choosing which
+   * courier a parcel goes to, which is what adding one here makes possible.
+   *
+   * Everyone who reaches this screen at all still sees the courier list by
+   * name — someone entering barcodes or importing a delivery report needs to
+   * know which row is theirs. What's hidden is the power to change the list.
+   */
+  canManage: boolean;
+  /** May this person log India Post article-number stock? `delivery.barcodes`
+   * — split out from `canManage` on purpose: entering barcodes off a physical
+   * booklet is a counter task, not a decision about which couriers exist. */
+  canBarcodes: boolean;
 }) {
   const router = useRouter();
   const [adding, setAdding] = useState(false);
@@ -136,8 +152,10 @@ export default function CourierManager({
   return (
     <div className="space-y-4">
       {/* The one integration, and whether it is usable. Above the list because
-          "why is Send greyed out" is the question this page mostly answers. */}
-      {!delhivery.configured && couriers.some((c) => c.slug === "delhivery") && (
+          "why is Send greyed out" is the question this page mostly answers.
+          Skipped for anyone who can't act on it — sending is canManage's
+          territory, and a warning nobody here can fix is just noise. */}
+      {canManage && !delhivery.configured && couriers.some((c) => c.slug === "delhivery") && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <p className="text-sm font-semibold text-amber-900 flex items-center gap-2">
             <AlertCircle className="w-4 h-4" /> Delhivery can&apos;t send yet
@@ -157,7 +175,7 @@ export default function CourierManager({
         </div>
       )}
 
-      {delhivery.configured && delhivery.env !== "production" && (
+      {canManage && delhivery.configured && delhivery.env !== "production" && (
         <p className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-xs text-blue-900 flex items-center gap-2">
           <Info className="w-4 h-4 flex-shrink-0" />
           Delhivery is pointed at <strong>staging</strong>. Parcels sent from here
@@ -184,7 +202,7 @@ export default function CourierManager({
       )}
 
       {/* ── Add ────────────────────────────────────────────────────────────── */}
-      {adding ? (
+      {canManage && (adding ? (
         <form onSubmit={add} className={`${card} p-5`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-sm text-neutral-900">New courier</h2>
@@ -259,13 +277,15 @@ export default function CourierManager({
         >
           <Plus className="w-4 h-4" /> Add a courier
         </button>
-      )}
+      ))}
 
       {/* ── The list ───────────────────────────────────────────────────────── */}
       <div className={card}>
         {couriers.length === 0 ? (
           <p className="p-10 text-center text-neutral-500 text-sm">
-            No couriers yet. Add one to start assigning parcels.
+            {canManage
+              ? "No couriers yet. Add one to start assigning parcels."
+              : "No couriers set up yet — ask an admin to add one."}
           </p>
         ) : (
           <ul className="divide-y divide-neutral-100">
@@ -303,34 +323,38 @@ export default function CourierManager({
                   </p>
                 </div>
 
-                <button
-                  onClick={() => call("PATCH", { id: c.id, is_active: !c.is_active })}
-                  disabled={!!busy}
-                  title={c.is_active ? "Stop offering this courier" : "Offer it again"}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors disabled:opacity-40"
-                >
-                  <Power className="w-3.5 h-3.5" />
-                  {c.is_active ? "Switch off" : "Switch on"}
-                </button>
+                {canManage && (
+                  <>
+                    <button
+                      onClick={() => call("PATCH", { id: c.id, is_active: !c.is_active })}
+                      disabled={!!busy}
+                      title={c.is_active ? "Stop offering this courier" : "Offer it again"}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors disabled:opacity-40"
+                    >
+                      <Power className="w-3.5 h-3.5" />
+                      {c.is_active ? "Switch off" : "Switch on"}
+                    </button>
 
-                <button
-                  onClick={() => (editing === c.id ? setEditing(null) : openSheet(c))}
-                  disabled={!!busy}
-                  title="What prints on this courier's address sheets — heading, contract numbers, and the address a failed parcel comes back to"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors disabled:opacity-40"
-                >
-                  <MapPin className="w-3.5 h-3.5" />
-                  Address sheet
-                </button>
+                    <button
+                      onClick={() => (editing === c.id ? setEditing(null) : openSheet(c))}
+                      disabled={!!busy}
+                      title="What prints on this courier's address sheets — heading, contract numbers, and the address a failed parcel comes back to"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors disabled:opacity-40"
+                    >
+                      <MapPin className="w-3.5 h-3.5" />
+                      Address sheet
+                    </button>
 
-                <button
-                  onClick={() => call("DELETE", undefined, `?id=${c.id}`)}
-                  disabled={!!busy}
-                  title="Delete — only possible if it has never carried a parcel"
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-500 hover:border-red-300 hover:text-red-700 transition-colors disabled:opacity-40"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
+                    <button
+                      onClick={() => call("DELETE", undefined, `?id=${c.id}`)}
+                      disabled={!!busy}
+                      title="Delete — only possible if it has never carried a parcel"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-500 hover:border-red-300 hover:text-red-700 transition-colors disabled:opacity-40"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
 
               {/* India Post is the one partner with a consumable: it allots
@@ -340,7 +364,7 @@ export default function CourierManager({
                   partner and is read at the same moment as everything else
                   about it. Keyed off the tracking integration, which is what
                   makes a row India Post rather than its name. */}
-              {c.config.tracking === "india-post" && (
+              {c.config.tracking === "india-post" && canBarcodes && (
                 <BarcodeStock courierId={c.id} courierName={c.name} />
               )}
 

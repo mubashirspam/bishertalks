@@ -5,6 +5,9 @@ import { istDayStartUTC, istDayEndUTC } from "@/lib/format-date";
 import type { OrderStatus } from "@/lib/types/order";
 import { COURIER_SHEET_MAX, type CourierParcel } from "@/lib/courier-sheet";
 import { CONTACT_COLUMNS, type ContactRow } from "@/lib/delivery/contacts";
+import type { DeliveryMode } from "@/lib/delivery-mode";
+import { getCourierBySlug } from "@/lib/db/couriers";
+import { isCourierService, type Courier, type CourierService } from "@/lib/couriers";
 
 /**
  * The delivery portal's data.
@@ -18,6 +21,13 @@ import { CONTACT_COLUMNS, type ContactRow } from "@/lib/delivery/contacts";
  * and we know where to send it. An order missing either belongs in the funnel
  * at /admin/orders, not in front of someone packing parcels.
  */
+
+/**
+ * A courier filter: one id (an owner's dropdown, or a single-courier scope),
+ * several (a partner login linked to more than one courier since 0071), or
+ * null for no restriction at all.
+ */
+export type CourierScope = string | string[] | null;
 
 /**
  * The tick columns, in the order the work happens.
@@ -175,6 +185,12 @@ export const PORTAL_PACKING_HINTS: Record<PortalPacking, string> = {
 export const portalPacking = (v: string | undefined): PortalPacking | null =>
   (PORTAL_PACKING as readonly string[]).includes(v ?? "") ? (v as PortalPacking) : null;
 
+/** Not portal-specific vocabulary — see lib/delivery-mode.ts, the one place
+ * 'normal'/'cod' is defined — just the same "narrow a URL param" shape every
+ * other portal filter here follows. */
+export const portalDeliveryMode = (v: string | undefined): DeliveryMode | null =>
+  v === "normal" || v === "cod" ? v : null;
+
 /**
  * Which end of the queue is at the top.
  *
@@ -254,55 +270,100 @@ export interface PortalRow {
    */
   work_at?: string | null;
   work_at_is_assignment?: boolean | null;
+  /** 'normal' | 'cod' (0067) — see lib/delivery-mode.ts. */
+  delivery_mode: string | null;
+  /** Not 'paid' on a COD row until the courier collects it — expected, not a
+   * problem. The grid's Collect action is what moves it to 'paid'. */
+  payment_status: string | null;
+  /** 'normal' | 'urgent' (0063) — see lib/delivery-priority.ts. Set at the
+   * counter on a direct sale; badged and filterable here, never a reason to
+   * hide a row. */
+  delivery_priority: string | null;
+  /**
+   * Which network KKR Logistics actually sent this one through (0068) —
+   * 'dtdc' | 'trackon' | null for the courier's own default. See
+   * lib/couriers CourierService.
+   *
+   * Merged in after the page query, same reason and same mechanism as
+   * `postal_barcode` above — see `withPostalBarcodes`.
+   */
+  courier_service?: string | null;
+  /** When it was packed (0070) — the Packed column's own date, absent before. */
+  processing_at: string | null;
+  /** When it shipped — stamped for both Shipped and On the van, unchanged. */
+  shipped_at: string | null;
+  /** When it left for the van, distinct from shipped_at (0070). */
+  out_for_delivery_at: string | null;
+  delivered_at: string | null;
+  returned_at: string | null;
+  /**
+   * Why it came back (0070) — the courier's own scan text where a scan drove
+   * the return, or typed by hand from the portal. Null means nobody has said.
+   */
+  return_reason: string | null;
 }
 
 /**
- * Fill in each row's India Post article number.
+ * Fill in each row's India Post article number and KKR service tag.
  *
- * A second query rather than a column on the page query, and the reason is the
+ * A second query rather than columns on the page query, and the reason is the
  * view. `portal_orders` is `SELECT o.*`, which Postgres expanded to the column
  * list as it stood when the view was created — so it carries every column
- * `orders` had in 0028 and none added since. `postal_barcode` arrived in 0049
- * and is not in it.
+ * `orders` had at that moment and none added since. `postal_barcode` arrived
+ * in 0049, `courier_service` in 0068, and neither is in it until somebody
+ * rebuilds it.
  *
  * The documented fix is to rebuild the view in the migration that adds the
  * column, and that is still the right thing to do — see the note on
- * fetchPortalPage. But migrations here are applied by hand, and adding
- * `postal_barcode` to PORTAL_COLUMNS before somebody runs one would throw the
- * view query on every load and drop the whole screen onto its degraded
- * fallback, losing the handover filter for everyone.
+ * fetchPortalPage. But migrations here are applied by hand, and adding either
+ * column to PORTAL_COLUMNS before somebody runs one would throw the view query
+ * on every load and drop the whole screen onto its degraded fallback, losing
+ * the handover filter for everyone.
  *
  * So: one extra lookup, keyed by order number, over the fifty rows already on
- * the page. It cannot break the view, it needs nothing run by hand, and it
- * fails soft — a lookup that errors leaves the numbers blank rather than
- * taking the portal down with it.
+ * the page, for both columns at once — they are read from the same table in
+ * the same pass, so there is no reason to ask twice. It cannot break the view,
+ * it needs nothing run by hand, and it fails soft — a lookup that errors
+ * leaves both blank rather than taking the portal down with it.
  */
 export async function withPostalBarcodes<T extends { order_number: string }>(
   rows: T[]
-): Promise<(T & { postal_barcode: string | null })[]> {
-  const blank = rows.map((r) => ({ ...r, postal_barcode: null as string | null }));
+): Promise<(T & { postal_barcode: string | null; courier_service: string | null })[]> {
+  const blank = rows.map((r) => ({
+    ...r,
+    postal_barcode: null as string | null,
+    courier_service: null as string | null,
+  }));
   if (!rows.length) return blank;
 
   const { data, error } = await supabaseAdmin
     .from("orders")
-    .select("order_number,postal_barcode")
+    .select("order_number,postal_barcode,courier_service")
     .in("order_number", rows.map((r) => r.order_number))
-    .not("postal_barcode", "is", null);
+    .or("postal_barcode.not.is.null,courier_service.not.is.null");
 
   if (error) {
-    console.error("[Portal] article number lookup failed:", error.message);
+    console.error("[Portal] article number / service lookup failed:", error.message);
     return blank;
   }
 
   const byOrder = new Map(
     (data ?? []).map((r) => {
-      const row = r as { order_number: string; postal_barcode: string };
-      return [row.order_number, row.postal_barcode];
+      const row = r as {
+        order_number: string;
+        postal_barcode: string | null;
+        courier_service: string | null;
+      };
+      return [row.order_number, row];
     })
   );
   if (!byOrder.size) return blank;
 
-  return rows.map((r) => ({ ...r, postal_barcode: byOrder.get(r.order_number) ?? null }));
+  return rows.map((r) => ({
+    ...r,
+    postal_barcode: byOrder.get(r.order_number)?.postal_barcode ?? null,
+    courier_service: byOrder.get(r.order_number)?.courier_service ?? null,
+  }));
 }
 
 const PORTAL_COLUMNS =
@@ -311,7 +372,12 @@ const PORTAL_COLUMNS =
   "state,pincode,amount_paise,quantity,is_gift,gift_message,is_signed," +
   "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
-  "tracking_number,assigned_agent_id,created_at,paid_at,ordered_at,assigned_at";
+  "tracking_number,assigned_agent_id,created_at,paid_at,ordered_at,assigned_at," +
+  "delivery_mode,payment_status,delivery_priority," +
+  // The step dates and the return reason (0070) — one per portal column, so
+  // every tick can say when, and Return can say why.
+  "processing_at,shipped_at,out_for_delivery_at,delivered_at,returned_at," +
+  "return_reason";
 
 /** The view's derived columns. Absent from `orders`, so the fallback drops them. */
 const PORTAL_VIEW_COLUMNS = PORTAL_COLUMNS + ",work_at,work_at_is_assignment";
@@ -421,7 +487,7 @@ function portalQuery(
   agentId: string | null,
   columns: string = PORTAL_COLUMNS,
   /** Which courier's parcels. null = all of them. */
-  courierId: string | null = null,
+  courierId: CourierScope = null,
   /** Whether the courier has a record of it. null = don't care. */
   tracking: PortalTracking | null = null,
   /** A handover_state value (migration 0035), or null for all of them. */
@@ -437,12 +503,21 @@ function portalQuery(
    */
   dateTo: string | undefined = undefined,
   /** One order number, mobile or name to narrow to — see portalSearch. */
-  search: PortalSearch | null = null
+  search: PortalSearch | null = null,
+  /** A DeliveryMode ('normal' | 'cod'), or null for both. */
+  deliveryMode: string | null = null,
+  /** True to show only urgent parcels. False or undefined shows everything —
+   * urgent is never a reason to hide a row, only to filter TO it. */
+  urgentOnly = false
 ) {
   let query = supabaseAdmin
     .from(table)
     .select(columns, { count: "exact" })
-    .eq("payment_status", "paid")
+    // Paid, or COD and deliberately not paid yet — see 0067 for why this is a
+    // generated column rather than `payment_status = 'paid' OR delivery_mode
+    // = 'cod'` written out here (this file's own `or()` budget is already
+    // spent below, on "assigned_agent_id OR courier_id").
+    .eq("ready_for_delivery", true)
     .not("address_line1", "is", null)
     .neq("status", "cancelled")
     // Only parcels somebody is carrying. An order with neither an agent nor a
@@ -455,7 +530,11 @@ function portalQuery(
     .or("assigned_agent_id.not.is.null,courier_id.not.is.null");
 
   if (agentId) query = query.eq("assigned_agent_id", agentId);
-  if (courierId) query = query.eq("courier_id", courierId);
+  if (courierId) {
+    query = Array.isArray(courierId)
+      ? query.in("courier_id", courierId)
+      : query.eq("courier_id", courierId);
+  }
 
   // Narrows within the filters rather than replacing them: somebody who has
   // filtered to a courier and searches a name means "that name, among these
@@ -504,6 +583,14 @@ function portalQuery(
     query = query.is("is_signed", true);
   } else if (packing === "plain") {
     query = query.not("is_gift", "is", true).not("is_signed", "is", true);
+  }
+
+  if (deliveryMode === "normal" || deliveryMode === "cod") {
+    query = query.eq("delivery_mode", deliveryMode);
+  }
+
+  if (urgentOnly) {
+    query = query.eq("delivery_priority", "urgent");
   }
 
   // The day picker filters on the same clock the list is sorted by — the day
@@ -567,7 +654,7 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   agentId: string | null = null,
   sort: PortalSort = "newest",
   /** Which courier's parcels, or null for every one. */
-  courierId: string | null = null,
+  courierId: CourierScope = null,
   /** Whether the courier has a record of it, or null for either. */
   tracking: PortalTracking | null = null,
   /** A handover_state value, or null for all of them. */
@@ -585,7 +672,11 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
    * query answering a different question — the header would say 312 above a
    * grid showing 1.
    */
-  search: PortalSearch | null = null
+  search: PortalSearch | null = null,
+  /** A DeliveryMode ('normal' | 'cod'), or null for both. */
+  deliveryMode: string | null = null,
+  /** True to show only urgent parcels. */
+  urgentOnly = false
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
@@ -613,9 +704,18 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     handover,
     packing,
     dateTo,
-    search
+    search,
+    deliveryMode,
+    urgentOnly
   )
     .order("work_day", { ascending })
+    // A direct sale flagged urgent at the counter (0063) jumps to the top of
+    // its day, ahead of everything else including the not-yet-entered pile —
+    // it is the one thing that decides which parcel gets packed first, not
+    // just something to notice once it's in front of you. 'urgent' sorts
+    // ahead of 'normal' descending, which is the whole reason for the values
+    // being spelled the way they are.
+    .order("delivery_priority", { ascending: false })
     .order("needs_entry", { ascending: false })
     .order("work_at", { ascending })
     .range(from, to);
@@ -654,7 +754,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
       handover,
       packing,
       dateTo,
-      search
+      search,
+      deliveryMode,
+      urgentOnly
     )
       .order("created_at", { ascending })
       .range(from, to);
@@ -679,7 +781,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         handover,
         packing,
         dateTo,
-        search
+        search,
+        deliveryMode,
+        urgentOnly
       )
         .order("created_at", { ascending })
         .range(from, to);
@@ -714,7 +818,7 @@ export async function fetchPortalContacts(
   date: string | undefined,
   status: string | undefined,
   agentId: string | null = null,
-  courierId: string | null = null,
+  courierId: CourierScope = null,
   tracking: PortalTracking | null = null,
   handover: string | null = null,
   packing: PortalPacking | null = null,
@@ -818,7 +922,7 @@ export async function fetchPickedForCourierSheet(
    * so it never reaches the file — which matters more here than on any other
    * route, because the file IS every customer's name, mobile and home address.
    */
-  courierId: string | null = null
+  courierId: CourierScope = null
 ): Promise<CourierParcel[]> {
   if (!orderNumbers.length) return [];
 
@@ -835,7 +939,11 @@ export async function fetchPickedForCourierSheet(
         "postal_barcode"
     )
     .in("order_number", orderNumbers.slice(0, limit))
-    .eq("payment_status", "paid")
+    // Paid, or COD and deliberately not paid yet — see 0067 for why this is a
+    // generated column rather than `payment_status = 'paid' OR delivery_mode
+    // = 'cod'` written out here (this file's own `or()` budget is already
+    // spent below, on "assigned_agent_id OR courier_id").
+    .eq("ready_for_delivery", true)
     .not("address_line1", "is", null)
     // Routed to a courier — which is what "somebody is taking this" means now.
     // This asked for an assigned_agent_id until the courier became the
@@ -850,7 +958,11 @@ export async function fetchPickedForCourierSheet(
   // longer scoped this way — it sees the courier's work — so this is normally
   // null and `courierId` below is what actually confines a partner.
   if (agentId) query = query.eq("assigned_agent_id", agentId);
-  if (courierId) query = query.eq("courier_id", courierId);
+  if (courierId) {
+    query = Array.isArray(courierId)
+      ? query.in("courier_id", courierId)
+      : query.eq("courier_id", courierId);
+  }
 
   const { data, error } = await query
     .order("created_at", { ascending: true })
@@ -934,7 +1046,7 @@ export async function fetchPickedForPostalSheet(
   orderNumbers: string[],
   limit: number = COURIER_SHEET_MAX,
   /** The partner asking. The guard, exactly as in the sibling above. */
-  courierId: string | null = null
+  courierId: CourierScope = null
 ): Promise<CourierParcel[]> {
   if (!orderNumbers.length) return [];
 
@@ -946,7 +1058,11 @@ export async function fetchPickedForPostalSheet(
         "postal_barcode"
     )
     .in("order_number", orderNumbers.slice(0, limit))
-    .eq("payment_status", "paid")
+    // Paid, or COD and deliberately not paid yet — see 0067 for why this is a
+    // generated column rather than `payment_status = 'paid' OR delivery_mode
+    // = 'cod'` written out here (this file's own `or()` budget is already
+    // spent below, on "assigned_agent_id OR courier_id").
+    .eq("ready_for_delivery", true)
     .not("address_line1", "is", null)
     .not("courier_id", "is", null)
     .eq("status", "confirmed")
@@ -966,7 +1082,11 @@ export async function fetchPickedForPostalSheet(
     //     workbook existed, which was all of them.
     .or("postal_barcode.is.null,courier_entered_at.is.null");
 
-  if (courierId) query = query.eq("courier_id", courierId);
+  if (courierId) {
+    query = Array.isArray(courierId)
+      ? query.in("courier_id", courierId)
+      : query.eq("courier_id", courierId);
+  }
 
   const { data, error } = await query
     .order("created_at", { ascending: true })
@@ -1078,7 +1198,7 @@ export async function assignedAgentOf(
  */
 export async function fetchAddressesForSheet(
   orderNumbers: string[],
-  courierId: string | null,
+  courierId: CourierScope,
   limit: number = COURIER_SHEET_MAX
 ): Promise<AddressSheetRow[]> {
   if (!orderNumbers.length) return [];
@@ -1096,12 +1216,20 @@ export async function fetchAddressesForSheet(
         "postal_barcode,courier_reference"
     )
     .in("order_number", orderNumbers.slice(0, limit))
-    .eq("payment_status", "paid")
+    // Paid, or COD and deliberately not paid yet — see 0067 for why this is a
+    // generated column rather than `payment_status = 'paid' OR delivery_mode
+    // = 'cod'` written out here (this file's own `or()` budget is already
+    // spent below, on "assigned_agent_id OR courier_id").
+    .eq("ready_for_delivery", true)
     .not("address_line1", "is", null)
     .neq("status", "cancelled")
     .or("assigned_agent_id.not.is.null,courier_id.not.is.null");
 
-  if (courierId) query = query.eq("courier_id", courierId);
+  if (courierId) {
+    query = Array.isArray(courierId)
+      ? query.in("courier_id", courierId)
+      : query.eq("courier_id", courierId);
+  }
 
   const { data, error } = await query
     .order("created_at", { ascending: true })
@@ -1202,4 +1330,128 @@ export async function setTrackingNumber(
     throw new Error(error.message);
   }
   return !!data?.length;
+}
+
+/** Longest return reason worth keeping — a sentence, not an essay. */
+export const RETURN_REASON_MAX = 300;
+
+/**
+ * Why a parcel came back (0070).
+ *
+ * Two callers, two different rules about overwriting:
+ *
+ *   - A courier scan that drives the return calls this with `onlyIfUnset:
+ *     true` — the courier's own text is worth keeping exactly as first
+ *     recorded, and a later scan (a second RTO leg, a re-attempt) must not
+ *     quietly replace the original reason.
+ *   - An agent typing one in from the portal calls it with `onlyIfUnset:
+ *     false` — a person correcting or adding to the record is a deliberate
+ *     act and should win over whatever, if anything, is already there.
+ */
+export async function setReturnReason(
+  orderNumber: string,
+  reason: string,
+  { onlyIfUnset = false } = {}
+): Promise<boolean> {
+  const value = reason.trim().slice(0, RETURN_REASON_MAX);
+  if (!value) return false;
+
+  let query = supabaseAdmin
+    .from("orders")
+    .update({ return_reason: value, updated_at: new Date().toISOString() })
+    .eq("order_number", orderNumber);
+
+  if (onlyIfUnset) query = query.is("return_reason", null);
+
+  const { data, error } = await query.select("order_number");
+
+  if (error) {
+    console.error("[Portal] return reason update failed:", error.message);
+    throw new Error(error.message);
+  }
+  return !!data?.length;
+}
+
+/** "Delhivery" — KKR Logistics' own default, and its two other services. */
+export type CourierChannel = "delhivery" | CourierService | "india_post";
+
+export const COURIER_CHANNELS: readonly CourierChannel[] = [
+  "delhivery",
+  "dtdc",
+  "trackon",
+  "india_post",
+];
+
+export const COURIER_CHANNEL_LABELS: Record<CourierChannel, string> = {
+  delhivery: "Delhivery",
+  dtdc: "DTDC",
+  trackon: "Trackon",
+  india_post: "India Post",
+};
+
+/**
+ * Move a parcel between KKR Logistics' own routes (0068).
+ *
+ * "KKR Logistics" (delhivery-sheet) is a franchise counter, not one carrier —
+ * most of what is handed to them travels on Delhivery, but some days it goes
+ * out on DTDC or Trackon instead, decided at the counter or corrected here
+ * once it's known. India Post through KKR is a genuinely different thing —
+ * its own courier row (kkr-india-post), its own account, its own
+ * article-number allotment — so choosing it here reassigns the parcel to
+ * that row rather than tagging a service onto this one.
+ *
+ * Refuses on a parcel not already on one of these two rows: this is a
+ * channel switch within KKR's own arrangement, not a general reassignment,
+ * and offering it on an unrelated courier's parcel would be a mis-click with
+ * real consequences — a Delhivery-API parcel silently losing its integration,
+ * say.
+ */
+export async function setCourierChannel(
+  orderNumber: string,
+  channel: CourierChannel
+): Promise<{ ok: true; courier: Courier } | { ok: false; error: string }> {
+  const [kkr, postal] = await Promise.all([
+    getCourierBySlug("delhivery-sheet"),
+    getCourierBySlug("kkr-india-post"),
+  ]);
+  if (!kkr || !postal) {
+    return { ok: false, error: "KKR Logistics isn't set up on this account yet." };
+  }
+
+  const { data: existing, error: readError } = await supabaseAdmin
+    .from("orders")
+    .select("courier_id")
+    .eq("order_number", orderNumber)
+    .maybeSingle();
+
+  if (readError) {
+    console.error("[Portal] channel lookup failed:", readError.message);
+    throw new Error(readError.message);
+  }
+  if (!existing) return { ok: false, error: "Order not found" };
+  if (existing.courier_id !== kkr.id && existing.courier_id !== postal.id) {
+    return { ok: false, error: "This isn't a KKR Logistics parcel." };
+  }
+
+  const target = channel === "india_post" ? postal : kkr;
+  const service = isCourierService(channel) ? channel : null;
+
+  const { data, error } = await supabaseAdmin
+    .from("orders")
+    .update({
+      courier_id: target.id,
+      courier_service: service,
+      courier_assigned_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("order_number", orderNumber)
+    .select("order_number");
+
+  if (error) {
+    console.error("[Portal] channel update failed:", error.message);
+    throw new Error(error.message);
+  }
+  if (!data?.length) return { ok: false, error: "Order not found" };
+
+  return { ok: true, courier: target };
 }
