@@ -29,9 +29,14 @@ const TABS: { value: string; label: string }[] = [
 export default function TasksFilters({
   counts,
   staff,
+  canManage,
 }: {
   counts: TaskCounts;
   staff: Staff[];
+  /** Full access (tasks.manage) — false hides the Assignee filter, which is
+   *  always locked to "me" for a tasks.view-only login and has nothing to
+   *  offer it. */
+  canManage: boolean;
 }) {
   const params = useSearchParams();
   const { pending, navigate } = useNavigation();
@@ -56,11 +61,12 @@ export default function TasksFilters({
 
   const countFor = (value: string): number => {
     if (value === "urgent") return counts.urgent;
-    if (value === "all") return counts.open + counts.in_progress + counts.solved;
+    if (value === "all") return counts.open + counts.in_progress + counts.waiting + counts.solved;
     return counts[value as keyof TaskCounts] ?? 0;
   };
 
-  const hasFilters = !!params.get("q") || !!category && category !== "all" || !!assignee;
+  const hasFilters =
+    !!params.get("q") || (!!category && category !== "all") || (canManage && !!assignee);
 
   const field =
     "bg-white border border-neutral-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-primary-500 transition-colors";
@@ -104,24 +110,26 @@ export default function TasksFilters({
 
       <div className="bg-white border border-neutral-200 rounded-2xl p-4 shadow-sm">
         <div className="flex flex-wrap items-end gap-3">
-          <div>
-            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
-              Assignee
-            </label>
-            <select
-              value={assignee}
-              onChange={(e) => push({ assignee: e.target.value || null })}
-              className={`${field} cursor-pointer`}
-            >
-              <option value="">Everyone</option>
-              <option value="none">Unassigned</option>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {canManage && (
+            <div>
+              <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+                Assignee
+              </label>
+              <select
+                value={assignee}
+                onChange={(e) => push({ assignee: e.target.value || null })}
+                className={`${field} cursor-pointer`}
+              >
+                <option value="">Everyone</option>
+                <option value="none">Unassigned</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="text-xs font-medium text-neutral-500 mb-1.5 block">

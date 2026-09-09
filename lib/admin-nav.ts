@@ -3,7 +3,7 @@ import {
   Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
   MessageSquare, Inbox, Boxes, BarChart3, Receipt, ListChecks,
 } from "lucide-react";
-import { can, type Permission, type PermissionHolder } from "@/lib/permissions";
+import { can, canAny, type Permission, type PermissionHolder } from "@/lib/permissions";
 
 /**
  * The admin's left navigation.
@@ -27,6 +27,14 @@ export interface NavItem {
   icon: typeof LayoutDashboard;
   exact?: boolean;
   permission: Permission | null;
+  /**
+   * For a screen more than one unrelated capability can unlock on its own —
+   * Couriers, where managing couriers, entering barcode stock and importing a
+   * delivery report are three different trusts sharing one URL (see
+   * requirePageAccessAny). Takes over from `permission` when set: any one of
+   * these is enough to see the link.
+   */
+  anyPermission?: Permission[];
 }
 
 export const NAV: NavItem[] = [
@@ -34,7 +42,11 @@ export const NAV: NavItem[] = [
   { href: "/admin/orders", label: "Orders", icon: ShoppingBag, permission: "orders.view" },
   { href: "/admin/delivery", label: "Delivery", icon: Truck, permission: "delivery.view" },
   // Under Delivery because it configures that screen: who parcels can go to.
-  { href: "/admin/couriers", label: "Couriers", icon: PackageCheck, permission: "delivery.assign" },
+  {
+    href: "/admin/couriers", label: "Couriers", icon: PackageCheck,
+    permission: null,
+    anyPermission: ["delivery.assign", "delivery.barcodes", "delivery.complete"],
+  },
   // Above Insights on purpose: "how many books are left" is a question asked
   // while packing, not while reviewing figures.
   { href: "/admin/inventory", label: "Stock", icon: Boxes, permission: "inventory.view" },
@@ -63,7 +75,11 @@ export const NAV: NavItem[] = [
   // question rather than to do the day's work.
   { href: "/admin/crm", label: "WhatsApp CRM", icon: Inbox, permission: "crm.view" },
   { href: "/admin/templates", label: "Message templates", icon: MessageSquare, permission: "templates.view" },
-  { href: "/admin/tasks", label: "Tasks", icon: ListChecks, permission: "tasks.view" },
+  {
+    href: "/admin/tasks", label: "Tasks", icon: ListChecks,
+    permission: null,
+    anyPermission: ["tasks.view", "tasks.manage"],
+  },
   // Last on purpose: for an agent it's the only item, and for everyone else
   // it's the screen someone else works in, not part of the owner's daily run.
   { href: "/admin/delivery-portal", label: "Delivery portal", icon: ClipboardCheck, permission: "delivery.portal" },
@@ -71,7 +87,9 @@ export const NAV: NavItem[] = [
 
 /** The screens this person can open. Presentation only — the API routes enforce. */
 export function visibleNav(holder: PermissionHolder): NavItem[] {
-  return NAV.filter((n) => !n.permission || can(holder, n.permission));
+  return NAV.filter((n) =>
+    n.anyPermission ? canAny(holder, n.anyPermission) : !n.permission || can(holder, n.permission)
+  );
 }
 
 /**

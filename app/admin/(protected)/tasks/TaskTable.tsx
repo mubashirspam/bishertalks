@@ -9,6 +9,8 @@ import {
   TASK_STATUS_BADGE,
   TASK_PRIORITY_BADGE,
   TASK_CATEGORY_LABELS,
+  TASK_TRACKING_CATEGORIES,
+  type TaskStatus,
 } from "@/lib/tasks";
 import { formatISTShort, timeAgo } from "@/lib/format-date";
 import type { Task } from "@/lib/db/tasks";
@@ -19,9 +21,29 @@ import type { Staff } from "@/lib/db/staff";
  * the two things done a dozen times a day, and neither should need a trip to
  * the detail page. Everything else (description, history) lives there.
  */
-export default function TaskTable({ tasks, staff }: { tasks: Task[]; staff: Staff[] }) {
+export default function TaskTable({
+  tasks,
+  staff,
+  canManage,
+}: {
+  tasks: Task[];
+  staff: Staff[];
+  /** Full access (tasks.manage) — false makes the Assignee cell read-only:
+   *  every row a tasks.view-only login sees is already their own, and
+   *  reassigning somebody else's work is not theirs to do. */
+  canManage: boolean;
+}) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The one row (if any) mid-change, and which status it's changing to —
+  // every status change asks for a short note before it takes, not just a
+  // solve, so whoever asked for it in the task has something to see beyond
+  // the badge flipping. Opened deliberately, same reasoning as the delivery
+  // portal's Return reason: not a side effect of the select firing.
+  const [changingId, setChangingId] = useState<string | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<TaskStatus | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [trackingDraft, setTrackingDraft] = useState("");
 
   const patch = async (id: string, body: Record<string, unknown>) => {
     setBusyId(id);
@@ -35,6 +57,31 @@ export default function TaskTable({ tasks, staff }: { tasks: Task[]; staff: Staf
     } finally {
       setBusyId(null);
     }
+  };
+
+  const openStatusChange = (t: Task, status: TaskStatus) => {
+    setNoteDraft("");
+    setTrackingDraft(status === "solved" ? (t.resolution_tracking_id ?? "") : "");
+    setPendingStatus(status);
+    setChangingId(t.id);
+  };
+
+  const confirmStatusChange = async (id: string) => {
+    if (!pendingStatus) return;
+    await patch(id, {
+      status: pendingStatus,
+      status_note: noteDraft.trim() || null,
+      ...(pendingStatus === "solved"
+        ? {
+            resolution_note: noteDraft.trim() || null,
+            resolution_tracking_id: trackingDraft.trim() || null,
+          }
+        : {}),
+    });
+    setChangingId(null);
+    setPendingStatus(null);
+    setNoteDraft("");
+    setTrackingDraft("");
   };
 
   if (!tasks.length) {
@@ -103,36 +150,104 @@ export default function TaskTable({ tasks, staff }: { tasks: Task[]; staff: Staf
                   </p>
                 </td>
                 <td className="px-4 py-3">
-                  <select
-                    value={t.status}
-                    disabled={busyId === t.id}
-                    onChange={(e) => patch(t.id, { status: e.target.value })}
-                    className={`${selectBase} ${TASK_STATUS_BADGE[t.status]}`}
-                  >
-                    {TASK_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {TASK_STATUS_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
+                  {changingId === t.id ? (
+                    <div className="bg-neutral-50 border border-neutral-200 rounded-lg p-2 w-56 space-y-1.5">
+                      <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                        {pendingStatus && TASK_STATUS_LABELS[pendingStatus]}
+                      </p>
+                      <input
+                        autoFocus
+                        value={noteDraft}
+                        onChange={(e) => setNoteDraft(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && void confirmStatusChange(t.id)}
+                        placeholder={
+                          pendingStatus === "solved" ? "What fixed it? (optional)" : "Short note (optional)"
+                        }
+                        className="w-full text-[11px] border border-neutral-200 rounded px-1.5 py-1"
+                      />
+                      {pendingStatus === "solved" && (
+                        <input
+                          value={trackingDraft}
+                          onChange={(e) => setTrackingDraft(e.target.value)}
+                          placeholder={
+                            TASK_TRACKING_CATEGORIES.includes(t.category)
+                              ? "Waybill / tracking ID"
+                              : "Tracking ID (optional)"
+                          }
+                          className="w-full text-[11px] border border-neutral-200 rounded px-1.5 py-1 font-mono placeholder:font-sans"
+                        />
+                      )}
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => void confirmStatusChange(t.id)}
+                          disabled={busyId === t.id}
+                          className={`flex-1 text-[10px] font-semibold text-white rounded px-2 py-1 transition-colors disabled:opacity-50 ${
+                            pendingStatus === "solved" ? "bg-green-600 hover:bg-green-700" : "bg-neutral-800 hover:bg-neutral-900"
+                          }`}
+                        >
+                          {busyId === t.id ? "Saving…" : `Update to ${pendingStatus ? TASK_STATUS_LABELS[pendingStatus] : ""}`}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setChangingId(null);
+                            setPendingStatus(null);
+                          }}
+                          disabled={busyId === t.id}
+                          className="text-[10px] text-neutral-500 hover:text-neutral-900 px-1.5 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <select
+                      value={t.status}
+                      disabled={busyId === t.id}
+                      onChange={(e) => openStatusChange(t, e.target.value as TaskStatus)}
+                      className={`${selectBase} ${TASK_STATUS_BADGE[t.status]}`}
+                    >
+                      {TASK_STATUSES.map((s) => (
+                        <option key={s} value={s}>
+                          {TASK_STATUS_LABELS[s]}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {t.status === "solved" && (t.resolution_note || t.resolution_tracking_id) && (
+                    <p className="text-[10px] text-neutral-500 mt-1 max-w-[180px] truncate" title={t.resolution_note ?? ""}>
+                      {t.resolution_note}
+                      {t.resolution_tracking_id && (
+                        <span className="font-mono text-neutral-400">
+                          {t.resolution_note ? " · " : ""}
+                          {t.resolution_tracking_id}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </td>
                 <td className="px-4 py-3 hidden md:table-cell text-xs text-neutral-500 whitespace-nowrap">
                   {TASK_CATEGORY_LABELS[t.category]}
                 </td>
                 <td className="px-4 py-3">
-                  <select
-                    value={t.assigned_to_id ?? ""}
-                    disabled={busyId === t.id}
-                    onChange={(e) => patch(t.id, { assigned_to_id: e.target.value || null })}
-                    className={`${selectBase} bg-white border-neutral-200 text-neutral-700 w-full max-w-[140px]`}
-                  >
-                    <option value="">Unassigned</option>
-                    {staff.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.name}
-                      </option>
-                    ))}
-                  </select>
+                  {canManage ? (
+                    <select
+                      value={t.assigned_to_id ?? ""}
+                      disabled={busyId === t.id}
+                      onChange={(e) => patch(t.id, { assigned_to_id: e.target.value || null })}
+                      className={`${selectBase} bg-white border-neutral-200 text-neutral-700 w-full max-w-[140px]`}
+                    >
+                      <option value="">Unassigned</option>
+                      {staff.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-xs text-neutral-500">
+                      {t.assigned_to_email ?? "Unassigned"}
+                    </span>
+                  )}
                 </td>
                 <td
                   className="px-4 py-3 hidden lg:table-cell text-xs text-neutral-500 whitespace-nowrap"

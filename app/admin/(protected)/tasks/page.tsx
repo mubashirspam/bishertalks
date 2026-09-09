@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import { ListChecks } from "lucide-react";
 import Link from "@/components/admin/AdminLink";
-import { requirePageAccess } from "@/lib/admin-auth";
+import { requirePageAccessAny } from "@/lib/admin-auth";
+import { taskScope } from "@/lib/tasks-scope";
 import { SkeletonHeader, SkeletonTabs, SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
 import { listTasks, taskCounts } from "@/lib/db/tasks";
@@ -26,7 +27,8 @@ export default async function TasksPage({
     page?: string;
   }>;
 }) {
-  await requirePageAccess("tasks.view");
+  const staff = await requirePageAccessAny(["tasks.view", "tasks.manage"]);
+  const scope = taskScope(staff);
   const params = await searchParams;
   const pageNum = Math.max(0, parseInt(params.page ?? "1") - 1);
 
@@ -57,6 +59,8 @@ export default async function TasksPage({
           assignee={params.assignee}
           q={params.q}
           page={pageNum}
+          canManage={scope.seesEveryone}
+          ownStaffId={scope.staffId}
         />
       </Suspense>
     </NavigationPending>
@@ -70,6 +74,8 @@ async function Body({
   assignee,
   q,
   page,
+  canManage,
+  ownStaffId,
 }: {
   status?: string;
   priority?: string;
@@ -77,11 +83,20 @@ async function Body({
   assignee?: string;
   q?: string;
   page: number;
+  /** Full access — create, assign to anyone, see every task (tasks.manage). */
+  canManage: boolean;
+  /** Their own id, when scoped — see lib/tasks-scope.ts. */
+  ownStaffId: string | null;
 }) {
+  // A scoped login's own tasks, whatever the URL says — the assignee filter
+  // is a URL param and proves nothing about who is asking. An unscoped one
+  // reads it as the filter it has always been.
+  const assignedTo = canManage ? assignee : (ownStaffId ?? "none");
+
   const [staff, counts, { rows, count }] = await Promise.all([
     listStaff(),
-    taskCounts(),
-    listTasks({ status, priority, category, assignedTo: assignee, q }, page, PER_PAGE),
+    taskCounts(canManage ? undefined : assignedTo),
+    listTasks({ status, priority, category, assignedTo, q }, page, PER_PAGE),
   ]);
 
   const totalPages = Math.ceil(count / PER_PAGE);
@@ -99,11 +114,11 @@ async function Body({
 
   return (
     <>
-      <NewTaskForm staff={staff} />
-      <TasksFilters counts={counts} staff={staff} />
+      {canManage && <NewTaskForm staff={staff} />}
+      <TasksFilters counts={counts} staff={staff} canManage={canManage} />
 
       <StaleWhileRevalidating>
-        <TaskTable tasks={rows} staff={staff} />
+        <TaskTable tasks={rows} staff={staff} canManage={canManage} />
       </StaleWhileRevalidating>
 
       {totalPages > 1 && (

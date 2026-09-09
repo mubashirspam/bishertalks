@@ -8,19 +8,25 @@
 
 // ── Status ───────────────────────────────────────────────────────────────
 
-export type TaskStatus = "open" | "in_progress" | "solved";
+export type TaskStatus = "open" | "in_progress" | "waiting" | "solved";
 
-export const TASK_STATUSES: TaskStatus[] = ["open", "in_progress", "solved"];
+export const TASK_STATUSES: TaskStatus[] = ["open", "in_progress", "waiting", "solved"];
 
 export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
   open: "Open",
   in_progress: "In progress",
+  // Genuinely stuck on somebody else — the courier, the customer, another
+  // team — not idle and not being worked right now. Distinct from
+  // "in progress" on purpose (0072): the two answer different questions,
+  // "is someone doing this" and "is anyone able to right now".
+  waiting: "Waiting on someone",
   solved: "Solved",
 };
 
 export const TASK_STATUS_BADGE: Record<TaskStatus, string> = {
   open: "bg-amber-50 text-amber-700 border-amber-200",
   in_progress: "bg-blue-50 text-blue-700 border-blue-200",
+  waiting: "bg-purple-50 text-purple-700 border-purple-200",
   solved: "bg-green-50 text-green-700 border-green-200",
 };
 
@@ -114,6 +120,18 @@ export function isTaskCategory(v: unknown): v is TaskCategory {
 export function taskCategory(v: unknown): TaskCategory {
   return isTaskCategory(v) ? v : "other";
 }
+
+/**
+ * Which categories the resolution form leads with a tracking ID box for
+ * (0072) — the common case where "what fixed this" is a waybill or article
+ * number. Not a restriction: the field is on the form for every category,
+ * this only decides whether it's offered first or tucked under "more".
+ */
+export const TASK_TRACKING_CATEGORIES: TaskCategory[] = [
+  "delivery_issue",
+  "marked_delivered_not_received",
+  "tracking_request",
+];
 
 /** The filter bar's status tabs, "All" plus every real status. */
 export const TASK_STATUS_FILTERS: { value: string; label: string }[] = [

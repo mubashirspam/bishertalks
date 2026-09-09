@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getStaffByAuthId, type Staff } from "@/lib/db/staff";
-import { can, landingPage, type Permission, type StaffRole } from "@/lib/permissions";
+import { can, canAny, landingPage, type Permission, type StaffRole } from "@/lib/permissions";
 
 /**
  * Who is making this request.
@@ -19,14 +19,15 @@ export interface CurrentStaff {
   role: StaffRole;
   permissions: string[];
   /**
-   * The delivery partner this login belongs to, or null (0047).
+   * The delivery partners this login belongs to (0071 — a login may now
+   * carry more than one).
    *
    * Carried on the signed-in user because the portal and every delivery route
    * scope on it. Resolved here, from the database, on each request — the same
    * reason `permissions` is not trusted from the session token: an owner
    * moving somebody to another partner expects it on their next click.
    */
-  courier_id: string | null;
+  courier_ids: string[];
 }
 
 /**
@@ -68,7 +69,7 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
       name: staff.name,
       role: staff.role,
       permissions: staff.permissions ?? [],
-      courier_id: staff.courier_id ?? null,
+      courier_ids: staff.courier_ids ?? [],
     };
   }
 
@@ -79,8 +80,8 @@ export const getCurrentStaff = cache(async function getCurrentStaff(): Promise<C
       name: "Owner",
       role: "owner",
       permissions: [],
-      // An owner is not a partner login and is never scoped to one.
-      courier_id: null,
+      // An owner is not a partner login and is never scoped to any.
+      courier_ids: [],
     };
   }
 
@@ -135,6 +136,37 @@ export async function requirePermission(permission: Permission): Promise<AuthRes
 }
 
 /**
+ * The same, for a route two different permissions both open — same reason as
+ * `requirePageAccessAny`: a login with one of two non-overlapping tiers
+ * (tasks.view's own-tasks-only vs tasks.manage's whole board, say) must not
+ * be locked out of the shared route both tiers use, just because it names
+ * one permission and this login holds the other.
+ */
+export async function requirePermissionAny(permissions: Permission[]): Promise<AuthResult> {
+  const staff = await getCurrentStaff();
+
+  if (!staff) {
+    return {
+      ok: false,
+      response: NextResponse.json({ error: "Unauthorized" }, { status: 401 }),
+    };
+  }
+
+  if (!canAny(staff, permissions)) {
+    console.warn(`[Auth] ${staff.email} denied any of ${permissions.join(", ")}`);
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: "You don't have permission to do that." },
+        { status: 403 }
+      ),
+    };
+  }
+
+  return { ok: true, staff };
+}
+
+/**
  * Gate for admin PAGES (server components).
  *
  * Sends someone who lacks the capability to the first screen they can actually
@@ -149,5 +181,23 @@ export async function requirePageAccess(permission: Permission): Promise<Current
   const staff = await getCurrentStaff();
   if (!staff) redirect("/admin/login");
   if (!can(staff, permission)) redirect(landingPage(staff));
+  return staff;
+}
+
+/**
+ * Gate for a page that several unrelated capabilities can each unlock on
+ * their own — the Couriers screen, say, where managing couriers, entering
+ * barcode stock and importing a delivery report are three different trusts
+ * that happen to share one URL. Passes if the signed-in person holds ANY of
+ * them; the page itself decides what each section shows from there, the same
+ * way `requirePageAccess` leaves what to render to the page and only answers
+ * "can they be here at all".
+ */
+export async function requirePageAccessAny(
+  permissions: Permission[]
+): Promise<CurrentStaff> {
+  const staff = await getCurrentStaff();
+  if (!staff) redirect("/admin/login");
+  if (!canAny(staff, permissions)) redirect(landingPage(staff));
   return staff;
 }

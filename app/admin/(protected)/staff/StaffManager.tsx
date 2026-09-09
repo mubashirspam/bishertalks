@@ -17,6 +17,7 @@ import {
   type StaffRole,
 } from "@/lib/permissions";
 import type { Staff } from "@/lib/db/staff";
+import { STOCK_LOCATIONS, STOCK_LOCATION_LABELS } from "@/lib/stock-location";
 import { formatISTShort } from "@/lib/format-date";
 
 interface Draft {
@@ -26,8 +27,10 @@ interface Draft {
   phone: string;
   role: StaffRole;
   permissions: Permission[];
-  /** Which delivery partner this login belongs to. Only read on a delivery role. */
-  courierId: string;
+  /** Which delivery partners this login belongs to (0071). Delivery role only. */
+  courierIds: string[];
+  /** Whose shelf this person's own direct sales draw down. Any role. */
+  stockLocation: string;
 }
 
 const blank = (): Draft => ({
@@ -36,7 +39,8 @@ const blank = (): Draft => ({
   phone: "",
   role: "delivery",
   permissions: [...ROLE_PRESETS.delivery],
-  courierId: "",
+  courierIds: [],
+  stockLocation: "",
 });
 
 export default function StaffManager({
@@ -92,12 +96,17 @@ export default function StaffManager({
           phone: draft.phone,
           role: draft.role,
           permissions: draft.permissions,
-          // Always sent, including as "" — that is how a partner login is
+          // Always sent, including as [] — that is how a partner login is
           // unlinked, and how a delivery account moved to another role stops
-          // carrying a courier it no longer means anything on.
-          courier_id: draft.courierId,
+          // carrying couriers it no longer means anything on.
+          courier_ids: draft.courierIds,
+          stock_location: draft.stockLocation,
         })
-      : await call("POST", draft);
+      : await call("POST", {
+          ...draft,
+          courier_ids: draft.courierIds,
+          stock_location: draft.stockLocation,
+        });
 
     if (!result) return;
     if (result.password) {
@@ -235,7 +244,8 @@ export default function StaffManager({
             ))}
           </div>
 
-          {/* Which partner this login works for.
+          {/* Which partner(s) this login works for (0071 — a login may now
+              carry more than one).
               Only for a delivery role — it is the one role the portal scopes,
               and storing it on a manager would be a value nothing reads. The
               note underneath is not decoration: a delivery login with no
@@ -244,32 +254,66 @@ export default function StaffManager({
               forgot to fill in. */}
           {draft.role === "delivery" && (
             <div className="mb-4">
-              <label
-                htmlFor="staff-courier"
-                className="text-xs font-medium text-neutral-500 mb-1.5 block"
-              >
-                Delivery partner
+              <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+                Delivery partner(s)
               </label>
-              <select
-                id="staff-courier"
-                value={draft.courierId}
-                onChange={(e) => setDraft({ ...draft, courierId: e.target.value })}
-                className={`${field} w-full sm:max-w-sm`}
-              >
-                <option value="">Choose a partner…</option>
+              <div className="flex flex-wrap gap-x-4 gap-y-1.5 border border-neutral-200 rounded-xl px-3 py-2.5 max-w-sm">
                 {couriers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
+                  <label key={c.id} className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={draft.courierIds.includes(c.id)}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          courierIds: e.target.checked
+                            ? [...draft.courierIds, c.id]
+                            : draft.courierIds.filter((id) => id !== c.id),
+                        })
+                      }
+                      className="w-4 h-4 rounded border-neutral-300 accent-primary-500"
+                    />
+                    <span className="text-xs text-neutral-700">{c.name}</span>
+                  </label>
                 ))}
-              </select>
+              </div>
               <p className="text-[11px] text-neutral-500 mt-1.5 leading-snug">
-                {draft.courierId
-                  ? "They'll see this partner's parcels in the delivery portal, and no others."
+                {draft.courierIds.length
+                  ? `They'll see ${draft.courierIds.length === 1 ? "this partner's" : "these partners'"} parcels in the delivery portal, and no others.`
                   : "Until a partner is set, this login will open the portal and see nothing."}
               </p>
             </div>
           )}
+
+          {/* Whose physical shelf this person's own direct sales come off —
+              any role, not only delivery: Ajmal and Mubashir hold stock as
+              whatever role they log in as, not as a partner login. */}
+          <div className="mb-4">
+            <label
+              htmlFor="staff-shelf"
+              className="text-xs font-medium text-neutral-500 mb-1.5 block"
+            >
+              Stock shelf
+            </label>
+            <select
+              id="staff-shelf"
+              value={draft.stockLocation}
+              onChange={(e) => setDraft({ ...draft, stockLocation: e.target.value })}
+              className={`${field} w-full sm:max-w-sm`}
+            >
+              <option value="">Not linked to a shelf</option>
+              {STOCK_LOCATIONS.map((l) => (
+                <option key={l} value={l}>
+                  {STOCK_LOCATION_LABELS[l]}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-neutral-500 mt-1.5 leading-snug">
+              A direct sale this person enters draws down this shelf&apos;s stock
+              on the Inventory page. Leave unset for anyone who doesn&apos;t hold
+              physical books.
+            </p>
+          </div>
 
           {draft.role === "owner" ? (
             <p className="text-xs text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-2.5">
@@ -396,7 +440,8 @@ export default function StaffManager({
                               phone: s.phone ?? "",
                               role: s.role,
                               permissions: s.permissions as Permission[],
-                              courierId: s.courier_id ?? "",
+                              courierIds: s.courier_ids ?? [],
+                              stockLocation: s.stock_location ?? "",
                             })
                           }
                           className="px-2.5 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600 hover:border-neutral-400 transition-colors"

@@ -36,6 +36,12 @@ export const PERMISSIONS = {
   // finishing is another.
   "delivery.complete": "Mark parcels delivered or returned",
 
+  // Split out of delivery.assign — entering India Post article numbers off a
+  // physical booklet is a counter task, and it used to be reachable only by
+  // also granting the power to add, remove and reconfigure couriers. Its own
+  // capability so a staff member can hold the first without the second.
+  "delivery.barcodes": "Log India Post article-number stock",
+
   // The parcel report at /admin/analytics. It used to answer to
   // `delivery.view`, which made it an invisible extra on the delivery queue —
   // grant somebody the queue and they also got every parcel's age, the courier
@@ -87,9 +93,16 @@ export const PERMISSIONS = {
   "crm.consent": "Set or clear a contact's stop flag",
   "crm.campaign": "Create and run bulk campaigns, and use the kill switch",
 
-  // One shared gate rather than a view/manage split — the whole point of the
-  // task board is that anybody on it can open, assign and solve a task.
-  "tasks.view": "Create, assign and solve internal tasks",
+  // Two tiers, not the one shared gate this started as — "anybody on it can
+  // open, assign and solve a task" put a full-access board in front of
+  // whoever was only ever meant to work their own tickets. `tasks.view` is
+  // now the narrow half: see and update the status of tasks assigned to you,
+  // nothing more. `tasks.manage` is everything the single gate used to be —
+  // create, assign to anyone, see the whole board. Not implied by each
+  // other, same as delivery.portal and delivery.assign aren't: an owner
+  // grants whichever one fits the person.
+  "tasks.view": "See and update your own assigned tasks",
+  "tasks.manage": "Create tasks, assign them, and see everyone's",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -103,14 +116,14 @@ export function isPermission(v: string): v is Permission {
 /** Grouping for the staff form — flat checkboxes for twelve items is a wall. */
 export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] = [
   { label: "Orders", permissions: ["orders.view", "orders.edit", "orders.create", "orders.export"] },
-  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal", "delivery.complete", "analytics.view"] },
+  { label: "Delivery", permissions: ["delivery.view", "delivery.print", "delivery.assign", "delivery.portal", "delivery.complete", "delivery.barcodes", "analytics.view"] },
   { label: "Customers", permissions: ["users.view", "users.manage"] },
   { label: "Content", permissions: ["courses.manage", "landing.manage", "promos.manage"] },
   { label: "Stock", permissions: ["inventory.view", "inventory.manage"] },
   { label: "Business", permissions: ["dashboard.view", "insights.view", "reports.view", "expenses.view", "expenses.edit", "referrals.view", "referrals.payout", "staff.manage"] },
   { label: "Reference", permissions: ["templates.view"] },
   { label: "WhatsApp CRM", permissions: ["crm.view", "crm.reply", "crm.consent", "crm.campaign"] },
-  { label: "Tasks", permissions: ["tasks.view"] },
+  { label: "Tasks", permissions: ["tasks.view", "tasks.manage"] },
 ];
 
 // ── Roles ───────────────────────────────────────────────────────────────────
@@ -160,7 +173,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "dashboard.view",
     "orders.view", "orders.edit", "orders.create", "orders.export",
     "delivery.view", "delivery.print", "delivery.assign", "delivery.portal",
-    "delivery.complete", "analytics.view",
+    "delivery.complete", "delivery.barcodes", "analytics.view",
     "users.view", "users.manage",
     "courses.manage", "landing.manage", "promos.manage",
     "inventory.view", "inventory.manage",
@@ -169,7 +182,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     // Not crm.campaign: bulk sending stays with the owner until enough
     // campaigns have run to know what the opt-out rate looks like.
     "crm.view", "crm.reply", "crm.consent",
-    "tasks.view",
+    "tasks.manage",
   ],
 
   // Not delivery.complete: a partner ships and hands over, and the parcel is
@@ -190,7 +203,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     "templates.view",
     // Support answer customers; they do not decide who may be messaged.
     "crm.view", "crm.reply",
-    "tasks.view",
+    "tasks.manage",
   ],
 };
 

@@ -1,7 +1,8 @@
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
-import { requirePermission } from "@/lib/admin-auth";
+import { requirePermissionAny } from "@/lib/admin-auth";
+import { taskScope, mayTouchTask } from "@/lib/tasks-scope";
 import { getStaffById, listStaff } from "@/lib/db/staff";
 import { getTask, updateTask } from "@/lib/db/tasks";
 import { getAuditTrail } from "@/lib/audit";
@@ -16,18 +17,28 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("tasks.view");
+  const auth = await requirePermissionAny(["tasks.view", "tasks.manage"]);
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const task = await getTask(id);
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  // A tasks.view-only login opening a task that isn't theirs gets the same
+  // "not found" a stranger would — not a 403, which would confirm the task
+  // exists and just isn't theirs to see.
+  const scope = taskScope(auth.staff);
+  if (!mayTouchTask(scope, task.assigned_to_id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const [history, staff] = await Promise.all([
     getAuditTrail("task", id, 50),
     listStaff(),
   ]);
-  return NextResponse.json({ task, history, staff });
+  // Carried along so the detail page can hide the controls PATCH would 403
+  // on, rather than offering them and only saying so after a failed save.
+  return NextResponse.json({ task, history, staff, canManage: scope.seesEveryone });
 }
 
 /**
@@ -39,15 +50,38 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requirePermission("tasks.view");
+  const auth = await requirePermissionAny(["tasks.view", "tasks.manage"]);
   if (!auth.ok) return auth.response;
 
   const { id } = await params;
   const existing = await getTask(id);
   if (!existing) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  const scope = taskScope(auth.staff);
+  if (!mayTouchTask(scope, existing.assigned_to_id)) {
+    return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
   const body = await request.json().catch(() => ({}));
   const patch: Parameters<typeof updateTask>[1] = {};
+
+  // A tasks.view-only login works their own task, not the record of it — the
+  // title, category, priority and who it's assigned to are tasks.manage's to
+  // change. Status, and the resolution that goes with a solve, are the job
+  // itself: marking a task in progress or solved, and saying how, is the
+  // whole reason they can see it at all.
+  const SCOPED_KEYS = new Set([
+    "status", "resolution_note", "resolution_tracking_id", "status_note",
+  ]);
+  if (!scope.seesEveryone) {
+    const extraKeys = Object.keys(body).filter((k) => !SCOPED_KEYS.has(k));
+    if (extraKeys.length) {
+      return NextResponse.json(
+        { error: "You can only update the status of your own tasks." },
+        { status: 403 }
+      );
+    }
+  }
 
   if (typeof body.title === "string") {
     const title = body.title.trim();
@@ -74,6 +108,15 @@ export async function PATCH(
       return NextResponse.json({ error: "Unknown status." }, { status: 400 });
     }
     patch.status = body.status;
+  }
+  if (typeof body.status_note === "string" || body.status_note === null) {
+    patch.statusNote = body.status_note;
+  }
+  if (typeof body.resolution_note === "string" || body.resolution_note === null) {
+    patch.resolutionNote = body.resolution_note;
+  }
+  if (typeof body.resolution_tracking_id === "string" || body.resolution_tracking_id === null) {
+    patch.resolutionTrackingId = body.resolution_tracking_id;
   }
 
   // Present in the body at all (including explicit null, which unassigns) —

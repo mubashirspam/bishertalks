@@ -4,6 +4,7 @@ import { getCurrentStaff } from "@/lib/admin-auth";
 import { countUnassignedParcels } from "@/lib/db/delivery-query";
 import { stockWarning } from "@/lib/db/inventory";
 import { urgentTaskCount } from "@/lib/db/tasks";
+import { taskScope } from "@/lib/tasks-scope";
 import { can } from "@/lib/permissions";
 import { hasNavigation } from "@/lib/admin-nav";
 import LogoutButton from "@/components/admin/LogoutButton";
@@ -62,7 +63,8 @@ export default async function AdminLayout({
             permissions={staff.permissions}
             canSeeDelivery={can(staff, "delivery.view")}
             canSeeStock={can(staff, "inventory.view")}
-            canSeeTasks={can(staff, "tasks.view")}
+            canSeeTasks={can(staff, "tasks.view") || can(staff, "tasks.manage")}
+            taskScopeStaffId={taskScope(staff).seesEveryone ? undefined : (staff.id ?? undefined)}
           />
         </Suspense>
       )}
@@ -97,6 +99,7 @@ async function SidebarWithCounts({
   canSeeDelivery,
   canSeeStock,
   canSeeTasks,
+  taskScopeStaffId,
   ...props
 }: {
   email: string;
@@ -106,13 +109,15 @@ async function SidebarWithCounts({
   canSeeDelivery: boolean;
   canSeeStock: boolean;
   canSeeTasks: boolean;
+  /** Undefined for tasks.manage (the whole board); their own id otherwise. */
+  taskScopeStaffId: string | undefined;
 }) {
   // Three reads in parallel rather than in sequence — they answer to
   // different tables and none waits on another.
   const [unassigned, stock, urgentTasks] = await Promise.all([
     canSeeDelivery ? countUnassignedParcels() : Promise.resolve(0),
     canSeeStock ? stockWarning() : Promise.resolve(null),
-    canSeeTasks ? urgentTaskCount() : Promise.resolve(0),
+    canSeeTasks ? urgentTaskCount(taskScopeStaffId) : Promise.resolve(0),
   ]);
 
   return (

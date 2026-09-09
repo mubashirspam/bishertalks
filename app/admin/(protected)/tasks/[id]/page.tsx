@@ -15,6 +15,8 @@ import {
   TASK_PRIORITY_BADGE,
   TASK_CATEGORIES,
   TASK_CATEGORY_LABELS,
+  TASK_TRACKING_CATEGORIES,
+  type TaskStatus,
 } from "@/lib/tasks";
 import type { Task } from "@/lib/db/tasks";
 import type { Staff } from "@/lib/db/staff";
@@ -25,12 +27,22 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<Task | null>(null);
   const [history, setHistory] = useState<AuditRow[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
+  // Full access (tasks.manage) — false hides everything but Status, which is
+  // the one thing a tasks.view-only login's own task lets them change. See
+  // the same split enforced server-side in app/api/admin/tasks/[id]/route.ts.
+  const [canManage, setCanManage] = useState(true);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [descDraft, setDescDraft] = useState("");
   const [editingDesc, setEditingDesc] = useState(false);
+  // Asked for before ANY status change actually takes — same panel as the
+  // table's, and for the same reason (0073): a status flip with nothing said
+  // about it gives whoever's waiting on the task nothing to go on.
+  const [changingStatus, setChangingStatus] = useState<TaskStatus | null>(null);
+  const [noteDraft, setNoteDraft] = useState("");
+  const [trackingDraft, setTrackingDraft] = useState("");
 
   useEffect(() => {
     fetch(`/api/admin/tasks/${id}`)
@@ -47,6 +59,7 @@ export default function TaskDetailPage() {
         setHistory(json.history ?? []);
         setDescDraft(json.task?.description ?? "");
         if (Array.isArray(json.staff)) setStaff(json.staff);
+        if (typeof json.canManage === "boolean") setCanManage(json.canManage);
       })
       .finally(() => setLoading(false));
   }, [id]);
@@ -74,6 +87,27 @@ export default function TaskDetailPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const openStatusChange = (status: TaskStatus) => {
+    setNoteDraft("");
+    setTrackingDraft(status === "solved" ? (task?.resolution_tracking_id ?? "") : "");
+    setChangingStatus(status);
+  };
+
+  const confirmStatusChange = async () => {
+    if (!changingStatus) return;
+    await patch({
+      status: changingStatus,
+      status_note: noteDraft.trim() || null,
+      ...(changingStatus === "solved"
+        ? {
+            resolution_note: noteDraft.trim() || null,
+            resolution_tracking_id: trackingDraft.trim() || null,
+          }
+        : {}),
+    });
+    setChangingStatus(null);
   };
 
   const field =
@@ -147,8 +181,14 @@ export default function TaskDetailPage() {
         )}
 
         {/* Description — click to edit, same "quiet until touched" pattern as
-            the order detail page's editable fields. */}
-        {editingDesc ? (
+            the order detail page's editable fields. Plain text for a
+            tasks.view-only login: the record itself isn't theirs to change,
+            only its status. */}
+        {!canManage ? (
+          <p className="text-sm text-neutral-700 mb-4">
+            {task.description || <span className="text-neutral-400">No description</span>}
+          </p>
+        ) : editingDesc ? (
           <div className="mb-4">
             <textarea
               value={descDraft}
@@ -191,80 +231,147 @@ export default function TaskDetailPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t border-neutral-100">
           <div>
             <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Status</label>
-            <select
-              value={task.status}
-              disabled={saving}
-              onChange={(e) => patch({ status: e.target.value })}
-              className={`${field} w-full cursor-pointer ${TASK_STATUS_BADGE[task.status]}`}
-            >
-              {TASK_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {TASK_STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
+            {changingStatus ? (
+              <div className="bg-neutral-50 border border-neutral-200 rounded-xl p-2.5 space-y-2">
+                <p className="text-[10px] font-semibold text-neutral-500 uppercase tracking-wide">
+                  {TASK_STATUS_LABELS[changingStatus]}
+                </p>
+                <textarea
+                  autoFocus
+                  value={noteDraft}
+                  onChange={(e) => setNoteDraft(e.target.value)}
+                  placeholder={changingStatus === "solved" ? "What fixed it? (optional)" : "Short note (optional)"}
+                  rows={2}
+                  className={`${field} w-full text-xs`}
+                />
+                {changingStatus === "solved" && (
+                  <input
+                    value={trackingDraft}
+                    onChange={(e) => setTrackingDraft(e.target.value)}
+                    placeholder={
+                      TASK_TRACKING_CATEGORIES.includes(task.category)
+                        ? "Waybill / tracking ID"
+                        : "Tracking ID (optional)"
+                    }
+                    className={`${field} w-full text-xs font-mono placeholder:font-sans`}
+                  />
+                )}
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => void confirmStatusChange()}
+                    disabled={saving}
+                    className={`px-3 py-1.5 rounded-lg text-white text-xs font-bold disabled:opacity-60 ${
+                      changingStatus === "solved" ? "bg-green-600 hover:bg-green-700" : "bg-neutral-800 hover:bg-neutral-900"
+                    }`}
+                  >
+                    {saving ? "Saving…" : `Update to ${TASK_STATUS_LABELS[changingStatus]}`}
+                  </button>
+                  <button
+                    onClick={() => setChangingStatus(null)}
+                    disabled={saving}
+                    className="px-3 py-1.5 rounded-lg border border-neutral-200 text-xs text-neutral-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <select
+                value={task.status}
+                disabled={saving}
+                onChange={(e) => openStatusChange(e.target.value as TaskStatus)}
+                className={`${field} w-full cursor-pointer ${TASK_STATUS_BADGE[task.status]}`}
+              >
+                {TASK_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {TASK_STATUS_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            )}
             {task.status === "solved" && task.solved_by_email && (
               <p className="text-[11px] text-neutral-400 mt-1">
                 Solved by {task.solved_by_email}
                 {task.solved_at ? ` · ${formatIST(task.solved_at)}` : ""}
               </p>
             )}
+            {task.status === "solved" && (task.resolution_note || task.resolution_tracking_id) && (
+              <div className="text-xs text-neutral-600 mt-1 bg-green-50 border border-green-100 rounded-lg px-2.5 py-1.5">
+                {task.resolution_note && <p>{task.resolution_note}</p>}
+                {task.resolution_tracking_id && (
+                  <p className="font-mono text-neutral-500 mt-0.5">
+                    {task.resolution_tracking_id}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
 
-          <div>
-            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Assignee</label>
-            <select
-              value={task.assigned_to_id ?? ""}
-              disabled={saving}
-              onChange={(e) => patch({ assigned_to_id: e.target.value || null })}
-              className={`${field} w-full cursor-pointer`}
-            >
-              <option value="">Unassigned</option>
-              {staff.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Category</label>
-            <select
-              value={task.category}
-              disabled={saving}
-              onChange={(e) => patch({ category: e.target.value })}
-              className={`${field} w-full cursor-pointer`}
-            >
-              {TASK_CATEGORIES.map((c) => (
-                <option key={c} value={c}>
-                  {TASK_CATEGORY_LABELS[c]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Priority</label>
-            <div className="flex gap-2">
-              {TASK_PRIORITIES.map((p) => (
-                <button
-                  key={p}
+          {canManage ? (
+            <>
+              <div>
+                <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Assignee</label>
+                <select
+                  value={task.assigned_to_id ?? ""}
                   disabled={saving}
-                  onClick={() => patch({ priority: p })}
-                  className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
-                    task.priority === p
-                      ? p === "urgent"
-                        ? "bg-red-600 text-white border-red-600"
-                        : "bg-neutral-900 text-white border-neutral-900"
-                      : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400"
-                  }`}
+                  onChange={(e) => patch({ assigned_to_id: e.target.value || null })}
+                  className={`${field} w-full cursor-pointer`}
                 >
-                  {TASK_PRIORITY_LABELS[p]}
-                </button>
-              ))}
+                  <option value="">Unassigned</option>
+                  {staff.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Category</label>
+                <select
+                  value={task.category}
+                  disabled={saving}
+                  onChange={(e) => patch({ category: e.target.value })}
+                  className={`${field} w-full cursor-pointer`}
+                >
+                  {TASK_CATEGORIES.map((c) => (
+                    <option key={c} value={c}>
+                      {TASK_CATEGORY_LABELS[c]}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-neutral-500 mb-1.5 block">Priority</label>
+                <div className="flex gap-2">
+                  {TASK_PRIORITIES.map((p) => (
+                    <button
+                      key={p}
+                      disabled={saving}
+                      onClick={() => patch({ priority: p })}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                        task.priority === p
+                          ? p === "urgent"
+                            ? "bg-red-600 text-white border-red-600"
+                            : "bg-neutral-900 text-white border-neutral-900"
+                          : "bg-white text-neutral-600 border-neutral-200 hover:border-neutral-400"
+                      }`}
+                    >
+                      {TASK_PRIORITY_LABELS[p]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div>
+              <p className="text-xs font-medium text-neutral-500 mb-1.5">Assigned to you</p>
+              {task.category && (
+                <p className="text-xs text-neutral-500">{TASK_CATEGORY_LABELS[task.category]}</p>
+              )}
             </div>
-          </div>
+          )}
         </div>
 
         <p className="text-[11px] text-neutral-400 mt-4 pt-4 border-t border-neutral-100">

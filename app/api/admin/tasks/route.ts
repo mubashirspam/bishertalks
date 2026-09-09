@@ -19,7 +19,11 @@ import { notifyCustomerTaskRegistered } from "@/lib/crm/task-notify";
  * them against.
  */
 export async function POST(request: NextRequest) {
-  const auth = await requirePermission("tasks.view");
+  // Creating — and, in the same request, choosing who it goes to — is a
+  // tasks.manage act. tasks.view is the narrower "work what's already
+  // assigned to me" tier and has no create button in the UI; this is the
+  // matching server-side refusal for anyone who reaches the route anyway.
+  const auth = await requirePermission("tasks.manage");
   if (!auth.ok) return auth.response;
 
   const body = await request.json().catch(() => ({}));

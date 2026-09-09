@@ -6,6 +6,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import {
   createStaff,
   updateStaff,
+  setStaffCouriers,
   deleteStaff,
   getStaffById,
   countActiveOwners,
@@ -13,7 +14,8 @@ import {
   generateTempPassword,
 } from "@/lib/db/staff";
 import { STAFF_ROLES, type StaffRole } from "@/lib/permissions";
-import { getCourier } from "@/lib/db/couriers";
+import { listCouriers } from "@/lib/db/couriers";
+import { isStockLocation } from "@/lib/stock-location";
 import { audit } from "@/lib/audit";
 
 const isRole = (v: unknown): v is StaffRole =>
@@ -70,7 +72,8 @@ export async function POST(request: NextRequest) {
     phone: typeof body.phone === "string" ? body.phone.trim() : null,
     role,
     permissions: sanitizePermissions(body.permissions),
-    courierId: await resolveCourier(role, body.courier_id),
+    courierIds: await resolveCouriers(role, body.courier_ids),
+    stockLocation: isStockLocation(body.stock_location) ? body.stock_location : null,
     authUserId: created.user.id,
     createdBy: auth.staff.id,
   });
@@ -95,23 +98,28 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * The delivery partner a login belongs to, checked against the table (0047).
+ * The delivery partners a login belongs to, checked against the table (0071).
  *
- * An id off the wire is not proof of anything, and this one decides which
- * customers' addresses an outside company can read — so it is looked up rather
- * than trusted, and anything that is not a real courier becomes null instead of
- * being stored. Null is safe: a delivery login with no partner sees nothing.
+ * Ids off the wire are not proof of anything, and this decides which
+ * customers' addresses an outside company can read — so every id is looked
+ * up rather than trusted, and anything that is not a real, current courier is
+ * dropped rather than stored. An empty list is safe: a delivery login with no
+ * partner linked sees nothing.
  *
- * Only meaningful on a `delivery` role. Every other role is stored as null, so
- * a manager promoted from a partner account stops carrying a link that nothing
- * would read but everything would have to explain.
+ * Only meaningful on a `delivery` role. Every other role resolves to an empty
+ * list, so a manager promoted from a partner account stops carrying links
+ * that nothing would read but everything would have to explain.
  */
-async function resolveCourier(role: StaffRole, raw: unknown): Promise<string | null> {
-  if (role !== "delivery") return null;
-  const id = typeof raw === "string" ? raw.trim() : "";
-  if (!id) return null;
-  const courier = await getCourier(id);
-  return courier ? courier.id : null;
+async function resolveCouriers(role: StaffRole, raw: unknown): Promise<string[]> {
+  if (role !== "delivery") return [];
+  const ids = Array.isArray(raw)
+    ? [...new Set(raw.filter((v): v is string => typeof v === "string" && !!v.trim()))]
+    : [];
+  if (!ids.length) return [];
+
+  const couriers = await listCouriers();
+  const valid = new Set(couriers.map((c) => c.id));
+  return ids.filter((id) => valid.has(id));
 }
 
 /**
@@ -158,10 +166,20 @@ export async function PATCH(request: NextRequest) {
 
   // Resolved against the role being saved, not the one on the record: a
   // delivery login promoted to manager in the same request must drop its
-  // partner link, and a manager demoted to delivery must be able to gain one.
-  if (body.courier_id !== undefined) {
+  // partner links, and a manager demoted to delivery must be able to gain
+  // some. null means "leave the links alone" — courier_ids is only sent
+  // when the picker actually changed; an empty array is how it clears them.
+  let courierIds: string[] | null = null;
+  if (body.courier_ids !== undefined) {
     const role = isRole(body.role) ? body.role : target.role;
-    patch.courier_id = await resolveCourier(role, body.courier_id);
+    courierIds = await resolveCouriers(role, body.courier_ids);
+    // The legacy single column, kept as "the first one" for display.
+    patch.courier_id = courierIds[0] ?? null;
+  }
+  // Any role may hold physical stock — Ajmal and Mubashir are not partner
+  // logins, so this isn't gated on role the way courier_ids is above.
+  if (body.stock_location !== undefined) {
+    patch.stock_location = isStockLocation(body.stock_location) ? body.stock_location : null;
   }
 
   // The lockout guards. Whoever is last holding the keys keeps them.
@@ -175,15 +193,20 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  const staff = await updateStaff(id, patch);
+  let staff = await updateStaff(id, patch);
   if (!staff) return NextResponse.json({ error: "Update failed" }, { status: 500 });
+
+  if (courierIds !== null) {
+    await setStaffCouriers(id, courierIds);
+    staff = { ...staff, courier_ids: courierIds };
+  }
 
   await audit({
     actor: auth.staff,
     action: "staff.updated",
     entity: "staff",
     entityId: id,
-    meta: patch,
+    meta: { ...patch, ...(courierIds !== null ? { courier_ids: courierIds } : {}) },
   });
 
   return NextResponse.json({ staff });

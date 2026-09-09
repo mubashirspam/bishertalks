@@ -116,12 +116,33 @@ export function describeAudit(row: AuditRow): string {
       return `Razorpay refunded ₹${Math.round(Number(m.refunded_paise ?? 0) / 100)}${
         m.full ? " — the full order" : ` of ₹${Math.round(Number(m.amount_paise ?? 0) / 100)}`
       }`;
+    case "order.cod_collected":
+      return `Cash on delivery collected`;
+    case "order.courier_channel": {
+      const labels: Record<string, string> = {
+        delhivery: "Delhivery",
+        dtdc: "DTDC",
+        trackon: "Trackon",
+        india_post: "India Post",
+      };
+      return `Switched to ${labels[String(m.channel)] ?? m.channel ?? "?"}`;
+    }
+    case "order.reshipped": {
+      const from = m.from_courier ? `${m.from_courier}${m.from_tracking ? ` (${m.from_tracking})` : ""}` : "no courier on record";
+      const to = m.to_courier ? `${m.to_courier}${m.to_tracking ? ` (${m.to_tracking})` : ""}` : "no courier chosen yet";
+      return `Reshipped — was ${from}, now with ${to}`;
+    }
     case "task.created":
       return `Task created: "${m.title ?? "?"}"`;
     case "task.assigned":
       return m.to && m.to !== "nobody" ? `Assigned to ${m.to}` : "Unassigned";
     case "task.status_changed":
-      return `Status changed to ${m.status ?? "?"}`;
+      return `Status changed to ${m.status ?? "?"}${m.note ? ` — ${m.note}` : ""}`;
+    case "task.resolved": {
+      const note = m.note ? `${m.note}` : "";
+      const tracking = m.tracking_id ? ` (tracking: ${m.tracking_id})` : "";
+      return note || tracking ? `Resolution: ${note}${tracking}` : "Resolution cleared";
+    }
     case "task.customer_notified":
       return `Customer notified on WhatsApp`;
     default:
