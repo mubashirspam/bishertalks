@@ -28,6 +28,10 @@ export interface Task {
   assigned_to_email: string | null;
   solved_at: string | null;
   solved_by_email: string | null;
+  /** What actually fixed it, written on solving (0072). Null until then. */
+  resolution_note: string | null;
+  /** The waybill/article number that explains it, where there is one (0072). */
+  resolution_tracking_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -35,7 +39,8 @@ export interface Task {
 const COLUMNS =
   "id, title, description, category, priority, status, order_id, order_number, " +
   "customer_name, customer_phone, created_by_id, created_by_email, " +
-  "assigned_to_id, assigned_to_email, solved_at, solved_by_email, created_at, updated_at";
+  "assigned_to_id, assigned_to_email, solved_at, solved_by_email, " +
+  "resolution_note, resolution_tracking_id, created_at, updated_at";
 
 /**
  * Coerce a raw row into a Task, both for the enum columns and for the row's
@@ -103,22 +108,33 @@ export async function listTasks(
 export interface TaskCounts {
   open: number;
   in_progress: number;
+  waiting: number;
   solved: number;
   /** Unsolved and urgent — the number worth interrupting anyone for. */
   urgent: number;
 }
 
-/** Counts for the tab row and the nav badge. Zeroes on failure — a badge is
+/**
+ * Counts for the tab row and the nav badge. Zeroes on failure — a badge is
  * navigation, and a screen that refuses to render over a failed count is
- * worse than one showing zero. */
-export async function taskCounts(): Promise<TaskCounts> {
-  const counts: TaskCounts = { open: 0, in_progress: 0, solved: 0, urgent: 0 };
+ * worse than one showing zero.
+ *
+ * `assignedTo` narrows every count to one staff id (or "none" for
+ * unassigned) — a scoped, tasks.view-only login gets counts of their own
+ * tasks, not the whole board's. Undefined counts everyone's, as before.
+ */
+export async function taskCounts(assignedTo?: string): Promise<TaskCounts> {
+  const counts: TaskCounts = { open: 0, in_progress: 0, waiting: 0, solved: 0, urgent: 0 };
 
   for (const status of TASK_STATUSES) {
-    const { count, error } = await supabaseAdmin
+    let query = supabaseAdmin
       .from("tasks")
       .select("id", { count: "exact", head: true })
       .eq("status", status);
+    if (assignedTo === "none") query = query.is("assigned_to_id", null);
+    else if (assignedTo) query = query.eq("assigned_to_id", assignedTo);
+
+    const { count, error } = await query;
     if (error) {
       console.error("[Tasks] count failed:", status, error.message);
       continue;
@@ -126,23 +142,38 @@ export async function taskCounts(): Promise<TaskCounts> {
     counts[status] = count ?? 0;
   }
 
-  const { count: urgent } = await supabaseAdmin
+  let urgentQuery = supabaseAdmin
     .from("tasks")
     .select("id", { count: "exact", head: true })
     .eq("priority", "urgent")
     .neq("status", "solved");
+  if (assignedTo === "none") urgentQuery = urgentQuery.is("assigned_to_id", null);
+  else if (assignedTo) urgentQuery = urgentQuery.eq("assigned_to_id", assignedTo);
+
+  const { count: urgent } = await urgentQuery;
   counts.urgent = urgent ?? 0;
 
   return counts;
 }
 
-/** Just the number for the nav badge — one count query, not the whole tab row. */
-export async function urgentTaskCount(): Promise<number> {
-  const { count, error } = await supabaseAdmin
+/**
+ * Just the number for the nav badge — one count query, not the whole tab row.
+ *
+ * `assignedTo` scopes it the same way `taskCounts` does, for a tasks.view-only
+ * login: the sidebar badge should say how many of THEIR tasks are urgent, not
+ * how many exist across a board they cannot even open to see.
+ */
+export async function urgentTaskCount(assignedTo?: string): Promise<number> {
+  let query = supabaseAdmin
     .from("tasks")
     .select("id", { count: "exact", head: true })
     .eq("priority", "urgent")
     .neq("status", "solved");
+
+  if (assignedTo === "none") query = query.is("assigned_to_id", null);
+  else if (assignedTo) query = query.eq("assigned_to_id", assignedTo);
+
+  const { count, error } = await query;
   if (error) {
     console.error("[Tasks] urgent count failed:", error.message);
     return 0;
@@ -229,6 +260,18 @@ export interface UpdateTaskInput {
   /** Explicit null unassigns — undefined leaves it untouched. */
   assignedToId?: string | null;
   assignedToEmail?: string | null;
+  /** What fixed it — asked for alongside status: "solved" (0072). */
+  resolutionNote?: string | null;
+  /** The waybill/article number, where the fix was that specific. */
+  resolutionTrackingId?: string | null;
+  /**
+   * A short note on WHY the status is changing, for any status — not just
+   * solved (0073). Not stored as its own column: it belongs to the moment of
+   * the change, not to the task, so it rides on that change's own
+   * `task.status_changed` audit row instead of overwriting the way a single
+   * "current note" field would. See describeAudit() in lib/audit.ts.
+   */
+  statusNote?: string | null;
 }
 
 /**
@@ -264,7 +307,20 @@ export async function updateTask(
     } else if (patch.status !== "solved" && before.status === "solved") {
       row.solved_at = null;
       row.solved_by_email = null;
+      // Reopening is a fresh attempt — the old resolution no longer explains
+      // a task that is, by definition, not solved. Whoever solves it again
+      // writes a new one rather than leaving a stale answer standing.
+      row.resolution_note = null;
+      row.resolution_tracking_id = null;
     }
+  }
+  // Independent of the status branch above: a resolution can be corrected
+  // after the fact (a better tracking id turns up) without re-triggering the
+  // solved_at stamp, and it can also arrive in the same request as the
+  // status flip to "solved" — the common case, one Confirm click.
+  if (patch.resolutionNote !== undefined) row.resolution_note = patch.resolutionNote || null;
+  if (patch.resolutionTrackingId !== undefined) {
+    row.resolution_tracking_id = patch.resolutionTrackingId || null;
   }
 
   const { data, error } = await supabaseAdmin
@@ -296,7 +352,30 @@ export async function updateTask(
       action: "task.status_changed",
       entity: "task",
       entityId: id,
-      meta: { status: patch.status },
+      meta: {
+        status: patch.status,
+        ...(patch.statusNote?.trim() ? { note: patch.statusNote.trim() } : {}),
+      },
+    });
+  }
+  // Its own row, separate from the status change, so a later correction to
+  // just the note or the tracking id (see the comment above) still leaves a
+  // trace — "task.status_changed" alone would say a solve happened with no
+  // record of what was actually written down.
+  if (
+    (patch.resolutionNote !== undefined && patch.resolutionNote !== before.resolution_note) ||
+    (patch.resolutionTrackingId !== undefined &&
+      patch.resolutionTrackingId !== before.resolution_tracking_id)
+  ) {
+    await audit({
+      actor: staff,
+      action: "task.resolved",
+      entity: "task",
+      entityId: id,
+      meta: {
+        note: task.resolution_note,
+        tracking_id: task.resolution_tracking_id,
+      },
     });
   }
 
