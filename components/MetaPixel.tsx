@@ -2,6 +2,7 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
+import { pixelIdFor, resolveVisitorPixelAccount } from "@/lib/pixel";
 
 declare global {
   interface Window {
@@ -19,6 +20,12 @@ declare global {
  *
  * The initial PageView comes from the inline script in the layout's <head>;
  * this only covers the ones after it.
+ *
+ * Reported with `trackSingle`, to whichever account resolveVisitorPixelAccount
+ * says this visitor belongs to — not a blanket `track` into both. A visitor
+ * navigating from /neuro-code-b to the shared checkout still belongs to
+ * Account B even though the URL no longer says so; that function is what
+ * remembers.
  */
 export default function MetaPixelRouteTracker() {
   const pathname = usePathname();
@@ -30,7 +37,7 @@ export default function MetaPixelRouteTracker() {
       isFirstRender.current = false;
       return;
     }
-    window.fbq?.("track", "PageView");
+    window.fbq?.("trackSingle", pixelIdFor(resolveVisitorPixelAccount()), "PageView");
   }, [pathname]);
 
   return null;

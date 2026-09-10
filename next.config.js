@@ -1,6 +1,19 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   /**
+   * Ad Account B's own landing URL — the same page, word for word, served at
+   * a second address so its pixel (lib/pixel.ts) never shares traffic with
+   * Account A's. A rewrite rather than a second page.tsx: the browser's URL
+   * bar and Meta's pixel both see /neuro-code-b (attribution is read from the
+   * real request path in proxy.ts, which runs before this rewrite applies),
+   * while Next.js renders the one page — so the two URLs can never drift
+   * apart in copy, pricing or content.
+   */
+  async rewrites() {
+    return [{ source: '/neuro-code-b', destination: '/neuro-code' }]
+  },
+
+  /**
    * Ship the label fonts with the functions that read them.
    *
    * `public/` is served by the CDN; it is NOT part of a serverless function's

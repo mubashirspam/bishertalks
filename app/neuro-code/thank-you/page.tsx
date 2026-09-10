@@ -9,8 +9,16 @@ import ReferralShare from "@/components/ReferralShare";
 import PurchaseTracking from "@/components/PurchaseTracking";
 import { getReferrerForOrder, getReferralSettings } from "@/lib/db/referrals";
 import { PREORDER_DELIVERY_RANGE } from "@/lib/preorder";
+import { pixelAccountForPath } from "@/lib/pixel";
 
-async function getOrder(id: string): Promise<Order | null> {
+/**
+ * `select("*")` already returns `landing_path` — it's a real column
+ * (lib/attribution.ts, attributionColumns()) — but it isn't part of the
+ * shared `Order` type, which other callers don't select it through. Widened
+ * locally rather than added there, matching how the rest of this codebase
+ * types a query by what it actually asked for.
+ */
+async function getOrder(id: string): Promise<(Order & { landing_path: string | null }) | null> {
   const { data } = await supabaseAdmin
     .from("orders")
     .select("*")
@@ -85,7 +93,11 @@ export default async function ThankYouPage({
       {/* Reports the sale to Meta and Google Analytics. Deduplicated on the
           order number, so a reload doesn't inflate what the campaign appears
           to have earned. */}
-      <PurchaseTracking orderNumber={order.order_number} amountRupees={amount} />
+      <PurchaseTracking
+        orderNumber={order.order_number}
+        amountRupees={amount}
+        pixelAccount={pixelAccountForPath(order.landing_path)}
+      />
       <div className="w-full max-w-md">
         {/* Success icon */}
         <div className="flex justify-center mb-6">

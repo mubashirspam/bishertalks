@@ -4,24 +4,8 @@ import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
 import MetaPixelRouteTracker from "@/components/MetaPixel";
 import GoogleAnalyticsRouteTracker from "@/components/GoogleAnalytics";
-
-/**
- * Meta Pixel IDs.
- *
- * Comma-separated, so a second ad account can track the same site alongside
- * the first: `fbq('init', ...)` is called once per ID and a plain
- * `fbq('track', ...)` then reports every event into all of them. Hardcoded
- * default so it works without extra Vercel config, overridable by env, and off
- * in development.
- */
-const META_PIXEL_IDS = (
-  process.env.NODE_ENV === "production"
-    ? process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID || "1059545799769579"
-    : process.env.NEXT_PUBLIC_FACEBOOK_PIXEL_ID || ""
-)
-  .split(",")
-  .map((id) => id.trim())
-  .filter(Boolean);
+import { ALL_PIXEL_IDS, ACCOUNT_B_PATH, pixelIdFor } from "@/lib/pixel";
+import { ATTR_FIRST_COOKIE } from "@/lib/attribution";
 
 /**
  * Google tag IDs.
@@ -337,9 +321,24 @@ export default function RootLayout({
             afterInteractive inline script isn't in the served HTML at all —
             it only appears once React hydrates, which is impossible to verify
             and silently drops the PageView for anyone who leaves early. This
-            is Meta's snippet verbatim; it loads fbevents.js asynchronously, so
-            it doesn't block rendering. */}
-        {META_PIXEL_IDS.length > 0 && (
+            is Meta's snippet verbatim except the last line: both accounts'
+            pixels are initialised (fbq('init', ...) per id, unchanged), but
+            the PageView itself goes to exactly one of them via trackSingle —
+            see lib/pixel.ts for why a plain fbq('track', ...) here is the bug
+            this whole file exists to fix.
+
+            Which account is decided in vanilla JS, not on the server: this
+            layout wraps every route including static ones (privacy policy,
+            terms, the homepage), and reading the request's headers or
+            cookies here to resolve it server-side would force every one of
+            those to render dynamically just to serve this one funnel. The
+            browser already carries everything the decision needs — the
+            current path, and the first-touch cookie proxy.ts set on
+            whichever page this visitor actually landed on — including on a
+            visitor's very first hit: a Set-Cookie header lands in the
+            browser's cookie jar before the document's own inline scripts
+            run, so it's already readable here even on that first request. */}
+        {ALL_PIXEL_IDS.length > 0 && (
           <script
             dangerouslySetInnerHTML={{
               __html: `!function(f,b,e,v,n,t,s)
@@ -350,8 +349,20 @@ n.queue=[];t=b.createElement(e);t.async=!0;
 t.src=v;s=b.getElementsByTagName(e)[0];
 s.parentNode.insertBefore(t,s)}(window, document,'script',
 'https://connect.facebook.net/en_US/fbevents.js');
-${META_PIXEL_IDS.map((id) => `fbq('init', '${id}');`).join("\n")}
-fbq('track', 'PageView');`,
+${ALL_PIXEL_IDS.map((id) => `fbq('init', '${id}');`).join("\n")}
+(function(){
+  var A='${pixelIdFor("a")}',B='${pixelIdFor("b")}';
+  function account(){
+    if(location.pathname.indexOf('${ACCOUNT_B_PATH}')===0)return'b';
+    try{
+      var m=document.cookie.match(/(?:^|; )${ATTR_FIRST_COOKIE}=([^;]*)/);
+      if(!m)return'a';
+      var a=JSON.parse(decodeURIComponent(m[1]));
+      return(a&&a.landing_path&&a.landing_path.indexOf('${ACCOUNT_B_PATH}')===0)?'b':'a';
+    }catch(e){return'a'}
+  }
+  fbq('trackSingle',account()==='b'?B:A,'PageView');
+})();`,
             }}
           />
         )}
@@ -381,18 +392,25 @@ ${GOOGLE_TAG_IDS.map((id) => `gtag('config', '${id}');`).join("\n")}`,
           {/* Ad tracking. Left out of development on purpose — otherwise every
               `npm run dev` page load fires a real PageView into the live pixel,
               which quietly poisons the audience and conversion data the ads are
-              optimised against. Override with NEXT_PUBLIC_FACEBOOK_PIXEL_ID if
-              you ever need to test it locally. */}
+              optimised against. Override with NEXT_PUBLIC_META_PIXEL_ID_A /
+              _B if you ever need to test it locally. */}
           {/* Counts the navigations gtag.js can't see on its own — this is a
               single-page app, so only the first page load is a real document
               load. Safe to mount whenever a tag is configured; it does nothing
               until gtag exists. */}
           {GOOGLE_TAG_IDS.length > 0 && <GoogleAnalyticsRouteTracker />}
-          {META_PIXEL_IDS.length > 0 && (
+          {ALL_PIXEL_IDS.length > 0 && (
             <>
               <MetaPixelRouteTracker />
+              {/* No JS here, so no way to run the account check above — this
+                  one fallback still reports to both accounts, same as before
+                  this file's fix. Accepted rather than solved: a no-JS
+                  visitor is a rounding error next to what this fix is for,
+                  and the only way to resolve it correctly server-side would
+                  cost every static page on the site its static rendering
+                  (see the note on the script above). */}
               <noscript>
-                {META_PIXEL_IDS.map((id) => (
+                {ALL_PIXEL_IDS.map((id) => (
                   /* eslint-disable-next-line @next/next/no-img-element */
                   <img
                     key={id}
