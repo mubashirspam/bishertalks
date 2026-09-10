@@ -1,8 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { Link2, Copy, Check, QrCode, Download } from "lucide-react";
 import { TRAFFIC_SOURCES, SOURCE_LABELS } from "@/lib/attribution";
+
+/** window.location.origin never changes once a page has loaded — nothing to
+ * subscribe to, just a value that differs between server and browser. */
+const noSubscription = () => () => {};
+const getOrigin = () => window.location.origin;
+const getServerOrigin = () => "https://bishertalks.com";
 
 const PAGES = [
   { label: "Book landing page", path: "/neuro-code" },
@@ -65,8 +71,16 @@ export default function LinkBuilder() {
   const isReferral = channel === "referral";
   const isQr = channel === "qr";
 
-  const origin =
-    typeof window !== "undefined" ? window.location.origin : "https://bishertalks.com";
+  // Not a plain `typeof window !== "undefined" ? ... : ...` in render — that
+  // reads as "https://bishertalks.com" on the server and the browser's real
+  // origin on the client's very first render, two different strings for the
+  // same paint, which is exactly what trips a hydration mismatch.
+  // useSyncExternalStore is what React actually has for this: it forces the
+  // client's first render to match the server's snapshot, then swaps in the
+  // real one (localhost in dev, the actual host in a preview deploy) right
+  // after — unnoticeable for a link nobody copies before the page has
+  // finished loading.
+  const origin = useSyncExternalStore(noSubscription, getOrigin, getServerOrigin);
 
   // Slugified so "Aug reel 2" and "aug-reel-2" don't become two rows in the
   // campaign report.
