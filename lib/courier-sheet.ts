@@ -145,17 +145,85 @@ export interface ParcelSize {
  * grows both in step. Every carrier here charges the higher of the two, so it
  * is always the real weight.
  */
-export function parcelSize(quantity: number, isGift = false): ParcelSize {
+/**
+ * A courier's own declared size for one book, overriding the measured default
+ * in COURIER_DEFAULTS. Every field optional: a courier missing one just keeps
+ * the default for that field, not a zeroed-out parcel.
+ *
+ * Per book, same model as COURIER_DEFAULTS — length and breadth are the flat
+ * of the parcel and do not grow with quantity, weight and height do.
+ */
+export interface ParcelDimensionOverrides {
+  weightPerBookGrams?: number;
+  giftWrapGrams?: number;
+  lengthCm?: number;
+  breadthCm?: number;
+  heightPerBookCm?: number;
+}
+
+export function parcelSize(
+  quantity: number,
+  isGift = false,
+  overrides?: ParcelDimensionOverrides | null
+): ParcelSize {
   const d = COURIER_DEFAULTS;
   const books = Math.max(1, quantity || 1);
 
+  const weightPerBookGrams = overrides?.weightPerBookGrams ?? d.weightPerBookGrams;
+  const giftWrapGrams = overrides?.giftWrapGrams ?? d.giftWrapGrams;
+  const lengthCm = overrides?.lengthCm ?? d.lengthCm;
+  const breadthCm = overrides?.breadthCm ?? d.breadthCm;
+  const heightPerBookCm = overrides?.heightPerBookCm ?? d.heightPerBookCm;
+
   return {
-    weightGrams: d.weightPerBookGrams * books + (isGift ? d.giftWrapGrams : 0),
-    lengthCm: d.lengthCm,
-    breadthCm: d.breadthCm,
+    weightGrams: weightPerBookGrams * books + (isGift ? giftWrapGrams : 0),
+    lengthCm,
+    breadthCm,
     // Rounded to a millimetre: 2.5 per book is exact, but a carrier's form
     // taking three decimals of a centimetre is a form we filled in wrong.
-    heightCm: Math.round(d.heightPerBookCm * books * 10) / 10,
+    heightCm: Math.round(heightPerBookCm * books * 10) / 10,
+  };
+}
+
+/**
+ * A courier's dimension config, exactly as stored — see CourierConfig in
+ * lib/couriers/types.ts. Strings, like every other config field on that row,
+ * so this file (deliberately dependency-free — see the header note) never
+ * needs to import a numeric-parsing helper from elsewhere.
+ */
+export interface CourierDimensionConfig {
+  weight_grams?: string;
+  gift_wrap_grams?: string;
+  length_cm?: string;
+  breadth_cm?: string;
+  height_cm?: string;
+}
+
+/** A config value that parses as a positive number, or undefined to fall
+ * back to the measured default — never zero or negative, which is not a
+ * parcel anybody could actually ship. */
+function positiveNumber(v: string | undefined): number | undefined {
+  const n = Number(v);
+  return v && Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
+ * A courier's config, read as the overrides `parcelSize` understands.
+ *
+ * One place for this conversion so the download sheet, the live Delhivery
+ * API push, and both couriers' freight-price lookups all read the same
+ * declared parcel for the same courier — see COURIER_DEFAULTS above for why
+ * that agreement matters.
+ */
+export function dimensionOverridesFromConfig(
+  config?: CourierDimensionConfig | null
+): ParcelDimensionOverrides {
+  return {
+    weightPerBookGrams: positiveNumber(config?.weight_grams),
+    giftWrapGrams: positiveNumber(config?.gift_wrap_grams),
+    lengthCm: positiveNumber(config?.length_cm),
+    breadthCm: positiveNumber(config?.breadth_cm),
+    heightPerBookCm: positiveNumber(config?.height_cm),
   };
 }
 
@@ -303,12 +371,16 @@ export function courierAddress(p: CourierParcel): string {
  * the accepted sheet stores them. Anything we don't have is an empty string,
  * which the writer leaves as a genuinely empty cell rather than "".
  */
-export function courierSheetRow(p: CourierParcel, reference: string): unknown[] {
+export function courierSheetRow(
+  p: CourierParcel,
+  reference: string,
+  dimensions?: ParcelDimensionOverrides | null
+): unknown[] {
   const d = COURIER_DEFAULTS;
   const mobile = phoneDigits(p.buyer_phone);
   const pincode = (p.pincode ?? "").replace(/\D/g, "");
   const books = Math.max(1, p.quantity || 1);
-  const size = parcelSize(books, !!p.is_gift);
+  const size = parcelSize(books, !!p.is_gift, dimensions);
 
   return [
     "",                                   // Waybill — the courier fills this in
@@ -361,10 +433,17 @@ export function buildCourierSheet(
    * an owner can tick parcels routed to two different partners, and the code
    * has to follow the parcel rather than the file it happens to be in.
    */
-  codeFor: (parcel: CourierParcel) => string = () => "BISH"
+  codeFor: (parcel: CourierParcel) => string = () => "BISH",
+  /**
+   * This parcel's courier's declared weight and dimensions. A callback for
+   * the same reason `codeFor` is: a sheet can carry two partners' parcels, and
+   * each one declares its own size, not whichever courier the file is named
+   * after.
+   */
+  dimsFor: (parcel: CourierParcel) => ParcelDimensionOverrides | null | undefined = () => undefined
 ): { rows: unknown[][]; references: string[] } {
   const references = assignReferences(parcels, existing, codeFor);
-  const rows = parcels.map((p, i) => courierSheetRow(p, references[i]));
+  const rows = parcels.map((p, i) => courierSheetRow(p, references[i], dimsFor(p)));
 
   return { rows, references };
 }

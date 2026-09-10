@@ -16,6 +16,8 @@
  * `client` is documented as optional too.
  */
 
+import { dimensionOverridesFromConfig, type ParcelDimensionOverrides } from "@/lib/courier-sheet";
+
 export type DelhiveryEnv = "staging" | "production";
 
 const BASES: Record<DelhiveryEnv, string> = {
@@ -66,6 +68,10 @@ export interface DelhiverySettings {
   hsnCode?: string;
   /** "Surface" or "Express". */
   shippingMode: string;
+  /** This courier's own declared weight/dimensions, where set — see
+   * dimensionOverridesFromConfig. Empty fields fall back to the measured book
+   * default, same as the download sheet. */
+  dimensions: ParcelDimensionOverrides;
 }
 
 export interface CourierConfigShape {
@@ -76,6 +82,11 @@ export interface CourierConfigShape {
   pickup_address?: string;
   client_name?: string;
   mode?: string;
+  weight_grams?: string;
+  gift_wrap_grams?: string;
+  length_cm?: string;
+  breadth_cm?: string;
+  height_cm?: string;
 }
 
 /**
@@ -120,6 +131,7 @@ export function delhiveryReadiness(courierConfig: CourierConfigShape): {
       sellerGstTin: process.env.DELHIVERY_SELLER_GST || undefined,
       hsnCode: process.env.DELHIVERY_HSN_CODE || undefined,
       shippingMode: courierConfig.mode === "express" ? "Express" : "Surface",
+      dimensions: dimensionOverridesFromConfig(courierConfig),
     },
   };
 }

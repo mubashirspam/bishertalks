@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
 
   for (const row of rows) {
     const pin = (row.pincode ?? "").replace(/\D/g, "");
-    const grams = parcelGrams(row.quantity);
+    const grams = parcelGrams(row.quantity, false, settings.dimensions);
     const key = `${pin}:${grams}`;
 
     if (!quotes.has(key)) {

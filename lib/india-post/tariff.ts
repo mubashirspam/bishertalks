@@ -1,6 +1,7 @@
 import { indiaPostRequest } from "./client";
 import { ENDPOINTS, type IndiaPostSettings } from "./config";
 import { postalParcel } from "./parcel";
+import type { ParcelDimensionOverrides } from "@/lib/courier-sheet";
 
 /**
  * What India Post will charge for a parcel.
@@ -55,9 +56,11 @@ export async function quote(
     destinationPincode: string;
     /** Declared value, in rupees, if the parcel is being insured. */
     insureRupees?: number;
+    /** This courier's own declared weight/dimensions, where set. */
+    dimensions?: ParcelDimensionOverrides | null;
   }
 ): Promise<PostalTariff | null> {
-  const parcel = postalParcel(input.quantity, input.isGift);
+  const parcel = postalParcel(input.quantity, input.isGift, input.dimensions);
 
   const source = input.sourcePincode.replace(/\D/g, "");
   const destination = input.destinationPincode.replace(/\D/g, "");

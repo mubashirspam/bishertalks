@@ -192,5 +192,19 @@ function cleanConfig(raw: unknown): Record<string, string> {
     const value = source[key];
     if (typeof value === "string" && value.trim()) out[key] = value.trim().slice(0, 200);
   }
+
+  // This courier's own declared weight/dimensions (see CourierConfig). Kept
+  // only when it parses as a positive number — a stray letter or a zero is
+  // not a parcel anybody could ship, and dimensionOverridesFromConfig()
+  // would silently ignore it anyway, so refusing it here is the same rule
+  // applied where the mistake is actually made.
+  for (const key of ["weight_grams", "gift_wrap_grams", "length_cm", "breadth_cm", "height_cm"]) {
+    const value = source[key];
+    const n = typeof value === "string" ? Number(value.trim()) : NaN;
+    if (typeof value === "string" && value.trim() && Number.isFinite(n) && n > 0) {
+      out[key] = value.trim();
+    }
+  }
+
   return out;
 }

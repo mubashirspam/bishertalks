@@ -17,6 +17,7 @@ import {
   buildCourierSheet,
   assignReferences,
   referenceCandidates,
+  dimensionOverridesFromConfig,
   COURIER_SHEET_HEADERS,
   COURIER_SHEET_MAX,
 } from "@/lib/courier-sheet";
@@ -123,6 +124,11 @@ export async function POST(request: NextRequest) {
     (c) => routedTo.has(c.id) && c.config?.tracking === "india-post"
   );
 
+  // One India Post file is always one partner's account (see the check below),
+  // so this is a single declared size for the whole batch — not per row, the
+  // way the mixed-partner Delhivery sheet needs.
+  const postalDims = postalCourier ? dimensionOverridesFromConfig(postalCourier.config) : null;
+
   let parcels;
   try {
     parcels = postalCourier
@@ -202,7 +208,7 @@ export async function POST(request: NextRequest) {
     // after this, and every parcel here is expected to be without one.
     const problemFor = new Map<string, string[]>();
     for (const p of parcels) {
-      const problems = articleProblems(p as PostalParcel).filter(
+      const problems = articleProblems(p as PostalParcel, postalDims).filter(
         (x) => x !== "no article number"
       );
       if (problems.length) problemFor.set(p.order_number, problems);
@@ -335,7 +341,10 @@ export async function POST(request: NextRequest) {
 
     const sheets = buildPostalWorkbook(
       parcels.map((p) => ({ ...p, postal_barcode: barcodes.get(p.order_number) ?? "" })),
-      refFor
+      refFor,
+      undefined,
+      undefined,
+      postalDims
     );
     const file = toXLSXWorkbook(sheets);
     const filename = `india-post-${istToday()}-${parcels.length}.xlsx`;
@@ -377,7 +386,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not check reference numbers" }, { status: 500 });
   }
 
-  const { rows, references } = buildCourierSheet(parcels, taken, codeFor);
+  const dimsFor = (p: { courier_id?: string | null }) =>
+    dimensionOverridesFromConfig(couriers.find((c) => c.id === p.courier_id)?.config);
+
+  const { rows, references } = buildCourierSheet(parcels, taken, codeFor, dimsFor);
   const onSheet = parcels.map((p) => p.order_number);
 
   let confirmed: string[];

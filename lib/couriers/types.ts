@@ -133,6 +133,24 @@ export interface CourierConfig {
   contract_id?: string;
 
   /**
+   * This courier's own declared parcel size, per book — overriding the
+   * measured default in COURIER_DEFAULTS (lib/courier-sheet.ts).
+   *
+   * Every field optional and stored as a string, like the rest of this
+   * config: empty falls back to the default for that field alone, not a
+   * zeroed-out parcel. Read wherever a weight or dimension is declared to
+   * this courier — the download sheet, the live Delhivery API push, and
+   * both couriers' freight-price lookups — so what's on the file, what's
+   * sent, and what's billed can never disagree for the same courier. See
+   * dimensionOverridesFromConfig().
+   */
+  weight_grams?: string;
+  gift_wrap_grams?: string;
+  length_cm?: string;
+  breadth_cm?: string;
+  height_cm?: string;
+
+  /**
    * Refuse to route a parcel this courier demonstrably cannot deliver.
    *
    * Off everywhere by default, and deliberately so. The normal behaviour is to

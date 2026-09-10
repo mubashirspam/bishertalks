@@ -1,4 +1,4 @@
-import { parcelSize, type ParcelSize } from "@/lib/courier-sheet";
+import { parcelSize, type ParcelSize, type ParcelDimensionOverrides } from "@/lib/courier-sheet";
 
 /**
  * What India Post calls the thing we are posting.
@@ -98,14 +98,15 @@ export function bandFailures(type: ArticleType, size: ParcelSize): string[] {
  */
 export function postalParcel(
   quantity: number,
-  isGift = false
+  isGift = false,
+  overrides?: ParcelDimensionOverrides | null
 ): ParcelSize & {
   articleType: ArticleType;
   shape: "DOC" | "NROL" | "ROL";
   /** Empty when the parcel fits the band their weight rule assigns it. */
   problems: string[];
 } {
-  const size = parcelSize(quantity, isGift);
+  const size = parcelSize(quantity, isGift, overrides);
   const articleType = articleTypeFor(size.weightGrams);
 
   return {

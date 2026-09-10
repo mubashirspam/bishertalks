@@ -92,7 +92,7 @@ interface CreateResponse {
 function shipment(parcel: CourierParcel, settings: DelhiverySettings) {
   const d = COURIER_DEFAULTS;
   const books = Math.max(1, parcel.quantity || 1);
-  const size = parcelSize(books, !!parcel.is_gift);
+  const size = parcelSize(books, !!parcel.is_gift, settings.dimensions);
   const mobile = phoneDigits(parcel.buyer_phone);
 
   return {

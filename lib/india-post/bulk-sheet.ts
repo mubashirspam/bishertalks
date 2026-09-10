@@ -5,6 +5,7 @@ import {
   phoneDigits,
   courierAddress,
   type CourierParcel,
+  type ParcelDimensionOverrides,
 } from "@/lib/courier-sheet";
 
 /**
@@ -659,11 +660,12 @@ export function articleRow(
   serialNumber: number,
   reference: string,
   sender: PostalSender,
-  office: BookingOffice
+  office: BookingOffice,
+  dimensions?: ParcelDimensionOverrides | null
 ): unknown[] {
   const d = POSTAL_SHEET_DEFAULTS;
   const books = Math.max(1, p.quantity || 1);
-  const size = parcelSize(books, !!p.is_gift);
+  const size = parcelSize(books, !!p.is_gift, dimensions);
   const mobile = phoneDigits(p.buyer_phone);
   const pincode = (p.pincode ?? "").replace(/\D/g, "");
 
@@ -783,9 +785,12 @@ export function senderProblems(sender: PostalSender = postalSenderFromEnv()): st
  * file and out of the batch, rather than refusing the download — see the note
  * in the courier-sheet route. Sender-wide problems are senderProblems().
  */
-export function articleProblems(p: PostalParcel): string[] {
+export function articleProblems(
+  p: PostalParcel,
+  dimensions?: ParcelDimensionOverrides | null
+): string[] {
   const problems: string[] = [];
-  const size = parcelSize(Math.max(1, p.quantity || 1), !!p.is_gift);
+  const size = parcelSize(Math.max(1, p.quantity || 1), !!p.is_gift, dimensions);
 
   if (!p.postal_barcode) problems.push("no article number");
   if (!(p.buyer_name ?? "").trim()) problems.push("no name");
@@ -832,10 +837,20 @@ export function buildPostalWorkbook(
   parcels: PostalParcel[],
   references: Map<string, string>,
   sender: PostalSender = postalSenderFromEnv(),
-  office: BookingOffice = bookingOfficeFromEnv()
+  office: BookingOffice = bookingOfficeFromEnv(),
+  /** This courier's own declared weight/dimensions — one India Post file is
+   * always one partner's account, so this is a single value, not per-row. */
+  dimensions?: ParcelDimensionOverrides | null
 ): XLSXSheet[] {
   const rows = parcels.map((p, i) =>
-    articleRow(p, i + 1, references.get(p.order_number) ?? p.order_number, sender, office)
+    articleRow(
+      p,
+      i + 1,
+      references.get(p.order_number) ?? p.order_number,
+      sender,
+      office,
+      dimensions
+    )
   );
 
   return [
