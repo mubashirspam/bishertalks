@@ -28,7 +28,7 @@ const FORWARDED = ["utm_source", "utm_medium", "utm_campaign", "utm_content"];
  * into an open redirect, and an open redirect on a domain customers trust is
  * a phishing tool.
  */
-const DESTINATIONS = ["/neuro-code", "/neuro-code/checkout", "/", "/courses"];
+const DESTINATIONS = ["/neuro-code", "/neuro-code-b", "/neuro-code/checkout", "/", "/courses"];
 const DEFAULT_DESTINATION = "/neuro-code";
 
 export async function GET(

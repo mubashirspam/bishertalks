@@ -6,6 +6,11 @@ import { TRAFFIC_SOURCES, SOURCE_LABELS } from "@/lib/attribution";
 
 const PAGES = [
   { label: "Book landing page", path: "/neuro-code" },
+  // Same page, word for word (next.config.js rewrites it to /neuro-code) —
+  // it exists only so Ad Account B's Meta pixel never shares traffic with
+  // Account A's. Only put a link on this one if it's actually going toward
+  // Account B's own audience or reporting; anything else belongs above.
+  { label: "Book landing page — Ad Account B", path: "/neuro-code-b" },
   { label: "Checkout (straight to buy)", path: "/neuro-code/checkout" },
   { label: "Home", path: "/" },
   { label: "Courses", path: "/courses" },
