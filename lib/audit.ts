@@ -127,6 +127,10 @@ export function describeAudit(row: AuditRow): string {
       };
       return `Switched to ${labels[String(m.channel)] ?? m.channel ?? "?"}`;
     }
+    case "pincode.override":
+      return m.override === null
+        ? "Override cleared — back to the computed answer"
+        : `Pinned as ${m.override ? "Delhivery-ready" : "not Delhivery-ready"}${m.reason ? ` — ${m.reason}` : ""}`;
     case "order.courier_rejected": {
       const pincodeFlag = m.reason_code === "pincode_not_serviceable" ? " (pincode marked not serviceable)" : "";
       return `Declined by ${m.courier_name ?? "the courier"}${m.reason ? ` — ${m.reason}` : ""}${pincodeFlag} — back to unassigned`;

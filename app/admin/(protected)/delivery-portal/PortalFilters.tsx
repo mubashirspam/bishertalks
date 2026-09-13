@@ -17,7 +17,7 @@ import {
 } from "@/lib/db/delivery-portal";
 
 /** How stale a parcel is allowed to be before the Late filter calls it out. */
-const LATE_THRESHOLDS = [10, 15] as const;
+const LATE_THRESHOLDS = [5, 10, 15] as const;
 import { HANDOVER_CHIPS, HANDOVER_LABELS } from "@/lib/delivery/handover";
 import { DELIVERY_MODES, DELIVERY_MODE_LABELS } from "@/lib/delivery-mode";
 
@@ -25,31 +25,23 @@ import { DELIVERY_MODES, DELIVERY_MODE_LABELS } from "@/lib/delivery-mode";
 function istToday(): string {
   return new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
 }
-function istDaysAgo(n: number): string {
-  return new Date(Date.now() + 5.5 * 3600e3 - n * 864e5).toISOString().slice(0, 10);
-}
 
 /**
  * One day, one status.
  *
- * A range, with the single day kept as the common case.
- *
- * It was one date, on the reasoning that the portal is worked a day at a time
- * and making somebody fill two boxes to see today is friction on the most
- * frequent action there is. That is still true of a normal day — which is why
- * Today and Yesterday are one tap and leave the second box empty — but it was
- * never true of a backlog. Draining four days meant four page loads and a
- * mental tally, and the answer to "how many went out this week" did not exist
- * on the screen at all.
- *
- * Either end stands alone: `date` on its own is one day, `to` on its own is
- * everything up to it.
+ * A range: `date` on its own is one day, `to` on its own is everything up to
+ * it, both together are a span. Typed in by hand — the Today/Yesterday/Last
+ * 7/Last 30 quick-tap chips this used to offer were pulled once the Late
+ * filter existed, since "how long has this gone quiet" was the question
+ * those taps were actually standing in for; picking a specific day is still
+ * here for the times that really is the question (a customer asking about a
+ * batch from a specific date).
  *
  * The day is the day the parcel was ASSIGNED, not the day it was ordered — the
- * same clock the list is sorted by, see migration 0046. So "Today" means the
- * batch handed out this morning, which is what someone opening this screen is
- * looking for. A parcel that went straight to a courier and was never assigned
- * to anybody falls back to its order date, and the grid marks those rows.
+ * same clock the list is sorted by, see migration 0046. So a date of today
+ * means the batch handed out this morning. A parcel that went straight to a
+ * courier and was never assigned to anybody falls back to its order date, and
+ * the grid marks those rows.
  */
 export default function PortalFilters({
   countSlot,
@@ -126,15 +118,6 @@ export default function PortalFilters({
     next.delete("page"); // any filter change invalidates the current page
     navigate(`/admin/delivery-portal?${next.toString()}`);
   };
-
-  /** A quick chip is one day, so it clears any open range. */
-  const oneDay = (d: string) =>
-    date === d && !dateTo ? { date: null, to: null } : { date: d, to: null };
-
-  /** The last N days, inclusive of today — the shape a backlog is worked in. */
-  const lastDays = (n: number) => ({ date: istDaysAgo(n - 1), to: istToday() });
-
-  const rangeActive = (n: number) => date === istDaysAgo(n - 1) && dateTo === istToday();
 
   const chip = (active: boolean, activeClass: string) =>
     `px-3 py-1.5 rounded-lg border text-xs transition-all ${
@@ -383,32 +366,6 @@ export default function PortalFilters({
           onChange={(e) => push({ to: e.target.value || null })}
           className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary-500 transition-colors cursor-pointer"
         />
-
-        <button
-          onClick={() => push(oneDay(istToday()))}
-          className={chip(date === istToday() && !dateTo, "border-primary-500 bg-primary-50 text-primary-700")}
-        >
-          Today
-        </button>
-        <button
-          onClick={() => push(oneDay(istDaysAgo(1)))}
-          className={chip(date === istDaysAgo(1) && !dateTo, "border-primary-500 bg-primary-50 text-primary-700")}
-        >
-          Yesterday
-        </button>
-        {/* The ranges a backlog is actually drained in. */}
-        <button
-          onClick={() => push(rangeActive(7) ? { date: null, to: null } : lastDays(7))}
-          className={chip(rangeActive(7), "border-primary-500 bg-primary-50 text-primary-700")}
-        >
-          Last 7 days
-        </button>
-        <button
-          onClick={() => push(rangeActive(30) ? { date: null, to: null } : lastDays(30))}
-          className={chip(rangeActive(30), "border-primary-500 bg-primary-50 text-primary-700")}
-        >
-          Last 30 days
-        </button>
 
         {/* One dropdown instead of eight buttons — same choices (PORTAL_FILTERS
             is unchanged), just not spelled out across the row any more.

@@ -266,6 +266,26 @@ export default function PortalGrid({
   };
 
   /**
+   * Does this row's own courier scan say something worth flagging at a
+   * glance? Read off `courier_last_scan`, the same free text the Remark
+   * filter offers — not a stored status, since Delhivery has none for
+   * "coming back" or "nobody was home", only wording.
+   *
+   * Two buckets, not one: RTO is worse news than an NDR retry (a wrong
+   * address needs a decision; a missed reattempt often just needs a day),
+   * so they read as different colors rather than one generic "problem" tint.
+   */
+  const remarkTone = (r: PortalRow): "rto" | "issue" | null => {
+    const text = (r.courier_last_scan ?? "").toLowerCase();
+    if (!text) return null;
+    if (text.includes("rto") || text.includes("dto")) return "rto";
+    if (/unavailable|reattempt|refused|not attempted|on hold|closed|not ready|missing/.test(text)) {
+      return "issue";
+    }
+    return null;
+  };
+
+  /**
    * What the button will actually send.
    *
    * Read off the rows rather than out of the set, so a parcel ticked and then
@@ -1036,18 +1056,30 @@ export default function PortalGrid({
               const isPicked = canPick && picked.has(r.order_number);
 
               const isUrgent = r.delivery_priority === "urgent";
+              const tone = remarkTone(r);
 
               return (
                 <tr
                   key={r.id}
+                  title={r.courier_last_scan ?? undefined}
                   className={`border-b border-neutral-100 last:border-0 transition-colors ${
-                    isUrgent ? "border-l-4 border-l-red-400" : ""
+                    isUrgent
+                      ? "border-l-4 border-l-red-400"
+                      : tone === "rto"
+                        ? "border-l-4 border-l-rose-400"
+                        : tone === "issue"
+                          ? "border-l-4 border-l-amber-400"
+                          : ""
                   } ${
                     isPicked
                       ? "bg-emerald-50/60"
                       : isUrgent
                         ? "bg-red-50/50 hover:bg-red-50/80"
-                        : "hover:bg-neutral-50/70"
+                        : tone === "rto"
+                          ? "bg-rose-50/40 hover:bg-rose-50/70"
+                          : tone === "issue"
+                            ? "bg-amber-50/40 hover:bg-amber-50/70"
+                            : "hover:bg-neutral-50/70"
                   } ${busy ? "opacity-60" : ""}`}
                 >
                   {/* Blank rather than a disabled box on a parcel that has

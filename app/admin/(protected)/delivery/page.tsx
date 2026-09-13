@@ -74,6 +74,10 @@ export default async function AdminDeliveryPage({
           <Link href="/admin/orders" className="text-primary-600 hover:underline">
             Orders
           </Link>
+          . See or override which pincodes count as Delhivery-ready under{" "}
+          <Link href="/admin/delivery/pincodes" className="text-primary-600 hover:underline">
+            Pincodes
+          </Link>
           .
         </p>
       </div>
