@@ -96,17 +96,17 @@ export async function recordInbound(msg: {
   }
 }
 
-/** Store an outbound message we just sent, or tried to. */
+/** Store an outbound message we just sent, tried to, or have only queued. */
 export async function recordOutbound(msg: {
   contactId: string;
   wamid?: string | null;
-  kind: "text" | "template" | "interactive";
+  kind: "text" | "template" | "interactive" | "image" | "audio" | "video" | "document";
   body: string | null;
   templateName?: string | null;
   /** For an interactive send, the button ids offered — so a reply can be read
    * back against what was actually on screen. */
   buttonPayload?: string | null;
-  status: "sent" | "failed";
+  status: "queued" | "sent" | "failed";
   error?: string | null;
   errorCode?: number | null;
   sentBy?: string | null;
@@ -142,6 +142,62 @@ export async function recordOutbound(msg: {
   } catch (e) {
     console.error("[CRM] outbound insert failed:", e);
     return null;
+  }
+}
+
+/**
+ * Settle a queued outbound row once the real Graph API call finishes.
+ *
+ * The optimistic reply path (see lib/crm/send.ts's queueReply) writes the row
+ * as 'queued' before Meta has been asked anything, so the person sending it
+ * sees their message in the thread immediately. This is what fills in the
+ * result once the request that was deferred to the background actually
+ * completes.
+ */
+export async function finalizeOutbound(
+  messageId: string,
+  contactId: string,
+  result:
+    | {
+        ok: true;
+        wamid: string | null;
+        /** Set only for a media send — the upload happens after the row exists. */
+        media?: { id: string; mime: string; filename: string | null };
+      }
+    | { ok: false; error: string | null; errorCode: number | null }
+): Promise<void> {
+  try {
+    if (result.ok) {
+      await supabaseAdmin
+        .from("whatsapp_messages")
+        .update({
+          status: "sent",
+          wamid: result.wamid,
+          ...(result.media
+            ? {
+                media_id: result.media.id,
+                media_mime: result.media.mime,
+                media_filename: result.media.filename,
+              }
+            : {}),
+        })
+        .eq("id", messageId);
+      await supabaseAdmin
+        .from("whatsapp_contacts")
+        .update({ last_outbound_at: new Date().toISOString() })
+        .eq("id", contactId);
+    } else {
+      await supabaseAdmin
+        .from("whatsapp_messages")
+        .update({
+          status: "failed",
+          error: result.error?.slice(0, 1000) ?? null,
+          error_code: result.errorCode,
+        })
+        .eq("id", messageId);
+    }
+  } catch (e) {
+    console.error("[CRM] finalizeOutbound failed:", messageId, e);
   }
 }
 
@@ -194,15 +250,55 @@ export async function applyReceipt(
   }
 }
 
-/** One conversation, oldest first — the order a thread reads in. */
-export async function listThread(contactId: string, limit = 200): Promise<Message[]> {
-  const read = (columns: string) =>
-    supabaseAdmin
+/** Identifies one message for keyset pagination — see listThread. */
+export interface ThreadCursor {
+  createdAt: string;
+  id: string;
+}
+
+export interface ThreadPage {
+  /** Oldest first — the order a thread reads in. */
+  messages: Message[];
+  /** True when there are older messages than this page holds. */
+  hasMore: boolean;
+  /** Pass as `before` to fetch the page older than this one. Null when empty. */
+  oldest: ThreadCursor | null;
+}
+
+/**
+ * One page of a conversation, oldest first within the page.
+ *
+ * Capped at `limit` (default 50, not the whole history) so opening a chat — or
+ * a poll re-fetching it — never pulls a whole year of messages just to show
+ * the last few. Scrolling up asks for the next page with `before`, a
+ * (created_at, id) pair rather than created_at alone: two messages can land
+ * in the same millisecond, and a cursor that only compared timestamps could
+ * silently skip or repeat one at the page boundary.
+ */
+export async function listThread(
+  contactId: string,
+  opts: { limit?: number; before?: ThreadCursor } = {}
+): Promise<ThreadPage> {
+  const limit = opts.limit ?? 50;
+
+  const read = (columns: string) => {
+    let q = supabaseAdmin
       .from("whatsapp_messages")
       .select(columns)
       .eq("contact_id", contactId)
       .order("created_at", { ascending: false })
-      .limit(limit);
+      .order("id", { ascending: false })
+      // One extra row, spent purely to answer "is there more" without a
+      // second count query.
+      .limit(limit + 1);
+
+    if (opts.before) {
+      q = q.or(
+        `created_at.lt.${opts.before.createdAt},and(created_at.eq.${opts.before.createdAt},id.lt.${opts.before.id})`
+      );
+    }
+    return q;
+  };
 
   let result = await read(COLUMNS_WITH_MEDIA);
 
@@ -218,7 +314,16 @@ export async function listThread(contactId: string, limit = 200): Promise<Messag
     result = await read(COLUMNS);
   }
 
-  return ((result.data ?? []) as unknown as Message[]).reverse();
+  const rows = (result.data ?? []) as unknown as Message[]; // newest first
+  const hasMore = rows.length > limit;
+  const page = hasMore ? rows.slice(0, limit) : rows;
+  const oldestRow = page[page.length - 1] ?? null;
+
+  return {
+    messages: page.reverse(),
+    hasMore,
+    oldest: oldestRow ? { createdAt: oldestRow.created_at, id: oldestRow.id } : null,
+  };
 }
 
 export async function bumpUnread(contactId: string, lastInboundAt: string): Promise<void> {

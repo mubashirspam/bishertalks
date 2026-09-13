@@ -1,9 +1,22 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Send, Lock, Ban, RotateCcw, AlertCircle, Check, CheckCheck, Paperclip } from "lucide-react";
+import {
+  Send,
+  Lock,
+  Ban,
+  RotateCcw,
+  AlertCircle,
+  Check,
+  CheckCheck,
+  Paperclip,
+  Loader2,
+  Clock,
+  X,
+} from "lucide-react";
 import type { QuickReply, ReplyLanguage } from "@/lib/crm/quick-replies";
+import type { ThreadCursor } from "@/lib/crm/thread-view";
 
 /**
  * The conversation, and the box under it.
@@ -31,9 +44,20 @@ interface ThreadMessage {
   createdAt: string;
 }
 
+/** Union by id, favouring the incoming copy, then sorted back into order. */
+function mergeMessages(a: ThreadMessage[], b: ThreadMessage[]): ThreadMessage[] {
+  const byId = new Map(a.map((m) => [m.id, m]));
+  for (const m of b) byId.set(m.id, m);
+  return Array.from(byId.values()).sort(
+    (x, y) => x.createdAt.localeCompare(y.createdAt) || x.id.localeCompare(y.id)
+  );
+}
+
 export default function ThreadClient({
   contact,
   messages,
+  hasMoreOlder = false,
+  oldestCursor = null,
   window: win,
   canReply,
   canConsent,
@@ -42,6 +66,10 @@ export default function ThreadClient({
 }: {
   contact: { id: string; phone: string; optedOut: boolean; marketingOptIn: boolean };
   messages: ThreadMessage[];
+  /** True when older messages exist beyond what `messages` holds. */
+  hasMoreOlder?: boolean;
+  /** Pass to /thread/[id]/messages?before= to fetch the next page back. */
+  oldestCursor?: ThreadCursor | null;
   window: { open: boolean; label: string; everWrote: boolean };
   canReply: boolean;
   canConsent: boolean;
@@ -74,10 +102,118 @@ export default function ThreadClient({
   const [lang, setLang] = useState<ReplyLanguage>("ml");
   const endRef = useRef<HTMLDivElement>(null);
   const boxRef = useRef<HTMLTextAreaElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // One file at a time, attached but not yet sent. A caption typed alongside
+  // it rides in the same message as Meta's media types — image, video and
+  // document all take one — so this doesn't send on its own; Send does.
+  const [attachment, setAttachment] = useState<File | null>(null);
+  const previewUrl = useMemo(
+    () =>
+      attachment && attachment.type.startsWith("image/")
+        ? URL.createObjectURL(attachment)
+        : null,
+    [attachment]
+  );
+  // Only cleanup here — the URL itself is derived above, not stored in state.
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
+
+  function pickFile(f: File | null | undefined) {
+    if (!f) return;
+    setAttachment(f);
+    setError(null);
+  }
+
+  /** A screenshot pasted straight from the clipboard — no save-to-disk step. */
+  function handlePaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith("image/")) {
+        const file = item.getAsFile();
+        if (file) {
+          // Otherwise some browsers also paste the image as garbled text.
+          e.preventDefault();
+          pickFile(file);
+        }
+        return;
+      }
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    pickFile(e.dataTransfer.files?.[0]);
+  }
+
+  /**
+   * The messages actually on screen, kept locally rather than read straight
+   * off the `messages` prop.
+   *
+   * The prop is only ever "the newest page" — a poll refresh, or the re-fetch
+   * after sending, asks for it again and gets the same top slice back. Taking
+   * that prop as truth on every change would snap anyone who had scrolled up
+   * to load older messages straight back down to the last 50, mid-read. So
+   * incoming messages are merged into what's already showing — new or changed
+   * rows applied, nothing already on screen ever removed — see mergeMessages.
+   */
+  const [msgs, setMsgs] = useState(messages);
+  const [hasMore, setHasMore] = useState(hasMoreOlder);
+  const [cursor, setCursor] = useState(oldestCursor);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+
+  // Merging a new `messages` prop into local state during render — React's
+  // documented pattern for "adjust state when a prop changes" — rather than
+  // in an effect, which would cost an extra render pass for something that
+  // has to happen before this render paints anyway.
+  const [mergedFrom, setMergedFrom] = useState(messages);
+  if (messages !== mergedFrom) {
+    setMergedFrom(messages);
+    setMsgs((prev) => mergeMessages(prev, messages));
+  }
+
+  // Scroll to the bottom only when the newest message actually changes — not
+  // when older ones are prepended by loadOlder, which manages scroll itself.
+  const newestId = msgs[msgs.length - 1]?.id;
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
-  }, [messages.length]);
+  }, [newestId]);
+
+  async function loadOlder() {
+    if (!cursor || loadingOlder) return;
+    setLoadingOlder(true);
+    const el = scrollRef.current;
+    const prevHeight = el?.scrollHeight ?? 0;
+
+    try {
+      const qs = new URLSearchParams({ before: cursor.createdAt, beforeId: cursor.id });
+      const res = await fetch(`/api/admin/crm/thread/${contact.id}/messages?${qs}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        messages: ThreadMessage[];
+        hasMore: boolean;
+        oldest: { createdAt: string; id: string } | null;
+      };
+      setMsgs((prev) => mergeMessages(prev, data.messages));
+      setHasMore(data.hasMore);
+      setCursor(data.oldest);
+      // Older messages just grew the scroll height above the viewport — hold
+      // the reader's place instead of letting the browser keep them at
+      // whatever scrollTop they were at, which reads as the view "jumping".
+      requestAnimationFrame(() => {
+        if (el) el.scrollTop += el.scrollHeight - prevHeight;
+      });
+    } finally {
+      setLoadingOlder(false);
+    }
+  }
 
   // Opening a conversation is reading it. Fire and forget: a failed unread
   // reset is not worth an error message to somebody who is already reading.
@@ -110,16 +246,25 @@ export default function ThreadClient({
 
   async function send() {
     const body = text.trim();
-    if (!body || busy) return;
+    if ((!body && !attachment) || busy) return;
 
     setBusy(true);
     setError(null);
 
-    const res = await fetch("/api/admin/crm/reply", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contact_id: contact.id, body }),
-    });
+    let res: Response;
+    if (attachment) {
+      const form = new FormData();
+      form.append("contact_id", contact.id);
+      form.append("file", attachment);
+      if (body) form.append("caption", body);
+      res = await fetch("/api/admin/crm/reply/media", { method: "POST", body: form });
+    } else {
+      res = await fetch("/api/admin/crm/reply", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contact_id: contact.id, body }),
+      });
+    }
     const json = await res.json().catch(() => ({}));
 
     setBusy(false);
@@ -128,6 +273,7 @@ export default function ThreadClient({
       return;
     }
     setText("");
+    setAttachment(null);
     changed();
   }
 
@@ -155,14 +301,30 @@ export default function ThreadClient({
   return (
     <div className="overflow-hidden rounded-xl border border-neutral-200 bg-white">
       {/* ── Messages ───────────────────────────────────────────────────── */}
-      <div className="max-h-[540px] space-y-2.5 overflow-y-auto bg-neutral-50 px-4 py-4">
-        {!messages.length && (
+      <div
+        ref={scrollRef}
+        className="max-h-[540px] space-y-2.5 overflow-y-auto bg-neutral-50 px-4 py-4"
+      >
+        {!msgs.length && (
           <p className="py-8 text-center text-xs text-neutral-400">
             No messages yet.
           </p>
         )}
 
-        {messages.map((m) => (
+        {hasMore && (
+          <div className="flex justify-center pb-1">
+            <button
+              onClick={loadOlder}
+              disabled={loadingOlder}
+              className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-[11px] font-medium text-neutral-500 transition hover:border-primary-300 hover:text-primary-700 disabled:opacity-50"
+            >
+              {loadingOlder && <Loader2 className="h-3 w-3 animate-spin" />}
+              {loadingOlder ? "Loading…" : "Load older messages"}
+            </button>
+          </div>
+        )}
+
+        {msgs.map((m) => (
           <div
             key={m.id}
             className={`flex ${m.direction === "out" ? "justify-end" : "justify-start"}`}
@@ -308,7 +470,55 @@ export default function ThreadClient({
               </div>
             )}
 
-            <div className="flex gap-2">
+            {attachment && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-xs text-neutral-600">
+                {previewUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={previewUrl}
+                    alt=""
+                    className="h-8 w-8 shrink-0 rounded object-cover"
+                  />
+                ) : (
+                  <Paperclip className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                )}
+                <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setAttachment(null)}
+                  disabled={busy}
+                  aria-label="Remove attachment"
+                  className="shrink-0 text-neutral-400 transition hover:text-red-600 disabled:opacity-40"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+
+            <div
+              className="flex gap-2"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={handleDrop}
+            >
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.xls,.xlsx"
+                onChange={(e) => {
+                  pickFile(e.target.files?.[0]);
+                  e.target.value = "";
+                }}
+                className="hidden"
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={busy}
+                title="Attach a file"
+                className="shrink-0 self-end rounded-lg border border-neutral-200 p-2.5 text-neutral-500 transition hover:border-neutral-300 hover:text-neutral-800 disabled:opacity-40"
+              >
+                <Paperclip className="h-4 w-4" />
+              </button>
               <textarea
                 ref={boxRef}
                 value={text}
@@ -316,20 +526,21 @@ export default function ThreadClient({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
                 }}
+                onPaste={handlePaste}
                 rows={2}
-                placeholder="Reply in Malayalam…"
+                placeholder="Reply in Malayalam… or paste a screenshot"
                 className="flex-1 resize-y rounded-lg border border-neutral-200 px-3 py-2 text-sm focus:border-primary-400 focus:outline-none focus:ring-1 focus:ring-primary-200"
               />
               <button
                 onClick={send}
-                disabled={busy || !text.trim()}
+                disabled={busy || (!text.trim() && !attachment)}
                 className="shrink-0 self-end rounded-lg bg-primary-500 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-primary-600 disabled:opacity-40"
               >
                 <Send className="h-4 w-4" />
               </button>
             </div>
             <p className="mt-1 px-1 text-[10px] text-neutral-400">
-              ⌘/Ctrl + Enter to send
+              ⌘/Ctrl + Enter to send · paste or drop a file to attach it
             </p>
           </>
         )}
@@ -357,6 +568,10 @@ function Receipt({ status }: { status: string | null }) {
       return <CheckCheck className="h-3 w-3 text-neutral-400" />;
     case "sent":
       return <Check className="h-3 w-3 text-neutral-400" />;
+    // The message is already visible in the thread; Meta hasn't been asked
+    // yet, or hasn't answered — see queueReply/deliverQueuedReply.
+    case "queued":
+      return <Clock className="h-3 w-3 text-neutral-300" />;
     case "failed":
       return <AlertCircle className="h-3 w-3 text-red-500" />;
     default:

@@ -372,6 +372,159 @@ export async function sendInteractive(send: {
   }
 }
 
+export type OutboundMediaKind = "image" | "document" | "audio" | "video";
+
+export interface MediaUploadResult {
+  ok: boolean;
+  /** Meta's media id — spend it once, immediately, via sendMedia. */
+  mediaId?: string;
+  error?: string;
+  code?: number;
+  retryable?: boolean;
+}
+
+/**
+ * Upload a file to Meta so a message can reference it.
+ *
+ * A media message never carries bytes directly — it carries an id, and the id
+ * has to exist first. This is that first call; sendMedia below is the second.
+ */
+export async function uploadMedia(file: {
+  buffer: Buffer;
+  mimeType: string;
+  filename: string;
+}): Promise<MediaUploadResult> {
+  const config = whatsappConfig();
+  if (!config) {
+    return { ok: false, error: "WhatsApp not configured", retryable: false };
+  }
+
+  try {
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    // Buffer's `.buffer` is typed as ArrayBufferLike (it can back onto a
+    // SharedArrayBuffer), which BlobPart doesn't accept — a Buffer is never
+    // actually backed by one here, so this is a type-only cast.
+    form.append(
+      "file",
+      new Blob([file.buffer as unknown as ArrayBuffer], { type: file.mimeType }),
+      file.filename
+    );
+
+    const res = await fetch(`${GRAPH}/${API_VERSION}/${config.phoneNumberId}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.token}` },
+      body: form,
+      // Uploads carry real bytes, not a JSON body — give them longer than a
+      // text or template send gets.
+      signal: AbortSignal.timeout(TIMEOUT_MS * 3),
+    });
+
+    const json = (await res.json().catch(() => ({}))) as {
+      id?: string;
+      error?: { message?: string; code?: number };
+    };
+
+    if (!res.ok || json.error || !json.id) {
+      const code = json.error?.code;
+      const error = json.error?.message ?? `HTTP ${res.status}`;
+      console.error("[WhatsApp] media upload failed:", error);
+      return {
+        ok: false,
+        error,
+        code,
+        retryable: code !== undefined ? RETRYABLE.has(code) : res.status >= 500,
+      };
+    }
+    return { ok: true, mediaId: json.id };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Upload failed";
+    console.error("[WhatsApp] media upload error:", error);
+    return { ok: false, error, retryable: true };
+  }
+}
+
+/**
+ * Send a message referencing an already-uploaded media id.
+ *
+ * Same 24-hour window rule as sendText — a media message is not a template,
+ * so assertSendable() has to clear it first, same as any other reply.
+ */
+export async function sendMedia(send: {
+  to: string;
+  kind: OutboundMediaKind;
+  mediaId: string;
+  /** Not accepted by Meta for audio — omit it there. */
+  caption?: string;
+  /** Only meaningful for a document — what the customer sees as the filename. */
+  filename?: string;
+}): Promise<SendResult> {
+  const config = whatsappConfig();
+  if (!config) {
+    return { ok: false, error: "WhatsApp not configured", retryable: false };
+  }
+
+  const mediaObject: Record<string, unknown> = { id: send.mediaId };
+  if (send.caption && send.kind !== "audio") {
+    mediaObject.caption = send.caption.slice(0, 1024);
+  }
+  if (send.kind === "document" && send.filename) {
+    mediaObject.filename = send.filename;
+  }
+
+  try {
+    const res = await fetch(
+      `${GRAPH}/${API_VERSION}/${config.phoneNumberId}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          recipient_type: "individual",
+          to: send.to,
+          type: send.kind,
+          [send.kind]: mediaObject,
+        }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      }
+    );
+
+    const json = (await res.json().catch(() => ({}))) as {
+      messages?: { id: string }[];
+      error?: { message?: string; code?: number; error_data?: { details?: string } };
+    };
+
+    if (!res.ok || json.error) {
+      const code = json.error?.code;
+      const hint = code !== undefined ? ERROR_HINTS[code] : undefined;
+      const error = [
+        json.error?.message ?? `HTTP ${res.status}`,
+        json.error?.error_data?.details,
+        hint ? `(${hint})` : null,
+      ]
+        .filter(Boolean)
+        .join(" — ");
+
+      console.error("[WhatsApp] media send failed:", send.to, error);
+      return {
+        ok: false,
+        error: error.slice(0, 1000),
+        code,
+        retryable: code !== undefined ? RETRYABLE.has(code) : res.status >= 500,
+      };
+    }
+
+    return { ok: true, messageId: json.messages?.[0]?.id };
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Request failed";
+    console.error("[WhatsApp] media send error:", error);
+    return { ok: false, error, retryable: true };
+  }
+}
+
 /**
  * Send free text, inside the 24-hour customer service window.
  *

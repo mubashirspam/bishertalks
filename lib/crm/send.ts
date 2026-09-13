@@ -1,6 +1,14 @@
-import { sendTemplate, sendText, sendInteractive, type ReplyButton } from "@/lib/whatsapp";
+import {
+  sendTemplate,
+  sendText,
+  sendInteractive,
+  sendMedia,
+  uploadMedia,
+  type ReplyButton,
+  type OutboundMediaKind,
+} from "@/lib/whatsapp";
 import { assertSendable, type SendKind, type RefusalCode } from "@/lib/crm/gate";
-import { recordOutbound } from "@/lib/crm/messages";
+import { recordOutbound, finalizeOutbound } from "@/lib/crm/messages";
 import { noteDeliveryFailure } from "@/lib/crm/consent";
 import type { Contact } from "@/lib/crm/contacts";
 import type { TemplateCategory } from "@/lib/whatsapp-templates";
@@ -145,6 +153,158 @@ export async function sendReply(msg: {
     };
   }
   return { ok: true, wamid: result.messageId ?? null };
+}
+
+export type QueueOutcome =
+  | { ok: true; messageId: string }
+  | { ok: false; refused: true; code: RefusalCode; reason: string }
+  | { ok: false; refused: false; error: string };
+
+/**
+ * Queue a hand-typed reply and return immediately.
+ *
+ * Used only by the interactive reply route — the person sending it is
+ * looking at the screen waiting for the box to clear, and the Graph API
+ * round trip (the slow part, seconds sometimes) is the one thing here that
+ * doesn't need to finish before they get their screen back.
+ *
+ * Everything that can be decided synchronously still is: the gate runs here,
+ * so a refusal (window closed, opted out) is reported before anything is
+ * written, exactly as sendReply does it. What's deferred is only the actual
+ * send — the row lands as 'queued' immediately, and deliverQueuedReply
+ * finishes the job after this returns.
+ *
+ * Automated sends (sendSessionText below, flows, campaigns) stay on the
+ * synchronous sendReply — nothing is watching a screen there, and
+ * noteDeliveryFailure needs the real Meta result the moment it happens, not
+ * queued for later.
+ */
+export async function queueReply(msg: {
+  contact: Contact;
+  body: string;
+  sentBy: string | null;
+}): Promise<QueueOutcome> {
+  const verdict = await assertSendable({
+    contact: msg.contact,
+    kind: "reply",
+    freeText: true,
+  });
+
+  if (!verdict.allow) {
+    return { ok: false, refused: true, code: verdict.code, reason: verdict.reason };
+  }
+
+  const messageId = await recordOutbound({
+    contactId: msg.contact.id,
+    kind: "text",
+    body: msg.body,
+    status: "queued",
+    sentBy: msg.sentBy,
+  });
+
+  if (!messageId) {
+    return { ok: false, refused: false, error: "Could not save the message." };
+  }
+  return { ok: true, messageId };
+}
+
+/** Finishes what queueReply started: the real send, then settle the row. */
+export async function deliverQueuedReply(
+  messageId: string,
+  contact: Contact,
+  body: string
+): Promise<void> {
+  const result = await sendText({ to: contact.phone, body });
+  await finalizeOutbound(
+    messageId,
+    contact.id,
+    result.ok
+      ? { ok: true, wamid: result.messageId ?? null }
+      : { ok: false, error: result.error ?? "Send failed", errorCode: result.code ?? null }
+  );
+}
+
+/**
+ * Queue a hand-typed photo, voice note, video or document, and return
+ * immediately.
+ *
+ * The upload-to-Meta step is what this has and queueReply doesn't — real
+ * bytes over the network, genuinely slow — so it's deferred to
+ * deliverQueuedMediaReply exactly the way queueReply defers the Graph API
+ * call. The row lands as 'queued' with no media_id yet (there's nothing to
+ * point at until the upload finishes), which is what shows a "(image)"
+ * placeholder in the thread until the real picture is in.
+ */
+export async function queueMediaReply(msg: {
+  contact: Contact;
+  kind: OutboundMediaKind;
+  caption: string | null;
+  sentBy: string | null;
+}): Promise<QueueOutcome> {
+  const verdict = await assertSendable({
+    contact: msg.contact,
+    kind: "reply",
+    freeText: true,
+  });
+
+  if (!verdict.allow) {
+    return { ok: false, refused: true, code: verdict.code, reason: verdict.reason };
+  }
+
+  const messageId = await recordOutbound({
+    contactId: msg.contact.id,
+    kind: msg.kind,
+    body: msg.caption,
+    status: "queued",
+    sentBy: msg.sentBy,
+  });
+
+  if (!messageId) {
+    return { ok: false, refused: false, error: "Could not save the message." };
+  }
+  return { ok: true, messageId };
+}
+
+/** Finishes what queueMediaReply started: upload, send, then settle the row. */
+export async function deliverQueuedMediaReply(
+  messageId: string,
+  contact: Contact,
+  file: { buffer: Buffer; mimeType: string; filename: string },
+  kind: OutboundMediaKind,
+  caption: string | null
+): Promise<void> {
+  const upload = await uploadMedia(file);
+  if (!upload.ok || !upload.mediaId) {
+    await finalizeOutbound(messageId, contact.id, {
+      ok: false,
+      error: upload.error ?? "Upload failed",
+      errorCode: upload.code ?? null,
+    });
+    return;
+  }
+
+  const result = await sendMedia({
+    to: contact.phone,
+    kind,
+    mediaId: upload.mediaId,
+    caption: caption ?? undefined,
+    filename: kind === "document" ? file.filename : undefined,
+  });
+
+  if (!result.ok) {
+    await finalizeOutbound(messageId, contact.id, {
+      ok: false,
+      error: result.error ?? "Send failed",
+      errorCode: result.code ?? null,
+    });
+    return;
+  }
+
+  await finalizeOutbound(messageId, contact.id, {
+    ok: true,
+    wamid: result.messageId ?? null,
+    media: { id: upload.mediaId, mime: file.mimeType, filename: file.filename || null },
+  });
 }
 
 /**

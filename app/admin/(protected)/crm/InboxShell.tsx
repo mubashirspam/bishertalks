@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Ban, Clock, Search, ArrowLeft, Loader2, MessageSquare, X } from "lucide-react";
 import ThreadClient from "./[id]/ThreadClient";
+import { createClient } from "@/lib/supabase/client";
 import type { ThreadView } from "@/lib/crm/thread-view";
 
 /**
@@ -61,6 +62,11 @@ export default function InboxShell({
   // quickly fires three fetches, and without this the slowest one wins and
   // renders the wrong conversation into the pane you are looking at.
   const latest = useRef(0);
+
+  // One client for the component's lifetime — Realtime's websocket lives on
+  // it, and recreating the client on every render would tear the socket down
+  // and reconnect it for no reason.
+  const supabase = useRef(createClient());
 
   const load = useCallback(async (id: string, markRead: boolean) => {
     const ticket = ++latest.current;
@@ -150,6 +156,33 @@ export default function InboxShell({
     };
     const timer = setInterval(tick, 10_000);
     return () => clearInterval(timer);
+  }, [selected, load]);
+
+  /**
+   * The same re-fetch, pushed instead of polled for.
+   *
+   * Deliberately additive, not a replacement for the poll above: this needs
+   * 0076_whatsapp_realtime.sql applied and a Realtime authorization check
+   * that passes, and either can be true or false in any given deployment.
+   * Where it works, whoever is looking at a thread sees a reply or a status
+   * tick land in well under 10 seconds. Where the migration hasn't been
+   * applied yet, or the subscribe fails, this channel simply never fires and
+   * the poll above is the only thing moving — nothing here can make the inbox
+   * work worse than it already did.
+   */
+  useEffect(() => {
+    if (!selected) return;
+    const client = supabase.current;
+    const channel = client
+      .channel(`crm-thread:${selected}`, { config: { private: true } })
+      .on("broadcast", { event: "*" }, () => {
+        if (document.visibilityState === "visible") void load(selected, false);
+      })
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
   }, [selected, load]);
 
   const needle = q.trim().toLowerCase();
@@ -309,6 +342,8 @@ export default function InboxShell({
                     canReply={thread.canReply}
                     canConsent={thread.canConsent}
                     quickReplies={thread.quickReplies}
+                    hasMoreOlder={thread.hasMoreOlder}
+                    oldestCursor={thread.oldestCursor}
                     // Re-fetch this conversation only. No navigation, so the
                     // list keeps its scroll, its search and its place.
                     onChanged={() => void load(thread.contact.id, false)}

@@ -5,6 +5,7 @@ import { requirePageAccess } from "@/lib/admin-auth";
 import { can } from "@/lib/permissions";
 import { getContact, windowState, formatWindow } from "@/lib/crm/contacts";
 import { listThread } from "@/lib/crm/messages";
+import { toMessageView } from "@/lib/crm/thread-view";
 import { crmFieldsFor } from "@/lib/crm/tags";
 import { pendingFor } from "@/lib/crm/automation";
 import { quickReplies } from "@/lib/crm/quick-replies";
@@ -33,7 +34,7 @@ export default async function ThreadPage({
   const contact = await getContact(id);
   if (!contact) notFound();
 
-  const [messages, orders, crm, pending] = await Promise.all([
+  const [threadPage, orders, crm, pending] = await Promise.all([
     listThread(contact.id),
     ordersFor(contact.phone),
     crmFieldsFor(contact.id),
@@ -103,19 +104,9 @@ export default async function ThreadPage({
             optedOut: !!contact.opt_out_at,
             marketingOptIn: !!contact.marketing_opt_in_at,
           }}
-          messages={messages.map((m) => ({
-            id: m.id,
-            direction: m.direction,
-            body: m.body,
-            kind: m.kind,
-            hasMedia: !!m.media_id,
-            mediaMime: m.media_mime ?? null,
-            mediaFilename: m.media_filename ?? null,
-            templateName: m.template_name,
-            status: m.status,
-            error: m.error,
-            createdAt: m.created_at,
-          }))}
+          messages={threadPage.messages.map(toMessageView)}
+          hasMoreOlder={threadPage.hasMore}
+          oldestCursor={threadPage.oldest}
           window={{
             open: win.open,
             label: formatWindow(win.remainingMs),

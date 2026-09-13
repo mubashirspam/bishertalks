@@ -1,9 +1,9 @@
 export const dynamic = "force-dynamic";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse, after } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
 import { getContact } from "@/lib/crm/contacts";
-import { sendReply } from "@/lib/crm/send";
+import { queueReply, deliverQueuedReply } from "@/lib/crm/send";
 import { markRead } from "@/lib/crm/messages";
 
 /**
@@ -13,6 +13,12 @@ import { markRead } from "@/lib/crm/messages";
  * refusal comes back as "they last wrote more than 24 hours ago — send a
  * template instead" and the screen can offer the template picker rather than
  * showing an error code to somebody who cannot act on it.
+ *
+ * The actual Graph API call is not awaited here. queueReply runs the gate and
+ * writes the row as 'queued' — that's what this response waits on — and
+ * `after()` runs the real send once the response has gone out. Meta's round
+ * trip (real network latency to another company's API) no longer sits between
+ * clicking Send and the box clearing.
  */
 export async function POST(request: NextRequest) {
   const auth = await requirePermission("crm.reply");
@@ -40,7 +46,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No such contact" }, { status: 404 });
   }
 
-  const outcome = await sendReply({ contact, body: text, sentBy: auth.staff.id });
+  const outcome = await queueReply({ contact, body: text, sentBy: auth.staff.id });
 
   if (!outcome.ok) {
     // 409 for a refusal, not 400: nothing about the request was malformed, the
@@ -54,8 +60,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: outcome.error }, { status: 502 });
   }
 
+  after(() => deliverQueuedReply(outcome.messageId, contact, text));
+
   // Answering a conversation is the same gesture as reading it.
   await markRead(contactId);
 
-  return NextResponse.json({ ok: true, wamid: outcome.wamid });
+  return NextResponse.json({ ok: true, messageId: outcome.messageId, queued: true });
 }

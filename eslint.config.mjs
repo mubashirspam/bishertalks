@@ -34,9 +34,9 @@ const config = [
           paths: [
             {
               name: "@/lib/whatsapp",
-              importNames: ["sendTemplate", "sendText", "sendInteractive"],
+              importNames: ["sendTemplate", "sendText", "sendInteractive", "sendMedia"],
               message:
-                "Send through lib/crm/send.ts instead. sendTemplate, sendText and sendInteractive skip the consent, kill-switch, number-health, template-approval, frequency and budget checks in assertSendable() — including the stop flag. If you need something the gate does not allow, change the gate.",
+                "Send through lib/crm/send.ts instead. sendTemplate, sendText, sendInteractive and sendMedia skip the consent, kill-switch, number-health, template-approval, frequency and budget checks in assertSendable() — including the stop flag. If you need something the gate does not allow, change the gate.",
             },
           ],
         },

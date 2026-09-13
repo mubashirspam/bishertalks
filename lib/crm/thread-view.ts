@@ -1,7 +1,9 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getContact, windowState, formatWindow } from "@/lib/crm/contacts";
-import { listThread } from "@/lib/crm/messages";
+import { listThread, type Message, type ThreadCursor } from "@/lib/crm/messages";
 import { quickReplies, type QuickReply, type ReplyLanguage } from "@/lib/crm/quick-replies";
+
+export type { ThreadCursor };
 
 /**
  * One conversation, in the exact shape the browser renders.
@@ -48,10 +50,37 @@ export interface ThreadView {
   /** Everything the "this contact asked us to stop" banner needs, or null. */
   optOut: { at: string; reason: string | null; source: string | null } | null;
   messages: ThreadMessageView[];
+  /** True when there are messages older than `messages[0]` — see listThread. */
+  hasMoreOlder: boolean;
+  /** Pass to GET .../thread/[id]/messages?before= to fetch the next page back. */
+  oldestCursor: ThreadCursor | null;
   window: { open: boolean; label: string; everWrote: boolean };
   quickReplies: Record<ReplyLanguage, QuickReply[]>;
   /** Newest first. The thread uses [0] for the tracking link. */
   orders: OrderLite[];
+}
+
+/**
+ * One row, in the shape the browser renders.
+ *
+ * Exported so nowhere else has to hand-roll this mapping — see the module
+ * comment above on what happens when a second copy of it drifts from this
+ * one.
+ */
+export function toMessageView(m: Message): ThreadMessageView {
+  return {
+    id: m.id,
+    direction: m.direction,
+    body: m.body,
+    kind: m.kind,
+    hasMedia: !!m.media_id,
+    mediaMime: m.media_mime ?? null,
+    mediaFilename: m.media_filename ?? null,
+    templateName: m.template_name,
+    status: m.status,
+    error: m.error,
+    createdAt: m.created_at,
+  };
 }
 
 export interface OrderLite {
@@ -84,7 +113,7 @@ export async function buildThreadView(contactId: string): Promise<ThreadView | n
   const contact = await getContact(contactId);
   if (!contact) return null;
 
-  const [messages, orders] = await Promise.all([
+  const [threadPage, orders] = await Promise.all([
     listThread(contact.id),
     ordersFor(contact.phone),
   ]);
@@ -116,19 +145,9 @@ export async function buildThreadView(contactId: string): Promise<ThreadView | n
           source: contact.opt_out_source ?? null,
         }
       : null,
-    messages: messages.map((m) => ({
-      id: m.id,
-      direction: m.direction,
-      body: m.body,
-      kind: m.kind,
-      hasMedia: !!m.media_id,
-      mediaMime: m.media_mime ?? null,
-      mediaFilename: m.media_filename ?? null,
-      templateName: m.template_name,
-      status: m.status,
-      error: m.error,
-      createdAt: m.created_at,
-    })),
+    messages: threadPage.messages.map(toMessageView),
+    hasMoreOlder: threadPage.hasMore,
+    oldestCursor: threadPage.oldest,
     window: {
       open: win.open,
       label: formatWindow(win.remainingMs),
