@@ -26,7 +26,7 @@ async function getOrder(id: string): Promise<Order | null> {
        amount_paise, tracking_number, courier_name, courier_id, expected_delivery,
        created_at, ordered_at, address_line1, address_line2, pincode,
        label_downloaded_at, shipped_at, delivered_at, returned_at,
-       postal_barcode, courier_entered_at`
+       postal_barcode, courier_entered_at, courier_last_scan, courier_last_scan_at`
     )
     .eq("order_number", id)
     .single();
@@ -104,6 +104,20 @@ function stepDates(order: Order): Record<OrderStatus, string | null> {
   };
 }
 
+/**
+ * "Where it is right now", pulled out of `courier_last_scan`.
+ *
+ * The column stores "Status — Location — Instructions" (see describeScan in
+ * lib/delhivery/status.ts) — internal wording meant for the delivery queue,
+ * hub codes and all. Only the location segment is fit for a customer to read,
+ * and even that comes underscored ("Kozhikode_Central_H") the way Delhivery's
+ * own feed writes it.
+ */
+function scanLocation(raw: string | null): string | null {
+  const location = raw?.split(" — ")[1]?.trim();
+  return location ? location.replace(/_/g, " ") : null;
+}
+
 /** e.g. "5 Aug, 9:40 pm" */
 function stepStamp(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
@@ -135,7 +149,7 @@ export default async function TrackPage({
         <OrderDetails
           order={details}
           courseTitle={BONUS_COURSE.title}
-          courseUrl={`${process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com"}/courses/${BONUS_COURSE.slug}`}
+          courseUrl={`${(process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com").replace(/\/+$/, "")}/courses/${BONUS_COURSE.slug}`}
         />
       );
     }
@@ -232,7 +246,27 @@ export default async function TrackPage({
   // A routed parcel always has something worth saying, even before a number
   // exists — at minimum which courier is carrying it.
   const showShipping = !!(parcelNumber || order.courier_name || courier);
-  const courierLabel = courier?.name || order.courier_name;
+
+  // What the customer sees is never the partner's own name — "KKR Logistics
+  // (Delhivery Manual)" is a franchise arrangement on our side, not something
+  // a buyer asked about. Delhivery is named because it is a real brand with a
+  // page of its own (see courierTracking below); everything else — India Post
+  // has its own amber notice already — is just "Delivery".
+  const courierLabel = isPostal
+    ? "India Post"
+    : courier?.config.tracking === "delhivery"
+      ? "Delhivery"
+      : courier || order.courier_name
+        ? "Delivery"
+        : null;
+
+  // Only meaningful mid-journey, and only for a courier we actually get scans
+  // from — an India Post parcel has no such feed (see the amber notice), and
+  // showing a stale hub name after delivery reads as wrong rather than helpful.
+  const currentLocation =
+    !isPostal && !["delivered", "cancelled", "returned"].includes(order.status)
+      ? scanLocation(order.courier_last_scan)
+      : null;
 
   // The order date the customer will check against their bank statement.
   const date = new Date(order.ordered_at).toLocaleDateString("en-IN", {
@@ -302,7 +336,15 @@ export default async function TrackPage({
                         </p>
                       )}
                       {isActive && (
-                        <p className="text-primary-600 dark:text-primary-400 text-xs mt-0.5">Current Status</p>
+                        <>
+                          <p className="text-primary-600 dark:text-primary-400 text-xs mt-0.5">Current Status</p>
+                          {currentLocation && (
+                            <p className="text-neutral-500 dark:text-neutral-500 text-xs mt-0.5 flex items-center gap-1">
+                              <MapPin className="w-3 h-3" /> {currentLocation}
+                              {order.courier_last_scan_at && ` · ${stepStamp(order.courier_last_scan_at)}`}
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

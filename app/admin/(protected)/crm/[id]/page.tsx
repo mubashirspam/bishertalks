@@ -12,6 +12,7 @@ import { quickReplies } from "@/lib/crm/quick-replies";
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import ThreadClient from "./ThreadClient";
 import CrmPanel from "./CrmPanel";
+import OrderPeekModal from "./OrderPeekModal";
 
 export const dynamic = "force-dynamic";
 
@@ -62,12 +63,17 @@ export default async function ThreadPage({
 
   return (
     <div>
-      <Link
-        href="/admin/crm"
-        className="mb-4 inline-flex items-center gap-1.5 text-sm text-neutral-500 transition hover:text-neutral-800"
-      >
-        <ArrowLeft className="h-4 w-4" /> Inbox
-      </Link>
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Link
+          href="/admin/crm"
+          className="inline-flex items-center gap-1.5 text-sm text-neutral-500 transition hover:text-neutral-800"
+        >
+          <ArrowLeft className="h-4 w-4" /> Inbox
+        </Link>
+        {/* Their most recent order, one click away as a popup rather than a
+            navigation — see OrderPeekModal. */}
+        {orders[0] && <OrderPeekModal orderNumber={orders[0].order_number} />}
+      </div>
 
       <div className="mb-5">
         <h1 className="flex flex-wrap items-center gap-2 text-2xl font-black">

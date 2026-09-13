@@ -37,6 +37,6 @@ export function verifyOrderToken(
 
 /** Full URL of the address form for an order. */
 export function addressUrl(orderNumber: string): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
+  const base = (process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com").replace(/\/+$/, "");
   return `${base}/neuro-code/address?id=${orderNumber}&t=${signOrderToken(orderNumber)}`;
 }

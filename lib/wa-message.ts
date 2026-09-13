@@ -18,7 +18,11 @@ import { NEXT_EDITION_PRICE, editionDispatchDayLabelMl } from "@/lib/preorder";
  */
 export function siteUrl(): string {
   const url = process.env.NEXT_PUBLIC_APP_URL || "";
-  return !url || /localhost|127\.0\.0\.1/.test(url) ? "https://bishertalks.com" : url;
+  if (!url || /localhost|127\.0\.0\.1/.test(url)) return "https://bishertalks.com";
+  // Every caller appends its own leading slash — a configured value ending in
+  // one (e.g. "https://www.bishertalks.com/") produced a doubled slash in the
+  // link actually sent to a customer.
+  return url.replace(/\/+$/, "");
 }
 
 function courseUrl(): string {

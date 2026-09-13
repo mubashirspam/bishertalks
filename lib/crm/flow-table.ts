@@ -125,7 +125,7 @@ const BOOK_DETAILS =
  * validates the pincode and writes straight to the order, so the link goes
  * first and the typed form stays as the fallback for anyone who ignores it.
  */
-const ORDER_URL = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://bishertalks.com"}/neuro-code`;
+const ORDER_URL = `${(process.env.NEXT_PUBLIC_APP_URL ?? "https://bishertalks.com").replace(/\/+$/, "")}/neuro-code`;
 
 const ADDRESS_REPLY =
   `Thank you. താഴെയുള്ള link വഴി order പൂർത്തിയാക്കാം — address അവിടെ type ചെയ്താൽ മതി:\n\n${ORDER_URL}\n\n` +

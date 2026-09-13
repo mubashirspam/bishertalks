@@ -34,7 +34,7 @@ export {
  * commission nothing would pay.
  */
 function referralLink(): string {
-  const base = process.env.NEXT_PUBLIC_APP_URL ?? "https://bishertalks.com";
+  const base = (process.env.NEXT_PUBLIC_APP_URL ?? "https://bishertalks.com").replace(/\/+$/, "");
   return `${base}/neuro-code`;
 }
 

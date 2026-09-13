@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com";
+  const appUrl = (process.env.NEXT_PUBLIC_APP_URL || "https://bishertalks.com").replace(/\/+$/, "");
 
   try {
     const link = await rzp.paymentLink.create({

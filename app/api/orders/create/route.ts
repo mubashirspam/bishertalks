@@ -284,7 +284,7 @@ export async function POST(request: NextRequest) {
                 `Book by Bisher KC${quantity > 1 ? ` — ${quantity} copies` : ""}` +
                 (isGift ? " — gift wrapped" : "") +
                 (isSigned ? " — signed" : ""),
-              image_url: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/images/book_front.png`,
+              image_url: `${(process.env.NEXT_PUBLIC_APP_URL ?? "").replace(/\/+$/, "")}/images/book_front.png`,
             },
           ],
         }
