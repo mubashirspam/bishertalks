@@ -131,11 +131,17 @@ export function canMoveTo(current: string, next: OrderStatus): boolean {
 /**
  * A one-line summary for the portal and the order page.
  *
- * Their wording plus where it happened, because "In Transit" on its own answers
- * none of the questions a customer rings up to ask.
+ * Their wording, where it happened, and why — in that order, because "In
+ * Transit" on its own answers none of the questions a customer rings up to
+ * ask, and neither does "In Transit — Kozhikode_Central_H" without the
+ * `instructions` that actually say "RTO Intransit" or "Consignee
+ * Unavailable". Delhivery's own tracking report calls this column "Remarks";
+ * their live API calls it `Instructions` — same field, and it was being read
+ * into `DelhiveryScan.instructions` and then never shown.
  */
 export function describeScan(scan: DelhiveryScan): string {
   const parts = [scan.status.trim()];
   if (scan.location?.trim()) parts.push(scan.location.trim());
+  if (scan.instructions?.trim()) parts.push(scan.instructions.trim());
   return parts.filter(Boolean).join(" — ");
 }

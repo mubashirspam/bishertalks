@@ -11,6 +11,9 @@ import {
   setTrackingNumber,
   setCourierChannel,
   setReturnReason,
+  rejectCourierAssignment,
+  REJECT_REASON_MAX,
+  isRejectReasonCode,
   COURIER_CHANNELS,
   courierOf,
   PORTAL_STATUS_STEPS,
@@ -72,6 +75,23 @@ export async function POST(request: NextRequest) {
           { status: 403 }
         );
       }
+    } catch {
+      return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    }
+  }
+
+  // The partner declining a parcel outright, before they've touched it — see
+  // rejectCourierAssignment for exactly how "before they've touched it" is
+  // defined and why. Checked ahead of `channel`/`entered`/`status` below
+  // because a reject request carries none of those fields.
+  if (body.reject === true) {
+    const reason =
+      typeof body.reason === "string" ? body.reason.slice(0, REJECT_REASON_MAX) : null;
+    const reasonCode = isRejectReasonCode(body.reason_code) ? body.reason_code : null;
+    try {
+      const result = await rejectCourierAssignment(orderNumber, auth.staff, reason, reasonCode);
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
+      return NextResponse.json({ ok: true });
     } catch {
       return NextResponse.json({ error: "Update failed" }, { status: 500 });
     }

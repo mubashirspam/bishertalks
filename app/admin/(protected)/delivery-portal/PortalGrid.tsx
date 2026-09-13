@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Copy, Pencil, RefreshCw, RefreshCcwDot, Undo2, X } from "lucide-react";
+import { Check, Copy, Pencil, RefreshCw, RefreshCcwDot, Undo2, X, AlertTriangle } from "lucide-react";
 import { COURIER_SHEET_MAX } from "@/lib/courier-sheet";
 import PortalExport from "./PortalExport";
 import PortalAllotArticles from "./PortalAllotArticles";
@@ -16,6 +16,7 @@ import {
   ENTERED_HINT,
   TRACKING_MAX,
   RETURN_REASON_MAX,
+  REJECT_REASON_MAX,
   COURIER_CHANNELS,
   COURIER_CHANNEL_LABELS,
   type PortalRow,
@@ -157,6 +158,12 @@ export default function PortalGrid({
   /** Which row is being marked Returned right now, if any — one at a time. */
   const [returningReason, setReturningReason] = useState<string | null>(null);
   const [returnReasonDraft, setReturnReasonDraft] = useState("");
+  /** Which row is being declined right now, if any — one at a time. */
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [rejectReasonDraft, setRejectReasonDraft] = useState("");
+  /** Ticked when the reason IS the pincode — see doReject. */
+  const [rejectPincode, setRejectPincode] = useState(false);
+  const [rejectBusy, setRejectBusy] = useState(false);
   /** Order number currently collecting, or null — one at a time, like reship. */
   const [collectBusy, setCollectBusy] = useState<string | null>(null);
   /** Order number currently switching channel, or null. */
@@ -237,6 +244,26 @@ export default function PortalGrid({
    */
   const isNew = (r: PortalRow): boolean =>
     statusOf(r) === "confirmed" && !enteredOf(r);
+
+  /**
+   * Can this parcel still be rejected outright?
+   *
+   * Judged on the "Confirmed" tick alone, not on `status` — a parcel can
+   * reach Packed or Shipped by hand without ever being entered into the
+   * courier's own system, and until it has been, the courier can still walk
+   * away from it. See rejectCourierAssignment for the matching server-side
+   * rule. Delivered and Returned are refused regardless: there is nothing
+   * left to undo.
+   */
+  const mayReject = (r: PortalRow): boolean => {
+    const status = statusOf(r);
+    return (
+      !!r.courier_id &&
+      !enteredOf(r) &&
+      status !== "delivered" &&
+      status !== "returned"
+    );
+  };
 
   /**
    * What the button will actually send.
@@ -470,6 +497,41 @@ export default function PortalGrid({
   }
 
   /**
+   * Decline a parcel outright, before it's been entered with the courier —
+   * see rejectCourierAssignment. A full refresh, not an optimistic patch: the
+   * parcel loses its courier entirely and drops off most filters (courier,
+   * "New") the moment it saves, so there is nothing to hold locally.
+   */
+  async function doReject(row: PortalRow) {
+    setRejectBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/delivery/portal", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_number: row.order_number,
+          reject: true,
+          ...(rejectReasonDraft.trim() ? { reason: rejectReasonDraft.trim() } : {}),
+          ...(rejectPincode ? { reason_code: "pincode_not_serviceable" } : {}),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Update failed (${res.status})`);
+      }
+      setRejecting(null);
+      setRejectReasonDraft("");
+      setRejectPincode(false);
+      router.refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Update failed");
+    } finally {
+      setRejectBusy(false);
+    }
+  }
+
+  /**
    * Confirm the courier collected cash on a COD parcel, and mark it
    * delivered in the same action — see collectCodPayment() in
    * lib/db/delivery.ts for why those are one write rather than two ticks.
@@ -639,6 +701,23 @@ export default function PortalGrid({
 
   function confirmTrackingEdit(row: PortalRow) {
     const value = draftOf(row).trim();
+
+    // The routing screen already asked this courier about this pincode and
+    // got told no (0034) — see PortalRow.pincode_serviceable. Typing a
+    // tracking number in by hand skips that check entirely, which is how a
+    // parcel Delhivery had already refused still ended up posted under their
+    // name. Not blocked outright: the pincode API is sometimes wrong, and a
+    // courier partner who knows better should still be able to override it —
+    // just not by accident.
+    if (value && row.pincode_serviceable === false) {
+      const ok = window.confirm(
+        `${row.pincode ?? "This pincode"} was marked NOT serviceable by ${
+          row.courier_id ? courierNames[row.courier_id] ?? "this courier" : "this courier"
+        }.\n\nSave this tracking number anyway?`
+      );
+      if (!ok) return;
+    }
+
     setTrackingEditing((s) => {
       const next = new Set(s);
       next.delete(row.order_number);
@@ -1007,6 +1086,73 @@ export default function PortalGrid({
                         ordered — never assigned
                       </span>
                     )}
+
+                    {/* Decline outright — allowed up until the "Confirmed"
+                        tick, whatever the status column says — see
+                        mayReject. */}
+                    {mayReject(r) &&
+                      (rejecting === r.order_number ? (
+                        <div className="mt-1.5 text-left bg-neutral-50 border border-neutral-200 rounded-lg p-2 w-44 space-y-1.5">
+                          <label className="flex items-center gap-1.5 text-[10px] text-neutral-600">
+                            <input
+                              type="checkbox"
+                              checked={rejectPincode}
+                              onChange={(e) => setRejectPincode(e.target.checked)}
+                              className="w-3 h-3 accent-rose-600"
+                            />
+                            Pincode not serviceable
+                          </label>
+                          <input
+                            autoFocus
+                            value={rejectReasonDraft}
+                            onChange={(e) => setRejectReasonDraft(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void doReject(r);
+                              if (e.key === "Escape") {
+                                setRejecting(null);
+                                setRejectReasonDraft("");
+                                setRejectPincode(false);
+                              }
+                            }}
+                            placeholder="Why? (optional)"
+                            maxLength={REJECT_REASON_MAX}
+                            className="w-full text-[11px] border border-neutral-200 rounded px-1.5 py-1 placeholder:text-neutral-400"
+                          />
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => void doReject(r)}
+                              disabled={rejectBusy}
+                              className="flex-1 text-[10px] font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded px-2 py-1 transition-colors disabled:opacity-50"
+                            >
+                              {rejectBusy ? "Saving…" : "Reject"}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setRejecting(null);
+                                setRejectReasonDraft("");
+                                setRejectPincode(false);
+                              }}
+                              disabled={rejectBusy}
+                              className="text-[10px] text-neutral-500 hover:text-neutral-900 px-1.5 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => {
+                            setRejectReasonDraft("");
+                            setRejectPincode(false);
+                            setRejecting(r.order_number);
+                          }}
+                          disabled={!!busy}
+                          title="Can't take this parcel — send it back unassigned"
+                          className="block mt-1 text-[10px] text-rose-600 hover:text-rose-800 font-medium transition-colors disabled:opacity-40"
+                        >
+                          Reject
+                        </button>
+                      ))}
                   </td>
 
                   {/* Name — the copy button on this one takes the whole block,
@@ -1283,6 +1429,13 @@ export default function PortalGrid({
                         >
                           <Pencil className="w-3 h-3" />
                         </button>
+                        {r.pincode_serviceable === false && (
+                          <span
+                            title={`${r.pincode ?? "This pincode"} was marked not serviceable — check before shipping`}
+                          >
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                          </span>
+                        )}
                       </div>
                     )}
 

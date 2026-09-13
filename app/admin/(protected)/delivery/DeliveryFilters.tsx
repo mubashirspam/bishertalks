@@ -87,6 +87,20 @@ export default function DeliveryFilters({
   // a direct sale's address was typed off a WhatsApp message rather than filled
   // in by the customer, so it is worth being able to look at that run on its own
   // before it is booked.
+  // Has this pincode actually earned fast Delhivery delivery (0078)? Separate
+  // from `courier` — that filter is "who is it routed to now," this one is
+  // "who should it be routed to," which is exactly the question worth asking
+  // on parcels nobody has assigned yet.
+  const pincodeFit = params.get("pincodeFit") ?? "";
+  // Packed is a real status (processing) but not its own queue tab — see the
+  // field comment in delivery-query.ts for why splitting it out of Assigned
+  // would be a second partition rather than a narrowing.
+  const packed = params.get("packed") ?? "";
+  // Not a stored status at all — read off the courier's own scan text, which
+  // is why this can only ever be a filter, never a tab: a tab needs every row
+  // in exactly one bucket, and this is "still Shipped, but really coming
+  // back," which already belongs to the Shipped bucket too.
+  const rto = params.get("rto") ?? "";
   const channel = params.get("channel") ?? "all";
   const deliveryMode = params.get("mode") ?? "all";
   const from = params.get("from") ?? "";
@@ -115,6 +129,9 @@ export default function DeliveryFilters({
     !!agent ||
     !!courier ||
     !!handover ||
+    !!pincodeFit ||
+    !!packed ||
+    !!rto ||
     books !== "all" ||
     gift !== "all" ||
     channel !== "all" ||
@@ -262,6 +279,62 @@ export default function DeliveryFilters({
             </div>
           )}
 
+          {/* Has this pincode actually earned fast Delhivery delivery, from
+              its own delivered/returned history (0078)? For picking which
+              *unrouted* parcels are worth sending to Delhivery in the first
+              place — "Courier" above asks who has it now, this asks who it
+              should go to. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              Courier fit
+            </label>
+            <select
+              value={pincodeFit}
+              onChange={(e) => push({ pincodeFit: e.target.value || null })}
+              className={`${field} cursor-pointer`}
+              title="Whether this pincode's own delivery history qualifies it for Delhivery"
+            >
+              <option value="">Any pincode</option>
+              <option value="eligible">Delhivery-ready pincodes</option>
+              <option value="not_eligible">Not Delhivery-ready</option>
+            </select>
+          </div>
+
+          {/* status='processing' — narrows within whatever tab is open
+              (usually Assigned) rather than being a tab of its own. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              Packing
+            </label>
+            <select
+              value={packed}
+              onChange={(e) => push({ packed: e.target.value || null })}
+              className={`${field} cursor-pointer`}
+            >
+              <option value="">Any</option>
+              <option value="yes">Packed only</option>
+            </select>
+          </div>
+
+          {/* Read off courier_last_scan, not status — see the field comment
+              on DeliveryFilters.rto. The one place this backlog is visible
+              at all right now: a parcel here still reads Shipped or Out for
+              delivery everywhere else on the screen. */}
+          <div>
+            <label className="text-xs font-medium text-neutral-500 mb-1.5 block">
+              RTO
+            </label>
+            <select
+              value={rto}
+              onChange={(e) => push({ rto: e.target.value || null })}
+              className={`${field} cursor-pointer`}
+              title="Still showing Shipped/Out for delivery, but the courier's last scan says it's on its way back"
+            >
+              <option value="">Any</option>
+              <option value="yes">In RTO transit</option>
+            </select>
+          </div>
+
           {/* How many copies. The pile worth separating before packing: a
               multi-copy parcel is a different box and a different weight. */}
           <div>
@@ -397,7 +470,8 @@ export default function DeliveryFilters({
                   push({
                     from: null, to: null, q: null, agent: null,
                     courier: null, handover: null, books: null, signed: null,
-                    gift: null, channel: null, mode: null,
+                    gift: null, channel: null, mode: null, pincodeFit: null,
+                    packed: null, rto: null,
                   });
                 }}
                 className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"

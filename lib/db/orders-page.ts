@@ -5,6 +5,7 @@ import {
   parseDeliveryFilters,
   type DeliveryFilters,
 } from "@/lib/db/delivery-query";
+import { pincodesByFit } from "@/lib/db/pincode-stats";
 
 /**
  * Page fetches, memoised for the duration of one request.
@@ -96,6 +97,13 @@ export const fetchDeliveryPage = cache(async function fetchDeliveryPage(
   const filters: DeliveryFilters = parseDeliveryFilters(
     new URLSearchParams(filterKey)
   );
+
+  // pincodeFit is a URL value; the query needs the actual pincode list it
+  // stands for, and that lookup is async — which buildDeliveryQuery is not —
+  // so it resolves here, once, right before the query it narrows.
+  if (filters.pincodeFit === "eligible" || filters.pincodeFit === "not_eligible") {
+    filters.pincodes = await pincodesByFit(filters.pincodeFit === "eligible");
+  }
 
   const { data, count, error } = await buildDeliveryQuery(filters).range(
     pageNum * perPage,

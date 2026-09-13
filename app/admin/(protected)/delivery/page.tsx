@@ -11,6 +11,7 @@ import { fetchDeliveryPage, deliveryFilterKey } from "@/lib/db/orders-page";
 import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
 import { listCouriers } from "@/lib/db/couriers";
 import { canSendAutomatically } from "@/lib/couriers";
+import { pincodeStats } from "@/lib/db/pincode-stats";
 import { SkeletonTable, SkeletonTabs } from "@/components/admin/Skeleton";
 import {
   NavigationPending,
@@ -140,6 +141,25 @@ async function QueueTable(args: Args) {
   const courierNames = Object.fromEntries(couriers.map((c) => [c.id, c.name]));
 
   const orders = rows as unknown as DeliveryRow[];
+
+  // Only for the pincodes on this page — cheap, and the badge is a detail
+  // shown on an expanded row, not something every screen needs to pay for.
+  //
+  // Only pincodes with an actual signal get a badge — every pincode ever
+  // ordered from has a row (0078's backfill seeds one for all of them), most
+  // starting at "not eligible" for no reason beyond having under 3 deliveries
+  // yet. Badging every one of those as "Not Delhivery-ready" would drown out
+  // the pincodes that are flagged for a real reason: a return, or enough
+  // volume to have failed the 90% fast-delivery bar.
+  const pincodeFitMap = await pincodeStats(
+    orders.map((o) => o.pincode).filter((p): p is string => !!p)
+  );
+  const pincodeFit = Object.fromEntries(
+    [...pincodeFitMap.entries()]
+      .filter(([, stat]) => stat.deliveredCount >= 3 || stat.returnedCount > 0)
+      .map(([pin, stat]) => [pin, stat.delhiveryEligible])
+  );
+
   const totalPages = Math.ceil(count / PER_PAGE);
   const pageNum = args.pageNum;
 

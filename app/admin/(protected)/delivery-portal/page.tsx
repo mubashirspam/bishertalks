@@ -9,6 +9,7 @@ import {
   portalPacking,
   portalSearch,
   portalDeliveryMode,
+  topScanRemarks,
   type PortalSort,
   type PortalTracking,
   type PortalPacking,
@@ -64,6 +65,10 @@ interface Args {
   deliveryMode: DeliveryMode | null;
   /** Show only urgent parcels — never a reason to hide one otherwise. */
   urgentOnly: boolean;
+  /** Days since the courier's last scan, or null — see portalQuery. */
+  lateDays: number | null;
+  /** The courier's own wording, exact substring — see topScanRemarks. */
+  remark: string | null;
   pageNum: number;
   /**
    * One order number, mobile or name to narrow to, or null for everything.
@@ -133,6 +138,8 @@ export default async function DeliveryPortalPage({
     packing: portalPacking(params.packing),
     deliveryMode: portalDeliveryMode(params.mode),
     urgentOnly: params.urgent === "1",
+    lateDays: /^\d+$/.test(params.late ?? "") ? Number(params.late) : null,
+    remark: params.remark || null,
     pageNum: Math.max(0, parseInt(params.page ?? "1") - 1),
     // Not gated on `seesEveryone`: a partner searching their own queue is
     // narrowing rows they were already being shown, and the scope above still
@@ -159,9 +166,14 @@ export default async function DeliveryPortalPage({
     );
   }
 
+  // Scoped the same way the rows are — a partner's dropdown only ever offers
+  // remarks that actually appear on their own courier's parcels.
+  const remarkOptions = await topScanRemarks(args.courierId);
+
   return (
     <NavigationPending>
       <PortalFilters
+        remarkOptions={remarkOptions}
         couriers={
           seesEveryone
             ? couriers.filter((c) => c.is_active).map((c) => ({ id: c.id, name: c.name }))
@@ -214,7 +226,9 @@ async function PortalCount(args: Args) {
     args.dateTo,
     args.search,
     args.deliveryMode,
-    args.urgentOnly
+    args.urgentOnly,
+    args.lateDays,
+    args.remark
   );
   return (
     <>
@@ -238,7 +252,9 @@ async function PortalRows(args: Args) {
     args.dateTo,
     args.search,
     args.deliveryMode,
-    args.urgentOnly
+    args.urgentOnly,
+    args.lateDays,
+    args.remark
   );
 
   // The article number for any of these parcels that has one. See
@@ -325,6 +341,8 @@ async function PortalRows(args: Args) {
     if (args.packing) sp.set("packing", args.packing);
     if (args.deliveryMode) sp.set("mode", args.deliveryMode);
     if (args.urgentOnly) sp.set("urgent", "1");
+    if (args.lateDays) sp.set("late", String(args.lateDays));
+    if (args.remark) sp.set("remark", args.remark);
     if (args.search) sp.set("q", args.search.raw);
     if (p > 1) sp.set("page", String(p));
     const qs = sp.toString();

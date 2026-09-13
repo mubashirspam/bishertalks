@@ -43,6 +43,35 @@ export interface DeliveryFilters {
   channel?: string;
   /** A DeliveryMode ('normal' | 'cod'), or "all". */
   deliveryMode?: string;
+  /**
+   * "eligible" or "not_eligible" against pincode_delivery_stats (0078) — has
+   * this pincode actually earned fast, reliable Delhivery delivery, or not.
+   * Read off the URL by parseDeliveryFilters; resolved into the concrete
+   * `pincodes` list below by fetchDeliveryPage, since that lookup is async
+   * and this function is not.
+   */
+  pincodeFit?: string;
+  /**
+   * A pre-resolved set of pincodes to narrow to — how `pincodeFit` actually
+   * reaches the query. Never set directly off a URL.
+   */
+  pincodes?: string[];
+  /**
+   * "yes" to show only packed parcels — `status = 'processing'`. Its own
+   * filter rather than a queue tab: the New/Assigned split (deliveryStage)
+   * is about who is carrying a parcel, not how far packing has got, so a
+   * packed-and-routed parcel is "Assigned" on the tabs and this narrows
+   * within that instead of adding a competing partition.
+   */
+  packed?: string;
+  /**
+   * "yes" to show only parcels whose last courier scan reads as an RTO in
+   * progress — on their way back, but not yet the completed return that
+   * flips `status` to 'returned' (see lib/delhivery/status.ts's isRto). Read
+   * from `courier_last_scan`, not a stored status, because Delhivery has no
+   * "returning" status of its own — only ours, and only once it's final.
+   */
+  rto?: string;
 }
 
 /** Shape of the columns selected below. */
@@ -204,6 +233,28 @@ export function buildDeliveryQuery(
     query = query.eq("delivery_mode", filters.deliveryMode);
   }
 
+  // Narrowed to a specific set of pincodes — see pincodeFit above. An empty
+  // resolved list means "matched nothing", not "no filter", so it must still
+  // narrow to zero rows rather than being skipped.
+  if (filters.pincodes) {
+    query = query.in("pincode", filters.pincodes.length ? filters.pincodes : ["__none__"]);
+  }
+
+  if (filters.packed === "yes") {
+    query = query.eq("status", "processing");
+  }
+
+  // Text search on the courier's own words, not a status — see the field
+  // comment. Excludes the terminal statuses so a parcel that has actually
+  // finished its RTO journey (now 'returned') doesn't double up with the
+  // Returned tab; this is specifically the "still called Shipped or Out for
+  // delivery, but really on its way back" pile.
+  if (filters.rto === "yes") {
+    query = query
+      .not("status", "in", "(delivered,returned,cancelled)")
+      .ilike("courier_last_scan", "%rto%");
+  }
+
   // The dates are IST calendar days; ordered_at is UTC. Converted, or the
   // filter is 5h30m out and silently drops early-morning orders.
   //
@@ -350,5 +401,8 @@ export function parseDeliveryFilters(
     signed: get("signed"),
     channel: get("channel"),
     deliveryMode: get("mode"),
+    pincodeFit: get("pincodeFit"),
+    packed: get("packed"),
+    rto: get("rto"),
   };
 }

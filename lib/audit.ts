@@ -127,6 +127,10 @@ export function describeAudit(row: AuditRow): string {
       };
       return `Switched to ${labels[String(m.channel)] ?? m.channel ?? "?"}`;
     }
+    case "order.courier_rejected": {
+      const pincodeFlag = m.reason_code === "pincode_not_serviceable" ? " (pincode marked not serviceable)" : "";
+      return `Declined by ${m.courier_name ?? "the courier"}${m.reason ? ` — ${m.reason}` : ""}${pincodeFlag} — back to unassigned`;
+    }
     case "order.reshipped": {
       const from = m.from_courier ? `${m.from_courier}${m.from_tracking ? ` (${m.from_tracking})` : ""}` : "no courier on record";
       const to = m.to_courier ? `${m.to_courier}${m.to_tracking ? ` (${m.to_tracking})` : ""}` : "no courier chosen yet";

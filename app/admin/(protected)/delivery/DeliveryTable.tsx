@@ -120,6 +120,7 @@ export default function DeliveryTable({
   agentNames,
   couriers,
   courierNames,
+  pincodeFit,
 }: {
   rows: DeliveryRow[];
   matching: number;
@@ -135,6 +136,12 @@ export default function DeliveryTable({
   couriers: { id: string; name: string; dispatches?: boolean }[];
   /** id → name for display, including couriers since switched off. */
   courierNames: Record<string, string>;
+  /**
+   * pincode -> has it earned fast Delhivery delivery (0078)? Absent means no
+   * verdict yet — too little history either way, which is not the same as
+   * "not eligible" and should not be shown as a warning.
+   */
+  pincodeFit?: Record<string, boolean>;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -1116,8 +1123,21 @@ export default function DeliveryTable({
                               .filter(Boolean)
                               .join(", ")}
                           </p>
-                          <p className="mt-0.5">
-                            {o.state} — <span className="font-semibold">{o.pincode}</span>
+                          <p className="mt-0.5 flex items-center gap-2">
+                            <span>
+                              {o.state} — <span className="font-semibold">{o.pincode}</span>
+                            </span>
+                            {o.pincode && pincodeFit && o.pincode in pincodeFit && (
+                              pincodeFit[o.pincode] ? (
+                                <span className="px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-semibold">
+                                  Delhivery-ready
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[10px] font-semibold">
+                                  Not Delhivery-ready
+                                </span>
+                              )
+                            )}
                           </p>
                         </td>
                       </tr>

@@ -6,8 +6,10 @@ import type { OrderStatus } from "@/lib/types/order";
 import { COURIER_SHEET_MAX, type CourierParcel } from "@/lib/courier-sheet";
 import { CONTACT_COLUMNS, type ContactRow } from "@/lib/delivery/contacts";
 import type { DeliveryMode } from "@/lib/delivery-mode";
-import { getCourierBySlug } from "@/lib/db/couriers";
+import { getCourier, getCourierBySlug } from "@/lib/db/couriers";
 import { isCourierService, type Courier, type CourierService } from "@/lib/couriers";
+import { audit } from "@/lib/audit";
+import type { CurrentStaff } from "@/lib/admin-auth";
 
 /**
  * The delivery portal's data.
@@ -86,6 +88,7 @@ export const PORTAL_FILTERS = [
   "new",
   "confirmed",
   ...PORTAL_STATUS_STEPS,
+  "rto",
   "returned",
 ] as const;
 
@@ -102,6 +105,7 @@ export const PORTAL_FILTER_LABELS: Record<PortalFilter, string> = {
   shipped: "Shipped",
   out_for_delivery: "On the van",
   delivered: "Delivered",
+  rto: "RTO in transit",
   returned: "Returned",
 };
 
@@ -241,6 +245,13 @@ export interface PortalRow {
   postal_barcode?: string | null;
   /** Which logistics partner carries it, or null if undecided (0030). */
   courier_id: string | null;
+  /**
+   * Was this pincode reachable by the courier above, the last time anyone
+   * asked (0034)? False means the ROUTING screen's pincode check already
+   * said no — typing a tracking number in here anyway sends a parcel the
+   * courier already refused, so the portal warns before saving one.
+   */
+  pincode_serviceable: boolean | null;
   /** The derived state — see migration 0035 and lib/delivery/handover.ts. */
   handover_state: string | null;
   /** When their API accepted it — the parcel is out of the agent's hands. */
@@ -370,7 +381,7 @@ const PORTAL_COLUMNS =
   "id,order_number,buyer_name,buyer_phone,house_name,door_no,address_type," +
   "address_line1,address_line2,city,district," +
   "state,pincode,amount_paise,quantity,is_gift,gift_message,is_signed," +
-  "status,courier_entered_at,courier_reference,courier_id,courier_sent_at," +
+  "status,courier_entered_at,courier_reference,courier_id,pincode_serviceable,courier_sent_at," +
   "courier_last_scan,courier_last_scan_at,handover_state," +
   "tracking_number,assigned_agent_id,created_at,paid_at,ordered_at,assigned_at," +
   "delivery_mode,payment_status,delivery_priority," +
@@ -508,7 +519,26 @@ function portalQuery(
   deliveryMode: string | null = null,
   /** True to show only urgent parcels. False or undefined shows everything —
    * urgent is never a reason to hide a row, only to filter TO it. */
-  urgentOnly = false
+  urgentOnly = false,
+  /**
+   * Days since the courier's last scan, or null for no aging filter — "how
+   * long has this sat without the courier moving it on", not "which day was
+   * it assigned" (that's `date`/`dateTo`, a different question: an owner
+   * sorting a morning's batch versus finding what's stuck regardless of when
+   * it went out). Deliberately courier_last_scan_at, not a per-status column:
+   * it's the one timestamp populated the same way for Shipped, Out for
+   * delivery, RTO and a Pending/NDR parcel alike, so one filter reads the
+   * same across all of them rather than four different clocks.
+   */
+  lateDays: number | null = null,
+  /**
+   * The courier's own wording, exact substring — see topScanRemarks, which
+   * is what actually offers the choices this matches against. Free text, not
+   * an enum: Delhivery's own vocabulary here is wide (NDR reasons, facility
+   * names, RTO stages) and a fixed list would either miss most of it or
+   * require guessing at wording no one has actually seen yet.
+   */
+  remark: string | null = null
 ) {
   let query = supabaseAdmin
     .from(table)
@@ -593,6 +623,23 @@ function portalQuery(
     query = query.eq("delivery_priority", "urgent");
   }
 
+  // Only a parcel the courier has actually said something about can be
+  // "late" by this clock — one with no scan yet is simply new, not stuck.
+  if (lateDays && lateDays > 0) {
+    query = query
+      .not("courier_last_scan_at", "is", null)
+      .lt("courier_last_scan_at", new Date(Date.now() - lateDays * 864e5).toISOString());
+  }
+
+  if (remark) {
+    // `%`/`_`/`,`/`(`/`)` stripped, same treatment portalSearch gives typed
+    // text — this comes from a dropdown built off real values (topScanRemarks)
+    // rather than free typing, but the dropdown's own values can still carry
+    // any of these (a facility name has parentheses in it more often than not).
+    const cleaned = remark.replace(/[%_,()]/g, " ").trim();
+    if (cleaned) query = query.ilike("courier_last_scan", `%${cleaned}%`);
+  }
+
   // The day picker filters on the same clock the list is sorted by — the day
   // the parcel was assigned (0046), falling back to the day it was ordered.
   //
@@ -627,6 +674,14 @@ function portalQuery(
   } else if (status === "confirmed") {
     // Entered with the courier, not yet packed.
     query = query.eq("status", "confirmed").not("courier_entered_at", "is", null);
+  } else if (status === "rto") {
+    // Not a stored status — Delhivery has none for "on its way back", only
+    // ours, and only once it's final (see lib/delhivery/status.ts's isRto).
+    // Read off the courier's own scan text instead: this is the pile that
+    // still reads Shipped or On the van everywhere else on the screen.
+    query = query
+      .not("status", "in", "(delivered,returned,cancelled)")
+      .ilike("courier_last_scan", "%rto%");
   } else if (isPortalFilter(status)) {
     query = query.eq("status", status);
   }
@@ -676,7 +731,11 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
   /** A DeliveryMode ('normal' | 'cod'), or null for both. */
   deliveryMode: string | null = null,
   /** True to show only urgent parcels. */
-  urgentOnly = false
+  urgentOnly = false,
+  /** Days since the courier's last scan, or null — see portalQuery. */
+  lateDays: number | null = null,
+  /** The courier's own wording, exact substring — see portalQuery. */
+  remark: string | null = null
 ) {
   const from = pageNum * perPage;
   const to = (pageNum + 1) * perPage - 1;
@@ -706,7 +765,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
     dateTo,
     search,
     deliveryMode,
-    urgentOnly
+    urgentOnly,
+    lateDays,
+    remark
   )
     .order("work_day", { ascending })
     // A direct sale flagged urgent at the counter (0063) jumps to the top of
@@ -756,7 +817,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
       dateTo,
       search,
       deliveryMode,
-      urgentOnly
+      urgentOnly,
+      lateDays,
+      remark
     )
       .order("created_at", { ascending })
       .range(from, to);
@@ -783,7 +846,9 @@ export const fetchPortalPage = cache(async function fetchPortalPage(
         dateTo,
         search,
         deliveryMode,
-        urgentOnly
+        urgentOnly,
+        lateDays,
+        remark
       )
         .order("created_at", { ascending })
         .range(from, to);
@@ -883,6 +948,70 @@ export async function fetchPortalContacts(
     (from, to) => query(table, from, to) as unknown as PromiseLike<PageResult<ContactRow>>,
     { label: "portal contact export" }
   );
+}
+
+/** One entry in the Remark filter's dropdown. */
+export interface ScanRemarkCount {
+  remark: string;
+  count: number;
+}
+
+/**
+ * What the courier is actually saying about the parcels in scope right now,
+ * ranked by how often it's being said.
+ *
+ * Not a fixed list: Delhivery's own wording here spans NDR reasons
+ * ("Consignee Unavailable", "Reattempt as per Client's instruction"), RTO
+ * stages ("RTO Intransit"), and plain facility/hub names ("Kozhikode PH") —
+ * the same field carries all three, and a curated list would either miss
+ * whatever hasn't been seen yet or need constant upkeep as their vocabulary
+ * changes. Read the real values back instead and let whoever is filtering
+ * pick the ones that mean something.
+ *
+ * `courier_last_scan` is "Status — Location — Instructions" (describeScan);
+ * only the last segment is grouped on, since Status/Location fragment the
+ * same event across every hub it passed through and Instructions is the part
+ * that actually says why.
+ *
+ * Read straight from `orders`, not `portal_orders`: no derived column is
+ * needed, and grouping happens in JS below rather than in SQL — simplest
+ * given the client has no GROUP BY, and the row count here (unresolved
+ * parcels for one courier) is a few thousand at the outside.
+ */
+export async function topScanRemarks(
+  courierId: CourierScope,
+  limit = 20
+): Promise<ScanRemarkCount[]> {
+  let query = supabaseAdmin
+    .from("orders")
+    .select("courier_last_scan")
+    .not("status", "in", "(delivered,returned,cancelled)")
+    .not("courier_last_scan", "is", null);
+
+  if (courierId) {
+    query = Array.isArray(courierId)
+      ? query.in("courier_id", courierId)
+      : query.eq("courier_id", courierId);
+  }
+
+  const { data, error } = await query.limit(5000);
+  if (error) {
+    console.error("[Portal] scan remark survey failed:", error.message);
+    return [];
+  }
+
+  const counts = new Map<string, number>();
+  for (const row of data as { courier_last_scan: string }[]) {
+    const parts = row.courier_last_scan.split(" — ");
+    const remark = (parts.length > 1 ? parts[parts.length - 1] : row.courier_last_scan).trim();
+    if (!remark) continue;
+    counts.set(remark, (counts.get(remark) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([remark, count]) => ({ remark, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, limit);
 }
 
 // ── The courier's bulk-upload sheet ─────────────────────────────────────────
@@ -1454,4 +1583,138 @@ export async function setCourierChannel(
   if (!data?.length) return { ok: false, error: "Order not found" };
 
   return { ok: true, courier: target };
+}
+
+/** Longest reject reason worth keeping — a sentence, not an essay. */
+export const REJECT_REASON_MAX = 200;
+
+/**
+ * Why a courier partner is declining — structured, not just typed prose, so
+ * "pincode not serviceable" can feed pincode_delivery_stats (0078) instead of
+ * sitting unread in an audit-log sentence. See rejectCourierAssignment.
+ */
+export const REJECT_REASON_CODES = ["pincode_not_serviceable", "other"] as const;
+export type RejectReasonCode = (typeof REJECT_REASON_CODES)[number];
+
+export function isRejectReasonCode(v: unknown): v is RejectReasonCode {
+  return typeof v === "string" && (REJECT_REASON_CODES as readonly string[]).includes(v);
+}
+
+/**
+ * A courier partner declining a parcel they were routed, before they have
+ * done anything with it — it goes back to the unrouted pool exactly as if
+ * nobody had assigned it yet, so an owner picks a different courier from
+ * /admin/delivery the same way they would a brand new order.
+ *
+ * The one gate is `courier_entered_at` — the portal's own "Confirmed" tick,
+ * meaning the address is already keyed into the courier's system. Not order
+ * `status`: a parcel can move to Packed or Shipped by hand without that tick
+ * ever being set, and if it genuinely hasn't been entered anywhere the
+ * courier can still walk away from it. Once it has been entered, "I can't
+ * take this" is a Return, or a call to whoever routed it, not a one-click
+ * undo of the assignment itself. A parcel already Delivered or Returned is
+ * refused outright — there is nothing left here to undo.
+ *
+ * Deliberately does not touch `status` on success: this is "never got
+ * handed over", the opposite of `returned` ("we shipped it and it came
+ * back") — see docs/delivery-model.md and the `orders_status_check`
+ * constraint.
+ *
+ * `reasonCode: "pincode_not_serviceable"` writes the same
+ * `courier_serviceability` row the automated pincode check would (0034) — a
+ * courier partner saying "I can't reach this address" is exactly as
+ * authoritative as Delhivery's own API saying no, and this is what lets it
+ * pull the pincode out of pincode_delivery_stats' Delhivery-ready set (0078)
+ * without a human having to notice and update anything by hand.
+ */
+export async function rejectCourierAssignment(
+  orderNumber: string,
+  staff: CurrentStaff,
+  reason: string | null,
+  reasonCode: RejectReasonCode | null = null
+): Promise<{ ok: true; orderNumber: string } | { ok: false; error: string }> {
+  const { data: before, error: readError } = await supabaseAdmin
+    .from("orders")
+    .select("status, courier_id, courier_entered_at, pincode")
+    .eq("order_number", orderNumber)
+    .maybeSingle();
+
+  if (readError) {
+    console.error("[Portal] reject read failed:", orderNumber, readError.message);
+    return { ok: false, error: "Could not read that order." };
+  }
+  if (!before) return { ok: false, error: "Order not found" };
+  if (!before.courier_id) {
+    return { ok: false, error: "This parcel isn't routed to a courier." };
+  }
+  if (before.courier_entered_at) {
+    return {
+      ok: false,
+      error: "Too late to reject — it's already been entered with the courier.",
+    };
+  }
+  if (before.status === "delivered" || before.status === "returned") {
+    return { ok: false, error: "This parcel is already closed off — there's nothing to reject." };
+  }
+
+  const courier = await getCourier(before.courier_id);
+
+  const { data: written, error: writeError } = await supabaseAdmin
+    .from("orders")
+    .update({
+      courier_id: null,
+      courier_assigned_at: null,
+      courier_assigned_by: null,
+      courier_send_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("order_number", orderNumber)
+    .eq("courier_id", before.courier_id)
+    .is("courier_entered_at", null)
+    .neq("status", "delivered")
+    .neq("status", "returned")
+    .select("order_number");
+
+  if (writeError) {
+    console.error("[Portal] reject write failed:", orderNumber, writeError.message);
+    return { ok: false, error: "Could not save the rejection." };
+  }
+  if (!written?.length) {
+    return { ok: false, error: "This parcel changed under you — reload and try again." };
+  }
+
+  if (reasonCode === "pincode_not_serviceable" && before.pincode) {
+    const { error: svcError } = await supabaseAdmin
+      .from("courier_serviceability")
+      .upsert(
+        {
+          courier_id: before.courier_id,
+          pincode: before.pincode,
+          serviceable: false,
+          checked_at: new Date().toISOString(),
+        },
+        { onConflict: "courier_id,pincode" }
+      );
+    // Best-effort: the rejection itself already saved. Losing this only
+    // means the pincode isn't flagged from this report — it can still be
+    // flagged by the automated check next time someone routes there.
+    if (svcError) {
+      console.error("[Portal] reject serviceability write failed:", orderNumber, svcError.message);
+    }
+  }
+
+  await audit({
+    actor: staff,
+    action: "order.courier_rejected",
+    entity: "order",
+    entityId: orderNumber,
+    meta: {
+      courier_id: before.courier_id,
+      courier_name: courier?.name ?? null,
+      reason: reason?.trim() || null,
+      reason_code: reasonCode,
+    },
+  });
+
+  return { ok: true, orderNumber };
 }

@@ -13,7 +13,11 @@ import {
   PORTAL_PACKING_LABELS,
   PORTAL_SEARCH_LABELS,
   portalSearch,
+  type ScanRemarkCount,
 } from "@/lib/db/delivery-portal";
+
+/** How stale a parcel is allowed to be before the Late filter calls it out. */
+const LATE_THRESHOLDS = [10, 15] as const;
 import { HANDOVER_CHIPS, HANDOVER_LABELS } from "@/lib/delivery/handover";
 import { DELIVERY_MODES, DELIVERY_MODE_LABELS } from "@/lib/delivery-mode";
 
@@ -52,6 +56,7 @@ export default function PortalFilters({
   downloadSlot,
   couriers,
   trackedCourierIds,
+  remarkOptions,
 }: {
   countSlot?: React.ReactNode;
   /**
@@ -70,6 +75,9 @@ export default function PortalFilters({
   couriers: { id: string; name: string }[];
   /** Couriers that report their own scans — the rest have nothing to compare. */
   trackedCourierIds: string[];
+  /** The courier's own wording actually seen right now, ranked by count — see
+   * topScanRemarks. Scoped the same way the rows are. */
+  remarkOptions: ScanRemarkCount[];
 }) {
   const params = useSearchParams();
   const { navigate } = useNavigation();
@@ -86,6 +94,8 @@ export default function PortalFilters({
   const packing = params.get("packing") ?? "";
   const mode = params.get("mode") ?? "";
   const urgent = params.get("urgent") === "1";
+  const late = params.get("late") ?? "";
+  const remark = params.get("remark") ?? "";
   const sort = params.get("sort") === "oldest" ? "oldest" : "newest";
   const q = params.get("q") ?? "";
 
@@ -257,6 +267,47 @@ export default function PortalFilters({
           ))}
         </select>
 
+        {/* How long since the courier last said anything — the "is this
+            actually stuck" question, answered the same way whatever status
+            the parcel is sitting at (Shipped, On the van, RTO, a Pending/NDR
+            one). Deliberately not a date range: that answers "which day was
+            this assigned", a different question from "how long has it been
+            silent since". */}
+        <select
+          value={late}
+          onChange={(e) => push({ late: e.target.value || null })}
+          title="Days since the courier's last scan — finds parcels that have gone quiet"
+          className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500 transition-colors"
+        >
+          <option value="">Any age</option>
+          {LATE_THRESHOLDS.map((n) => (
+            <option key={n} value={n}>
+              {n}+ days quiet
+            </option>
+          ))}
+        </select>
+
+        {/* The courier's own wording, whatever it actually is right now —
+            not a fixed list (see topScanRemarks): Delhivery's vocabulary
+            here ranges from NDR reasons to RTO stages to plain facility
+            names, and only the real values, with real counts, are worth
+            offering. */}
+        {remarkOptions.length > 0 && (
+          <select
+            value={remark}
+            onChange={(e) => push({ remark: e.target.value || null })}
+            title="The courier's own last word on the parcel"
+            className="bg-white border border-neutral-300 rounded-lg px-2.5 py-1.5 text-xs cursor-pointer focus:outline-none focus:border-primary-500 transition-colors max-w-[220px]"
+          >
+            <option value="">Any remark</option>
+            {remarkOptions.map((r) => (
+              <option key={r.remark} value={r.remark}>
+                {r.remark} ({r.count})
+              </option>
+            ))}
+          </select>
+        )}
+
         {/* Rare — about ten gifts in twelve hundred parcels, five of them
             signed — which is exactly why it stays findable as its own
             control instead of something you scroll a table looking for. */}
@@ -397,7 +448,7 @@ export default function PortalFilters({
 
         <p className="text-xs text-neutral-500 ml-auto whitespace-nowrap">{countSlot}</p>
 
-        {(date || dateTo || status !== "new" || courier || tracking || handover || packing || mode || urgent || q || sort === "oldest") && (
+        {(date || dateTo || status !== "new" || courier || tracking || handover || packing || mode || urgent || late || remark || q || sort === "oldest") && (
           <button
             onClick={() => navigate("/admin/delivery-portal")}
             className="flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 transition-colors"
