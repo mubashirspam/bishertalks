@@ -51,7 +51,7 @@ export function loginPhone(phone: string | null | undefined): string {
  * No order number in it deliberately; the customer has no use for one, and it
  * makes the message read like a thank-you rather than a ticket.
  *
- * It also carries the 5th-edition pre-booking news, because this is the first
+ * It also carries the 6th-edition pre-booking news, because this is the first
  * thing a buyer hears after paying and "it ships in 5–7 days" is no longer
  * true: the book is being printed. Saying so here, next to the price they are
  * NOT being charged, is what stops the "where is my book" message on day six.
@@ -67,8 +67,8 @@ function paidThankYouMessage(o: {
 *നിങ്ങളുടെ ഓർഡർ സ്വീകരിച്ചിരിക്കുന്നു!* ✅
 Neuro Code ബുക്ക് ഓർഡർ ചെയ്തതിന് ഒരുപാട് നന്ദി ❤️
 
-📦 കഴിഞ്ഞ ദിവസങ്ങളിൽ കൂടുതൽ ഓർഡർ വന്നതിനാൽ Neuro Code നാലാം പതിപ്പ് കഴിഞ്ഞു. അഞ്ചാം പതിപ്പ് *${editionDispatchDayLabelMl()}* മുതലാണ് വിതരണം ചെയ്യുക.
-അഞ്ചാം പതിപ്പിന് *${NEXT_EDITION_PRICE} രൂപ* ആയിരിക്കും വില. But നിങ്ങൾ already ഓർഡർ ചെയ്തതിനാൽ same വിലയിൽ തന്നെ നൽകും.
+📦 കഴിഞ്ഞ ദിവസങ്ങളിൽ കൂടുതൽ ഓർഡർ വന്നതിനാൽ Neuro Code അഞ്ചാം പതിപ്പ് കഴിഞ്ഞു. ആറാം പതിപ്പ് *${editionDispatchDayLabelMl()}* മുതലാണ് വിതരണം ചെയ്യുക.
+ആറാം പതിപ്പിന് *${NEXT_EDITION_PRICE} രൂപ* ആയിരിക്കും വില. But നിങ്ങൾ already ഓർഡർ ചെയ്തതിനാൽ same വിലയിൽ തന്നെ നൽകും.
 
 🎁 ഒപ്പം ലഭിക്കുന്ന *സൗജന്യ NLP കോഴ്‌സ്* ഇപ്പോൾ തന്നെ തുടങ്ങാം:
 ${courseUrl()}
