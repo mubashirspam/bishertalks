@@ -305,7 +305,7 @@ async function PortalRows(args: Args) {
   // where it means something; see setCourierChannel for why it refuses
   // everywhere else anyway.
   const kkrChannelCourierIds = couriers
-    .filter((c) => c.slug === "delhivery-sheet" || c.slug === "kkr-india-post")
+    .filter((c) => c.slug === "delhivery-sheet" || c.slug === "kkr-india-post" || c.slug === "mubashir-logistic")
     .map((c) => c.id);
 
   const askable = (c: (typeof couriers)[number]) =>

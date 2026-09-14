@@ -6,6 +6,7 @@ import { requirePermission } from "@/lib/admin-auth";
 import { portalScope } from "@/lib/delivery/scope";
 import {
   fetchPortalContacts,
+  portalDeliveryMode,
   portalTracking,
   portalPacking,
   portalSearch,
@@ -55,7 +56,11 @@ const MAX_ROWS = 20_000;
 
 export async function GET(request: NextRequest) {
   const params = new URL(request.url).searchParams;
-  const mode = params.get("mode") === "breakdown" ? "breakdown" : "portal";
+  // Which export, under `export` — `mode` belongs to the portal's COD/prepaid
+  // filter, and reusing it here overwrote that filter on every download. Old
+  // links carrying `mode=breakdown` (and no `export`) still resolve.
+  const mode =
+    (params.get("export") ?? params.get("mode")) === "breakdown" ? "breakdown" : "portal";
 
   // The wider scope needs the permission whose whole description is this file:
   // "Download customer data as CSV/Excel". The portal's own export stays on
@@ -114,7 +119,13 @@ export async function GET(request: NextRequest) {
         params.get("to") || undefined,
         // The search box counts as a filter here too: the button downloads
         // what the screen is showing, and the screen is showing the search.
-        portalSearch(params.get("q"))
+        portalSearch(params.get("q")),
+        // Parsed exactly as the portal page parses them for the grid, so the
+        // file holds the rows the count above the grid promises.
+        portalDeliveryMode(params.get("mode") ?? undefined),
+        params.get("urgent") === "1",
+        /^\d+$/.test(params.get("late") ?? "") ? Number(params.get("late")) : null,
+        params.get("remark") || null
       ));
       nameParts = [status ?? null, params.get("date"), params.get("to")];
     }

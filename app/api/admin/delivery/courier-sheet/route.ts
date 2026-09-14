@@ -1,3 +1,4 @@
+import { supabaseAdmin } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -120,8 +121,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Could not load parcels" }, { status: 500 });
   }
 
+  const { data: services, error: serviceError } = await supabaseAdmin.from("orders")
+    .select("courier_id,courier_service").in("order_number", orderNumbers);
+  if (serviceError) return NextResponse.json({ error: "Could not read parcel services" }, { status: 500 });
+  const postalRows = (services ?? []).filter(r => !r.courier_service &&
+    couriers.some(c => c.id === r.courier_id && c.config.tracking === "india-post"));
+  if (postalRows.length && postalRows.length !== services?.length) {
+    return NextResponse.json({ error: "Download India Post and other delivery services in separate batches." }, { status: 400 });
+  }
   const postalCourier = couriers.find(
-    (c) => routedTo.has(c.id) && c.config?.tracking === "india-post"
+    (c) => routedTo.has(c.id) && postalRows.some(r => r.courier_id === c.id)
   );
 
   // One India Post file is always one partner's account (see the check below),

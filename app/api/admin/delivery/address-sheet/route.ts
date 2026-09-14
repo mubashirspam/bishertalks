@@ -1,3 +1,4 @@
+import { serviceConfig } from "@/lib/couriers/service-config";
 export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -92,8 +93,8 @@ export async function POST(request: NextRequest) {
   // couriers gets a page each. A parcel routed to nobody falls back to the
   // environment defaults, which is also what an unconfigured partner gets.
   const byId = new Map((await listCouriers()).map((c) => [c.id, c.config]));
-  const configOf = (o: { courier_id: string | null }) =>
-    o.courier_id ? byId.get(o.courier_id) ?? null : null;
+  const configOf = (o: { courier_id: string | null; courier_service?: string | null }) =>
+    serviceConfig(o.courier_id ? byId.get(o.courier_id) : null, o.courier_service);
 
   const { pdf, pages } = buildAddressSheet(
     rows,

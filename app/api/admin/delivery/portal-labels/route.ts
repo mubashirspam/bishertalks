@@ -1,3 +1,4 @@
+import { serviceConfig } from "@/lib/couriers/service-config";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -99,8 +100,8 @@ export async function POST(request: NextRequest) {
   }
 
   const byId = new Map((await listCouriers()).map((c) => [c.id, c.config]));
-  const configOf = (o: { courier_id: string | null }) =>
-    o.courier_id ? byId.get(o.courier_id) ?? null : null;
+  const configOf = (o: { courier_id: string | null; courier_service?: string | null }) =>
+    serviceConfig(o.courier_id ? byId.get(o.courier_id) : null, o.courier_service);
 
   // The barcode rule is the courier's, not the label's. An India Post parcel
   // carries their article number or no barcode at all — our order number is

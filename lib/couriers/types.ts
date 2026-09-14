@@ -345,17 +345,18 @@ const NAME_LABELS: { match: RegExp; label: string }[] = [
  * reassigned to that row rather than tagged with a service here. This only
  * covers the two networks KKR Logistics has no separate machinery for.
  */
-export type CourierService = "dtdc" | "trackon";
+export type CourierService = "delhivery" | "dtdc" | "trackon";
 
-export const COURIER_SERVICES: readonly CourierService[] = ["dtdc", "trackon"];
+export const COURIER_SERVICES: readonly CourierService[] = ["delhivery", "dtdc", "trackon"];
 
 export const COURIER_SERVICE_LABELS: Record<CourierService, string> = {
+  delhivery: "Delhivery",
   dtdc: "DTDC",
   trackon: "Trackon",
 };
 
 export function isCourierService(v: unknown): v is CourierService {
-  return v === "dtdc" || v === "trackon";
+  return v === "delhivery" || v === "dtdc" || v === "trackon";
 }
 
 /**
@@ -369,6 +370,7 @@ export function trackingIdLabel(
   courier: Pick<Courier, "name" | "config"> | null | undefined,
   service?: string | null
 ): string {
+  if (service === "delhivery") return "Delhivery waybill";
   if (service === "dtdc") return "DTDC number";
   if (service === "trackon") return "Trackon number";
 

@@ -7,7 +7,8 @@ import { articleNumber, isValidArticleNumber } from "@/lib/india-post/article-nu
  *
  * Migration 0049. The rule everything here exists to protect:
  *
- *   **A number is never returned to stock.** Not on a refused booking, not on
+ *   **Only explicitly released, unbooked numbers return to stock (0081).**
+ *   Never on a refused booking, never on
  *   a timeout, not on an admin undoing something. A booking whose outcome we
  *   never learned may well have registered that number at India Post, and two
  *   parcels travelling under one article number is not something we can fix
@@ -301,6 +302,13 @@ export async function allocateBarcodes(
   orderNumbers: string[]
 ): Promise<{ allocated: AllocatedBarcode[]; shortfall: number }> {
   if (!orderNumbers.length) return { allocated: [], shortfall: 0 };
+  const { data: eligible, error: eligibilityError } = await supabaseAdmin.from("orders")
+    .select("order_number").in("order_number", orderNumbers)
+    .eq("courier_id", courierId).is("courier_service", null);
+  if (eligibilityError) throw new Error("Could not check postal services");
+  orderNumbers = (eligible ?? []).map(row => row.order_number);
+  if (!orderNumbers.length) return { allocated: [], shortfall: 0 };
+
 
   // Who already has one. Asked first so a retry costs nothing from the stock.
   const { data: existing, error: readError } = await supabaseAdmin
@@ -325,7 +333,7 @@ export async function allocateBarcodes(
     .filter((n) => held.has(n))
     .map((n) => ({ orderNumber: n, barcode: held.get(n)! }));
 
-  const needing = orderNumbers.filter((n) => !held.has(n));
+  let needing = orderNumbers.filter((n) => !held.has(n));
   if (!needing.length) return { allocated, shortfall: 0 };
 
   // Claim against whoever holds the ranges, which is not always the courier
@@ -333,6 +341,21 @@ export async function allocateBarcodes(
   // inside the loop: the answer cannot change mid-batch, and asking per
   // iteration would put a courier read between two claims.
   const stockOwner = await postalStockOwner(courierId);
+
+  const { data: reused, error: reuseError } = await supabaseAdmin.rpc("claim_reusable_postal_articles", {
+    p_courier_id: stockOwner, p_order_numbers: needing,
+  });
+  // Existing allocation remains available while migration 0081 is being deployed.
+  if (reuseError && reuseError.code !== "PGRST202") {
+    throw new Error(`Could not check reusable articles: ${reuseError.message}`);
+  }
+  for (const row of reused ?? []) {
+    allocated.push({ orderNumber: row.order_number, barcode: row.barcode });
+    held.set(row.order_number, row.barcode);
+  }
+  needing = needing.filter((n) => !held.has(n));
+  if (!needing.length) return { allocated, shortfall: 0 };
+
 
   // Claim from as many ranges as it takes. One statement per range; the loop
   // exists because an allotment can be split across several and the last one
@@ -418,52 +441,11 @@ export async function allocateBarcodes(
   return { allocated, shortfall: needing.length - used };
 }
 
-/** India Post accepted this number. The parcel is now theirs. */
-/**
- * Write an article number somebody read off a counter receipt.
- *
- * The escape hatch for the case the allotment cannot cover: the stock ran out,
- * or the parcel was booked at the window and came back with a number that was
- * never ours to mint. Without this the label prints a blank barcode and the
- * parcel has no machine-readable identity in the system carrying it.
- *
- * ── Deliberately not part of the allotment ────────────────────────────────
- *
- * Nothing is written to `postal_barcodes`. That table is the ledger of numbers
- * *we* own — every row points at the range it was minted from, and `range_id`
- * is NOT NULL because a number with no range is not one of ours to account
- * for. A counter-issued number was never in our stock and spends none of it,
- * so recording it there would overstate what we have used and give it a range
- * it did not come from.
- *
- * ── The three refusals ────────────────────────────────────────────────────
- *
- * **Not a real article number.** Checked against the UPU format and its
- * modulus-11 check digit, the same function the minter validates its own
- * output with. A mistyped number prints a barcode that scans cleanly and
- * resolves to nothing, which is worse than the blank it replaced.
- *
- * **Already ours.** If the number is in `postal_barcodes` it belongs to a
- * parcel the allotment gave it to, and typing it here would put one number on
- * two parcels — with the ledger insisting it is somewhere else.
- *
- * **Already on another order.** The same collision by the other route, since
- * `orders.postal_barcode` carries no unique constraint (0049 indexes it, but
- * does not make it unique).
- *
- * ── Why confirmation closes it ────────────────────────────────────────────
- *
- * Once `courier_entered_at` is set the parcel is on a booking file that has
- * gone to India Post under that number. Changing it afterwards leaves their
- * file and our row disagreeing about which parcel is which, and the parcel is
- * already out of our hands. An allotted number is never overwritten either,
- * whatever the confirmation state: it is spent, and silently replacing it
- * would strand it while the ledger still says it is in use here.
- */
+/** Replace a postal article atomically and return an unbooked allotment to stock. */
 export async function setManualArticleNumber(
   orderNumber: string,
   value: string
-): Promise<{ ok: true; barcode: string } | { ok: false; error: string }> {
+): Promise<{ ok: true; barcode: string; released: string | null } | { ok: false; error: string }> {
   const barcode = (value ?? "").trim().toUpperCase();
 
   if (!barcode) return { ok: false, error: "Type an article number first." };
@@ -478,97 +460,14 @@ export async function setManualArticleNumber(
     };
   }
 
-  const { data: order, error: readError } = await supabaseAdmin
-    .from("orders")
-    .select("order_number,postal_barcode,courier_entered_at")
-    .eq("order_number", orderNumber)
-    .maybeSingle();
-
-  if (readError) {
-    console.error("[Postal] manual number: order read failed:", readError.message);
-    return { ok: false, error: "Could not read that parcel." };
-  }
-  if (!order) return { ok: false, error: "No such order." };
-
-  const current = (order.postal_barcode as string | null)?.trim() ?? "";
-  if (current === barcode) return { ok: true, barcode };
-
-  if (order.courier_entered_at) {
-    return {
-      ok: false,
-      error:
-        "This parcel is already confirmed with the courier, so its article " +
-        "number is on a booking file India Post has. Untick Confirmed first " +
-        "if it really needs to change.",
-    };
-  }
-
-  // An allotted number is ours and spent. Replacing it here would strand it.
-  if (current) {
-    const { data: mine } = await supabaseAdmin
-      .from("postal_barcodes")
-      .select("barcode")
-      .eq("barcode", current)
-      .maybeSingle();
-
-    if (mine) {
-      return {
-        ok: false,
-        error:
-          `${current} came out of our own allotment, so it cannot be typed ` +
-          "over — it would be left spent and attached to nothing.",
-      };
-    }
-  }
-
-  const [{ data: allotted }, { data: taken }] = await Promise.all([
-    supabaseAdmin.from("postal_barcodes").select("order_number").eq("barcode", barcode).maybeSingle(),
-    supabaseAdmin
-      .from("orders")
-      .select("order_number")
-      .eq("postal_barcode", barcode)
-      .neq("order_number", orderNumber)
-      .maybeSingle(),
-  ]);
-
-  if (allotted) {
-    const owner = (allotted as { order_number: string | null }).order_number;
-    return {
-      ok: false,
-      error:
-        `${barcode} is one of our own allotted numbers` +
-        (owner ? `, already on ${owner}.` : " and is already spent.") +
-        " Two parcels cannot carry the same number.",
-    };
-  }
-  if (taken) {
-    return {
-      ok: false,
-      error: `${barcode} is already on ${(taken as { order_number: string }).order_number}.`,
-    };
-  }
-
-  // Conditional on the confirmation state as well, so a batch confirmed
-  // between the read above and this write cannot slip through.
-  const { data: updated, error } = await supabaseAdmin
-    .from("orders")
-    .update({ postal_barcode: barcode, updated_at: new Date().toISOString() })
-    .eq("order_number", orderNumber)
-    .is("courier_entered_at", null)
-    .select("order_number");
-
-  if (error) {
-    console.error("[Postal] manual number write failed:", orderNumber, error.message);
-    return { ok: false, error: "Could not save that number." };
-  }
-  if (!updated?.length) {
-    return {
-      ok: false,
-      error: "That parcel was confirmed with the courier a moment ago — reload and check.",
-    };
-  }
-
-  return { ok: true, barcode };
+  const { data, error } = await supabaseAdmin.rpc("replace_postal_article", {
+    p_order_number: orderNumber,
+    p_barcode: barcode,
+  });
+  if (error) return { ok: false, error: error.code === "PGRST202"
+    ? "Article replacement needs database migration 0081. Apply it before replacing this number."
+    : error.message };
+  return { ok: true, barcode, released: data?.released ?? null };
 }
 
 export async function markBooked(barcode: string): Promise<void> {

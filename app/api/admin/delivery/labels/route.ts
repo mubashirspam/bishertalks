@@ -1,3 +1,4 @@
+import { serviceConfig } from "@/lib/couriers/service-config";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
@@ -105,9 +106,8 @@ export async function POST(request: NextRequest) {
     const numbers = rows.map((r) => r.order_number);
     const { data, error } = await supabaseAdmin
       .from("orders")
-      .select("order_number,postal_barcode")
-      .in("order_number", numbers)
-      .not("postal_barcode", "is", null);
+      .select("order_number,postal_barcode,courier_service")
+      .in("order_number", numbers);
 
     if (error) {
       console.error("[Labels] postal barcode lookup failed:", error.message);
@@ -116,13 +116,13 @@ export async function POST(request: NextRequest) {
 
     const byOrder = new Map(
       (data ?? []).map((r) => {
-        const row = r as { order_number: string; postal_barcode: string };
-        return [row.order_number, row.postal_barcode];
+        const row = r as { order_number: string; postal_barcode: string; courier_service: string | null };
+        return [row.order_number, row];
       })
     );
     if (!byOrder.size) return rows;
 
-    return rows.map((r) => ({ ...r, postal_barcode: byOrder.get(r.order_number) ?? null }));
+    return rows.map((r) => ({ ...r, postal_barcode: byOrder.get(r.order_number)?.postal_barcode ?? null, courier_service: byOrder.get(r.order_number)?.courier_service ?? null }));
   })();
 
   // The barcode rule is the courier's, not the label's. An India Post parcel
@@ -132,8 +132,8 @@ export async function POST(request: NextRequest) {
   // order number, which is what our own screens are keyed by.
   const configById = new Map((await listCouriers()).map((c) => [c.id, c.config]));
 
-  const configOf = (o: { courier_id: string | null }) =>
-    (o.courier_id ? configById.get(o.courier_id) : null) ?? null;
+  const configOf = (o: { courier_id: string | null; courier_service?: string | null }) =>
+    serviceConfig(o.courier_id ? configById.get(o.courier_id) : null, o.courier_service);
 
   const pdf = buildLabelSheet(withBarcodes, {
     barcodeFor: (o) =>

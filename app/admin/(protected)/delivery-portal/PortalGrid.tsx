@@ -107,6 +107,7 @@ export default function PortalGrid({
 }) {
   const router = useRouter();
   const [syncing, setSyncing] = useState(false);
+  const [articleNotice, setArticleNotice] = useState<string | null>(null);
   const [syncNote, setSyncNote] = useState<string | null>(null);
   /**
    * The courier the automatic sync below has already run for.
@@ -211,7 +212,7 @@ export default function PortalGrid({
 
   /** Is this parcel one India Post carries? */
   const isPostal = (r: PortalRow): boolean =>
-    !!r.courier_id && postalCourierIds.includes(r.courier_id);
+    !!r.courier_id && postalCourierIds.includes(r.courier_id) && !isCourierService(r.courier_service);
 
   /** Routed to India Post and still without an article number. */
   const needsArticle = (r: PortalRow): boolean => isPostal(r) && !r.postal_barcode;
@@ -493,6 +494,23 @@ export default function PortalGrid({
         throw new Error(body.error || `Reship failed (${res.status})`);
       }
       setReshipping(null);
+      // refresh preserves local state: discard the previous journey's edits
+      // so they cannot mask the confirmed, unentered row returned by reship.
+      setOverrides((previous) => {
+        const next = { ...previous };
+        delete next[row.order_number];
+        return next;
+      });
+      setEntered((previous) => {
+        const next = { ...previous };
+        delete next[row.order_number];
+        return next;
+      });
+      setTracking((previous) => {
+        const next = { ...previous };
+        delete next[row.order_number];
+        return next;
+      });
       setReshipCourier("");
       setReshipTracking("");
       router.refresh();
@@ -657,6 +675,10 @@ export default function PortalGrid({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Update failed (${res.status})`);
+
+      setArticleNotice(data.released_article_number
+        ? `${data.released_article_number} returned to unused stock and will be allotted to another parcel.`
+        : "Article number saved.");
 
       // Refreshed rather than patched into an overrides map: the number
       // changes what several other cells say about this parcel — whether it
@@ -878,6 +900,12 @@ export default function PortalGrid({
       {error && (
         <p className="text-xs text-red-600 bg-red-50 border-b border-red-100 px-4 py-2 rounded-t-2xl">
           {error}
+        </p>
+      )}
+
+      {articleNotice && (
+        <p role="status" className="text-xs text-emerald-700 bg-emerald-50 px-4 py-2">
+          {articleNotice}
         </p>
       )}
 
@@ -1345,7 +1373,7 @@ export default function PortalGrid({
                           <button
                             onClick={() => void saveArticle(r, articleEdit[r.order_number])}
                             disabled={!!saving[r.order_number]}
-                            title="Confirm this article number"
+                            title="Save article number and return the unused previous allotment to stock"
                             className="text-emerald-700 hover:text-emerald-900 disabled:opacity-40"
                           >
                             <Check className="w-3.5 h-3.5" />
@@ -1487,7 +1515,7 @@ export default function PortalGrid({
                         }
                         onChange={(e) => changeChannel(r, e.target.value as CourierChannel)}
                         disabled={channelBusy === r.order_number}
-                        title="Which of KKR's own routes this parcel actually goes by"
+                        title="Delivery service for this parcel"
                         className="mt-1 block w-full text-[10px] border border-neutral-200 rounded px-1 py-0.5 bg-white text-neutral-500 disabled:opacity-50"
                       >
                         {COURIER_CHANNELS.map((c) => (

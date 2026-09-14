@@ -39,7 +39,8 @@ export default function ContactDownload({
       const qs = new URLSearchParams(params.toString());
       // The export is every matching parcel, not the page being looked at.
       qs.delete("page");
-      qs.set("mode", mode);
+      // `export`, not `mode`: the portal's own `mode` is its COD/prepaid filter.
+      qs.set("export", mode);
 
       const res = await fetch(`/api/admin/delivery/contact-export?${qs.toString()}`);
 

@@ -6,6 +6,7 @@ import { portalScope, mayHandle } from "@/lib/delivery/scope";
 import { courierOf } from "@/lib/db/delivery-portal";
 import { setManualArticleNumber } from "@/lib/db/postal-barcodes";
 import { listCouriers } from "@/lib/db/couriers";
+import { revalidateDelivery } from "@/lib/db/cache-tags";
 import { auditMany } from "@/lib/audit";
 
 /**
@@ -93,9 +94,11 @@ export async function POST(request: NextRequest) {
   // is in the allotment ledger.
   await auditMany(auth.staff, "order.article_number", "order", [orderNumber], {
     article_number: result.barcode,
+    released_article_number: result.released,
     source: "manual",
     via: "portal",
   });
 
-  return NextResponse.json({ ok: true, article_number: result.barcode });
+  revalidateDelivery();
+  return NextResponse.json({ ok: true, article_number: result.barcode, released_article_number: result.released });
 }

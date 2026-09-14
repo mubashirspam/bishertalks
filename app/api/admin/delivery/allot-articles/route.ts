@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
     .select("order_number,courier_id,postal_barcode")
     .in("order_number", orderNumbers)
     .eq("payment_status", "paid")
+    .is("courier_service", null)
     .not("courier_id", "is", null);
 
   if (scopedCourier?.length) query = query.in("courier_id", scopedCourier);

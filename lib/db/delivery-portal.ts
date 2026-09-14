@@ -896,7 +896,17 @@ export async function fetchPortalContacts(
    * the box would hand somebody three hundred rows when the screen in front
    * of them showed one.
    */
-  search: PortalSearch | null = null
+  search: PortalSearch | null = null,
+  /**
+   * The rest of the grid's filters — COD/prepaid, urgent, days quiet and the
+   * courier's remark. Missing here, a download from "Consignee Unavailable
+   * (14)" exported every parcel in scope, because each defaulted to "no
+   * filter" and still type-checked. Keep this list in step with fetchPortalPage.
+   */
+  deliveryMode: string | null = null,
+  urgentOnly = false,
+  lateDays: number | null = null,
+  remark: string | null = null
 ): Promise<{ rows: ContactRow[]; truncated: boolean }> {
   const query = (table: "portal_orders" | "orders", from: number, to: number) =>
     portalQuery(
@@ -916,7 +926,11 @@ export async function fetchPortalContacts(
       // type-checks is the kind this list of ten positional parameters
       // invites.
       dateTo,
-      search
+      search,
+      deliveryMode,
+      urgentOnly,
+      lateDays,
+      remark
     )
       // `ordered_at` rather than the view's work_at: it is on both tables, so
       // the fallback below sorts the file the same way as the view does rather
@@ -1342,7 +1356,7 @@ export async function fetchAddressesForSheet(
         // is a barcode — the article number where India Post allotted one, the
         // courier's reference otherwise. See sheetBarcodeValue().
         "district,state,pincode,quantity,is_gift,is_signed,ordered_at,courier_id," +
-        "postal_barcode,courier_reference"
+        "postal_barcode,courier_reference,courier_service"
     )
     .in("order_number", orderNumbers.slice(0, limit))
     // Paid, or COD and deliberately not paid yet — see 0067 for why this is a
@@ -1386,6 +1400,7 @@ export interface AddressSheetRow {
   is_gift: boolean | null;
   is_signed: boolean | null;
   ordered_at: string;
+  courier_service?: string | null;
   /** India Post's article number, where one has been allotted. */
   postal_barcode: string | null;
   /** What the courier files this parcel under (0024). */
@@ -1539,13 +1554,11 @@ export async function setCourierChannel(
   orderNumber: string,
   channel: CourierChannel
 ): Promise<{ ok: true; courier: Courier } | { ok: false; error: string }> {
-  const [kkr, postal] = await Promise.all([
+  const [kkr, postal, mubashir] = await Promise.all([
     getCourierBySlug("delhivery-sheet"),
     getCourierBySlug("kkr-india-post"),
+    getCourierBySlug("mubashir-logistic"),
   ]);
-  if (!kkr || !postal) {
-    return { ok: false, error: "KKR Logistics isn't set up on this account yet." };
-  }
 
   const { data: existing, error: readError } = await supabaseAdmin
     .from("orders")
@@ -1558,12 +1571,24 @@ export async function setCourierChannel(
     throw new Error(readError.message);
   }
   if (!existing) return { ok: false, error: "Order not found" };
+  if (mubashir && existing.courier_id === mubashir.id) {
+    const { error } = await supabaseAdmin.rpc("set_mubashir_channel", {
+      p_order_number: orderNumber, p_channel: channel,
+    });
+    if (error) return { ok: false, error: error.code === "PGRST202"
+      ? "Mubashir service editing needs database migration 0081. Apply it before changing this service."
+      : error.message };
+    return { ok: true, courier: mubashir };
+  }
+  if (!kkr || !postal) {
+    return { ok: false, error: "KKR Logistics isn't set up on this account yet." };
+  }
   if (existing.courier_id !== kkr.id && existing.courier_id !== postal.id) {
     return { ok: false, error: "This isn't a KKR Logistics parcel." };
   }
 
   const target = channel === "india_post" ? postal : kkr;
-  const service = isCourierService(channel) ? channel : null;
+  const service = channel !== "delhivery" && isCourierService(channel) ? channel : null;
 
   const { data, error } = await supabaseAdmin
     .from("orders")
