@@ -1,7 +1,8 @@
 "use client";
 
 import { useSearchParams } from "next/navigation";
-import { CalendarDays, MapPin, Search, X } from "lucide-react";
+import { CalendarDays, Flag, MapPin, Search, X } from "lucide-react";
+import { FLAGS, FLAG_LABELS, FLAG_TONE, type FlagKey } from "@/lib/crm/tag-labels";
 import { useNavigation } from "@/components/admin/Revalidating";
 // Labels only — lib/crm/people reads every order in the database.
 import {
@@ -36,6 +37,7 @@ export default function PeopleFilters({
   stageCounts,
   priorityCounts,
   messagedCounts,
+  flagCounts,
   districts,
   total,
   totalPeople,
@@ -44,6 +46,7 @@ export default function PeopleFilters({
   stageCounts: Record<PersonStage, number>;
   priorityCounts: Record<Priority, number>;
   messagedCounts: { yes: number; no: number };
+  flagCounts: Record<FlagKey, number>;
   districts: string[];
   total: number;
   totalPeople: number;
@@ -57,6 +60,7 @@ export default function PeopleFilters({
   const priority = params.get("priority") ?? "";
   const messaged = params.get("messaged") ?? "";
   const district = params.get("district") ?? "";
+  const flag = params.get("flag") ?? "";
   const from = params.get("from") ?? "";
   const to = params.get("to") ?? "";
   const q = params.get("q") ?? "";
@@ -84,7 +88,7 @@ export default function PeopleFilters({
   const count = (n: number) => <span className="tabular-nums opacity-70"> {n}</span>;
 
   const anyFilter =
-    stage || priority || messaged || district || from || to || q || replied || withStopped;
+    stage || priority || messaged || district || flag || from || to || q || replied || withStopped;
 
   return (
     <div className="bg-white border border-neutral-200 rounded-2xl p-3.5 shadow-sm mb-4">
@@ -130,6 +134,29 @@ export default function PeopleFilters({
           >
             {PRIORITY_LABELS[p]}
             {count(priorityCounts[p])}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Flags staff have put on people ───────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-2 pb-3 mb-3 border-b border-neutral-100">
+        <span className="flex items-center gap-1 text-xs font-medium text-neutral-500">
+          <Flag className="w-3 h-3" /> Flag
+        </span>
+        <button
+          onClick={() => push({ flag: null })}
+          className={chip(!flag, "border-neutral-900 bg-neutral-900 text-white")}
+        >
+          Any
+        </button>
+        {FLAGS.map((f) => (
+          <button
+            key={f}
+            onClick={() => push({ flag: flag === f ? null : f })}
+            className={chip(flag === f, FLAG_TONE[f])}
+          >
+            {FLAG_LABELS[f]}
+            {count(flagCounts[f])}
           </button>
         ))}
       </div>

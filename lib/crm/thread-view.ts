@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabase/admin";
 import { getContact, windowState, formatWindow } from "@/lib/crm/contacts";
 import { listThread, type Message, type ThreadCursor } from "@/lib/crm/messages";
 import { quickReplies, type QuickReply, type ReplyLanguage } from "@/lib/crm/quick-replies";
+import { crmFieldsFor, flagsIn, type FlagKey } from "@/lib/crm/tags";
 
 export type { ThreadCursor };
 
@@ -58,6 +59,8 @@ export interface ThreadView {
   quickReplies: Record<ReplyLanguage, QuickReply[]>;
   /** Newest first. The thread uses [0] for the tracking link. */
   orders: OrderLite[];
+  /** Delivery issue, payment issue, enquiry — whichever are on. */
+  flags: FlagKey[];
 }
 
 /**
@@ -113,9 +116,10 @@ export async function buildThreadView(contactId: string): Promise<ThreadView | n
   const contact = await getContact(contactId);
   if (!contact) return null;
 
-  const [threadPage, orders] = await Promise.all([
+  const [threadPage, orders, crm] = await Promise.all([
     listThread(contact.id),
     ordersFor(contact.phone),
+    crmFieldsFor(contact.id),
   ]);
 
   const win = windowState(contact.last_inbound_at);
@@ -158,5 +162,6 @@ export async function buildThreadView(contactId: string): Promise<ThreadView | n
       en: quickReplies(replyInput, "en"),
     },
     orders,
+    flags: flagsIn(crm.tags),
   };
 }

@@ -11,6 +11,8 @@ import {
   type Priority,
 } from "@/lib/crm/people-labels";
 
+import { FLAGS, flagsIn, type FlagKey } from "@/lib/crm/tag-labels";
+
 // Re-exported so every existing import of these keeps working, and so the
 // server side has one place to reach for them.
 export {
@@ -116,6 +118,8 @@ export interface Person {
   /** When they last wrote to us. */
   repliedAt: string | null;
   optedOut: boolean;
+  /** Flags staff put on their contact — delivery issue, payment issue, enquiry. */
+  flags: FlagKey[];
 }
 
 interface OrderLite {
@@ -136,6 +140,7 @@ interface ContactLite {
   opt_out_at: string | null;
   last_inbound_at: string | null;
   last_outbound_at: string | null;
+  tags: string[] | null;
 }
 
 /**
@@ -200,6 +205,7 @@ export const loadPeople = cache(async function loadPeople(): Promise<{
         messagedAt: null,
         repliedAt: null,
         optedOut: false,
+        flags: [],
       });
       continue;
     }
@@ -229,6 +235,7 @@ export const loadPeople = cache(async function loadPeople(): Promise<{
       person.messagedAt = contact.last_outbound_at;
       person.repliedAt = contact.last_inbound_at;
       person.optedOut = !!contact.opt_out_at;
+      person.flags = flagsIn(contact.tags ?? []);
       // A name staff typed on the contact beats whatever Razorpay sent back.
       if (contact.display_name) person.name = contact.display_name;
     }
@@ -253,7 +260,7 @@ async function loadContacts(): Promise<Map<string, ContactLite>> {
     (from, to) =>
       supabaseAdmin
         .from("whatsapp_contacts")
-        .select("id, phone, display_name, opt_out_at, last_inbound_at, last_outbound_at")
+        .select("id, phone, display_name, opt_out_at, last_inbound_at, last_outbound_at, tags")
         .order("created_at", { ascending: true })
         .range(from, to) as unknown as PromiseLike<PageResult<ContactLite>>,
     { label: "CRM contacts" }
@@ -284,6 +291,8 @@ export interface PeopleFilters {
   from?: string;
   to?: string;
   district?: string;
+  /** Only people carrying this flag. */
+  flag?: FlagKey;
 }
 
 export function isPersonStage(v: string | undefined | null): v is PersonStage {
@@ -302,6 +311,7 @@ function matches(p: Person, f: PeopleFilters): boolean {
   if (f.replied && !p.repliedAt) return false;
   if (f.contactableOnly && p.optedOut) return false;
   if (f.district && p.district !== f.district) return false;
+  if (f.flag && !p.flags.includes(f.flag)) return false;
   if (f.from && p.lastAt < f.from) return false;
   if (f.to && p.lastAt >= f.to) return false;
 
@@ -337,6 +347,7 @@ export interface PeoplePage {
   stageCounts: Record<PersonStage, number>;
   priorityCounts: Record<Priority, number>;
   messagedCounts: { yes: number; no: number };
+  flagCounts: Record<FlagKey, number>;
   unreachable: number;
   truncated: boolean;
 }
@@ -365,6 +376,14 @@ export async function listPeople(
     p.messagedAt ? "yes" : "no"
   );
 
+  // Not countBy: one person can carry several flags, so each counts once per
+  // flag rather than landing in a single bucket.
+  const flagCounts = Object.fromEntries(FLAGS.map((f) => [f, 0])) as Record<FlagKey, number>;
+  const withoutFlag = { ...filters, flag: undefined };
+  for (const p of people) {
+    if (p.flags.length && matches(p, withoutFlag)) for (const f of p.flags) flagCounts[f]++;
+  }
+
   const hits = people.filter((p) => matches(p, filters));
 
   // Hottest first, and within a band the most recent — which is the order
@@ -382,6 +401,7 @@ export async function listPeople(
     stageCounts,
     priorityCounts,
     messagedCounts: messaged,
+    flagCounts,
     unreachable,
     truncated,
   };

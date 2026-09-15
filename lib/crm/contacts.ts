@@ -187,6 +187,8 @@ export interface InboxFilters {
   /** Only conversations where a free-text reply is still allowed. */
   windowOpen?: boolean;
   optedOut?: boolean;
+  /** Only contacts carrying this tag — how the flag chips filter. */
+  tag?: string;
   limit?: number;
 }
 
@@ -203,6 +205,9 @@ export async function listConversations(f: InboxFilters = {}): Promise<Contact[]
     if (term) query = query.or(`display_name.ilike.%${term}%,phone.ilike.%${term}%`);
   }
   if (f.unread) query = query.gt("unread_count", 0);
+  // Filtering on 0053's column is fine here, unlike selecting it: only a flag
+  // filter touches it, and the unfiltered inbox stays on 0052's columns.
+  if (f.tag) query = query.contains("tags", [f.tag]);
   if (f.optedOut === true) query = query.not("opt_out_at", "is", null);
   if (f.optedOut === false) query = query.is("opt_out_at", null);
   if (f.windowOpen) {

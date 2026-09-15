@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { Clock, Tag, X, CalendarClock, AlertTriangle } from "lucide-react";
 // Labels only. Importing these from lib/crm/tags would pull the Supabase
 // admin client into this bundle — see lib/crm/tag-labels.ts.
-import { TAG_LABELS, HOLD_TAGS } from "@/lib/crm/tag-labels";
+import { TAG_LABELS, HOLD_TAGS, isFlag } from "@/lib/crm/tag-labels";
+import FlagToggles from "../FlagToggles";
 
 /**
  * Tags, stage and what happens next.
@@ -103,6 +104,18 @@ export default function CrmPanel({
       )}
 
       <div className="rounded-xl border border-neutral-200 bg-white px-3.5 py-3">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
+          Flags
+        </p>
+        <FlagToggles
+          contactId={contactId}
+          flags={tags}
+          canEdit={canEdit}
+          onChange={() => router.refresh()}
+        />
+      </div>
+
+      <div className="rounded-xl border border-neutral-200 bg-white px-3.5 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400">
           Stage
         </p>
@@ -121,10 +134,14 @@ export default function CrmPanel({
           Tags
         </p>
 
-        {!tags.length && <p className="text-[11px] text-neutral-400">None yet.</p>}
+        {/* Flags have their own box above; listing them twice invites
+            removing one here and wondering why the button changed. */}
+        {!tags.some((t) => !isFlag(t)) && (
+          <p className="text-[11px] text-neutral-400">None yet.</p>
+        )}
 
         <div className="flex flex-wrap gap-1.5">
-          {tags.map((t) => (
+          {tags.filter((t) => !isFlag(t)).map((t) => (
             <span
               key={t}
               title={TAG_LABELS[t] ?? t}

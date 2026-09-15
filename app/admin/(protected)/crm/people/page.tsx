@@ -18,6 +18,8 @@ import {
 } from "@/lib/crm/people";
 import CrmTabs from "../CrmTabs";
 import PeopleFilters from "./PeopleFilters";
+import { FlagBadge } from "../FlagToggles";
+import { isFlag } from "@/lib/crm/tag-labels";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +55,7 @@ export default async function CrmPeoplePage({
     contactableOnly: params.stopped !== "1",
     q: params.q,
     district: params.district,
+    flag: isFlag(params.flag) ? params.flag : undefined,
     from: params.from,
     to: params.to,
   };
@@ -116,6 +119,7 @@ async function Body({
       priority: filters.priority,
       messaged: filters.messaged,
       district: filters.district,
+      flag: filters.flag,
       q: filters.q,
       from: filters.from,
       to: filters.to,
@@ -139,6 +143,7 @@ async function Body({
         stageCounts={result.stageCounts}
         priorityCounts={result.priorityCounts}
         messagedCounts={result.messagedCounts}
+        flagCounts={result.flagCounts}
         districts={districts}
         total={result.total}
         totalPeople={result.totalPeople}
@@ -212,6 +217,11 @@ async function Body({
                             <MessageSquare className="w-2.5 h-2.5" /> replied
                           </span>
                         )}
+                        {p.flags.map((f) => (
+                          <span key={f} className="ml-1.5 align-middle">
+                            <FlagBadge flag={f} />
+                          </span>
+                        ))}
                       </td>
 
                       <td className={`${cell} text-neutral-700 font-mono`}>{p.phone}</td>

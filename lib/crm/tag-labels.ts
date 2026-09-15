@@ -27,6 +27,8 @@ export const KNOWN_TAGS = [
   "referral_link_shared",
   "referral_paused",
   "still_reading",
+  "payment_issue",
+  "enquiry",
 ] as const;
 
 export type KnownTag = (typeof KNOWN_TAGS)[number];
@@ -57,4 +59,43 @@ export const TAG_LABELS: Record<string, string> = {
   referral_link_shared: "Sent the referral link",
   referral_paused: "Referral paused",
   still_reading: "Still reading",
+  payment_issue: "Payment issue",
+  enquiry: "Enquiry",
 };
+
+/**
+ * Flags: the tags staff put on somebody so they can be found again.
+ *
+ * A flag is an ordinary tag — same column, same index, same audit — picked out
+ * so it gets a one-tap button, a badge in every list and a filter. Removing it
+ * is how somebody says "done".
+ *
+ * `delivery_issue` is also a HOLD tag, so flagging it pauses follow-ups exactly
+ * as the flows already do. The other two do not hold anything: a payment
+ * question or an enquiry is no reason to stop a reading check-in.
+ */
+export const FLAGS = ["delivery_issue", "payment_issue", "enquiry"] as const;
+
+export type FlagKey = (typeof FLAGS)[number];
+
+export const FLAG_LABELS: Record<FlagKey, string> = {
+  delivery_issue: "Delivery issue",
+  payment_issue: "Payment issue",
+  enquiry: "Enquiry",
+};
+
+/** Active-chip classes, one colour per flag so a list can be scanned. */
+export const FLAG_TONE: Record<FlagKey, string> = {
+  delivery_issue: "border-amber-400 bg-amber-50 text-amber-800",
+  payment_issue: "border-rose-400 bg-rose-50 text-rose-700",
+  enquiry: "border-sky-400 bg-sky-50 text-sky-700",
+};
+
+export function isFlag(v: string | null | undefined): v is FlagKey {
+  return !!v && (FLAGS as readonly string[]).includes(v);
+}
+
+/** Just the flags out of a tag list, in FLAGS order. */
+export function flagsIn(tags: readonly string[]): FlagKey[] {
+  return FLAGS.filter((f) => tags.includes(f));
+}

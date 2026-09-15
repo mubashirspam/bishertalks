@@ -11,6 +11,8 @@ import {
   sentToday,
 } from "@/lib/crm/contacts";
 import { latestHealth, ratingTone } from "@/lib/crm/health";
+import { flagsFor, flagCounts } from "@/lib/crm/tags";
+import { FLAGS, FLAG_LABELS, FLAG_TONE, isFlag } from "@/lib/crm/tag-labels";
 import CrmTabs from "./CrmTabs";
 import InboxShell, { type ConversationRow } from "./InboxShell";
 
@@ -27,7 +29,7 @@ export const dynamic = "force-dynamic";
 export default async function CrmInboxPage({
   searchParams,
 }: {
-  searchParams: Promise<{ filter?: string; q?: string; c?: string }>;
+  searchParams: Promise<{ filter?: string; flag?: string; q?: string; c?: string }>;
 }) {
   await requirePageAccess("crm.view");
   const params = await searchParams;
@@ -48,7 +50,12 @@ export default async function CrmInboxPage({
       <CrmTabs active="inbox" />
 
       <Suspense fallback={<><SkeletonHeader /><SkeletonTable rows={8} columns={4} /></>}>
-        <Body filter={params.filter} q={params.q} selected={params.c} />
+        <Body
+          filter={params.filter}
+          flag={isFlag(params.flag) ? params.flag : undefined}
+          q={params.q}
+          selected={params.c}
+        />
       </Suspense>
     </div>
   );
@@ -56,26 +63,32 @@ export default async function CrmInboxPage({
 
 async function Body({
   filter,
+  flag,
   q,
   selected,
 }: {
   filter?: string;
+  /** `?flag=delivery_issue` — only people carrying that flag. */
+  flag?: string;
   q?: string;
   /** `?c=<id>` — the conversation to open on first paint. */
   selected?: string;
 }) {
-  const [health, settings, today] = await Promise.all([
+  const [health, settings, today, flagTotals, conversations] = await Promise.all([
     latestHealth(),
     getSettings(),
     sentToday(),
+    flagCounts(),
+    listConversations({
+      q,
+      unread: filter === "unread",
+      windowOpen: filter === "open",
+      optedOut: filter === "stopped" ? true : filter === "active" ? false : undefined,
+      tag: flag,
+    }),
   ]);
 
-  const conversations = await listConversations({
-    q,
-    unread: filter === "unread",
-    windowOpen: filter === "open",
-    optedOut: filter === "stopped" ? true : filter === "active" ? false : undefined,
-  });
+  const flagMap = await flagsFor(conversations.map((c) => c.id));
 
   const tone = ratingTone(health?.quality_rating ?? null);
 
@@ -148,12 +161,30 @@ async function Body({
             key={f.label}
             href={f.key ? `/admin/crm?filter=${f.key}` : "/admin/crm"}
             className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
-              filter === f.key
+              !flag && filter === f.key
                 ? "border-primary-500 bg-primary-50 text-primary-700"
                 : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"
             }`}
           >
             {f.label}
+          </Link>
+        ))}
+
+        <span className="mx-1 h-6 w-px bg-neutral-200" />
+
+        {/* Flagged people. Tapping an active one again clears it. */}
+        {FLAGS.map((f) => (
+          <Link
+            key={f}
+            href={flag === f ? "/admin/crm" : `/admin/crm?flag=${f}`}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition ${
+              flag === f
+                ? FLAG_TONE[f]
+                : "border-neutral-200 bg-white text-neutral-600 hover:border-neutral-300"
+            }`}
+          >
+            {FLAG_LABELS[f]}
+            <span className="ml-1 tabular-nums opacity-70">{flagTotals[f]}</span>
           </Link>
         ))}
       </div>
@@ -166,6 +197,9 @@ async function Body({
         InboxShell.
       */}
       <InboxShell
+        // InboxShell copies its rows into state, so without a key a filter
+        // change would re-render it with the previous filter's list.
+        key={`${filter ?? ""}|${flag ?? ""}|${q ?? ""}`}
         conversations={conversations.map((c): ConversationRow => {
           const win = windowState(c.last_inbound_at);
           return {
@@ -178,6 +212,7 @@ async function Body({
             lastInboundAt: c.last_inbound_at,
             windowOpen: win.open,
             windowLabel: formatWindow(win.remainingMs),
+            flags: flagMap.get(c.id) ?? [],
           };
         })}
         initialId={selected ?? null}

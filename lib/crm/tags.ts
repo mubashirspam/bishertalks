@@ -6,7 +6,14 @@ export {
   TAG_LABELS,
   type KnownTag,
 } from "@/lib/crm/tag-labels";
-import { HOLD_TAGS } from "@/lib/crm/tag-labels";
+export {
+  FLAGS,
+  FLAG_LABELS,
+  isFlag,
+  flagsIn,
+  type FlagKey,
+} from "@/lib/crm/tag-labels";
+import { HOLD_TAGS, FLAGS, flagsIn, type FlagKey } from "@/lib/crm/tag-labels";
 
 /**
  * Tags and the relationship stage.
@@ -119,6 +126,51 @@ export async function crmFieldsFor(
 /** Their tags, or an empty list on a database without the column yet. */
 export async function tagsFor(contactId: string): Promise<string[]> {
   return (await crmFieldsFor(contactId)).tags;
+}
+
+/**
+ * Flags for a page of contacts, in one read per hundred.
+ *
+ * For the inbox list, which selects contacts without 0053's columns (see
+ * crmFieldsFor). Only flagged contacts come back; everyone else is simply
+ * absent from the map. On any error the map is empty and the list renders
+ * without badges rather than not at all.
+ */
+export async function flagsFor(contactIds: string[]): Promise<Map<string, FlagKey[]>> {
+  const map = new Map<string, FlagKey[]>();
+  const wanted = [...new Set(contactIds.filter(Boolean))];
+
+  const CHUNK = 100;
+  for (let i = 0; i < wanted.length; i += CHUNK) {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_contacts")
+      .select("id, tags")
+      .in("id", wanted.slice(i, i + CHUNK))
+      .overlaps("tags", [...FLAGS]);
+
+    if (error) {
+      console.warn("[CRM] flags unavailable:", error.message);
+      return new Map();
+    }
+    for (const row of (data ?? []) as { id: string; tags: string[] | null }[]) {
+      map.set(row.id, flagsIn(row.tags ?? []));
+    }
+  }
+  return map;
+}
+
+/** How many contacts carry each flag — the numbers on the inbox chips. */
+export async function flagCounts(): Promise<Record<FlagKey, number>> {
+  const entries = await Promise.all(
+    FLAGS.map(async (f) => {
+      const { count, error } = await supabaseAdmin
+        .from("whatsapp_contacts")
+        .select("id", { count: "exact", head: true })
+        .contains("tags", [f]);
+      return [f, error ? 0 : (count ?? 0)] as const;
+    })
+  );
+  return Object.fromEntries(entries) as Record<FlagKey, number>;
 }
 
 /** Is this person on hold — a delivery problem or an open support request? */

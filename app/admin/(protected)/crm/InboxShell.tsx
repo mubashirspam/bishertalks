@@ -5,6 +5,8 @@ import { Ban, Clock, Search, ArrowLeft, Loader2, MessageSquare, X } from "lucide
 import ThreadClient from "./[id]/ThreadClient";
 import { createClient } from "@/lib/supabase/client";
 import type { ThreadView } from "@/lib/crm/thread-view";
+import type { FlagKey } from "@/lib/crm/tag-labels";
+import FlagToggles, { FlagBadge } from "./FlagToggles";
 
 /**
  * The inbox, as a messaging app rather than a list of links.
@@ -40,6 +42,7 @@ export interface ConversationRow {
   lastInboundAt: string | null;
   windowOpen: boolean;
   windowLabel: string;
+  flags: FlagKey[];
 }
 
 type Loaded = ThreadView & { canReply: boolean; canConsent: boolean };
@@ -110,6 +113,13 @@ export default function InboxShell({
     setThread(null);
     window.history.pushState(null, "", `/admin/crm?c=${id}`);
     void load(id, true);
+  }
+
+  // A flag tapped in the open conversation shows on its list row at once,
+  // without rebuilding the list.
+  function setFlags(id: string, flags: FlagKey[]) {
+    setThread((prev) => (prev && prev.contact.id === id ? { ...prev, flags } : prev));
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, flags } : r)));
   }
 
   function clear() {
@@ -256,6 +266,13 @@ export default function InboxShell({
                     {c.phone}
                     {c.lastOrderNumber ? ` · ${c.lastOrderNumber}` : ""}
                   </p>
+                  {c.flags.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {c.flags.map((f) => (
+                        <FlagBadge key={f} flag={f} />
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="shrink-0">
                   {c.windowOpen ? (
@@ -312,6 +329,17 @@ export default function InboxShell({
                 Full page
               </a>
             </div>
+
+            {thread && !failed && (thread.canReply || thread.flags.length > 0) && (
+              <div className="shrink-0 border-b border-neutral-100 px-4 py-2">
+                <FlagToggles
+                  contactId={thread.contact.id}
+                  flags={thread.flags}
+                  canEdit={thread.canReply}
+                  onChange={(next) => setFlags(thread.contact.id, next)}
+                />
+              </div>
+            )}
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4">
               {failed ? (
