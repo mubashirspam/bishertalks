@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabase/admin";
 import { listCouriers } from "@/lib/db/couriers";
 import { articleNumber, isValidArticleNumber } from "@/lib/india-post/article-number";
+import { inBatches, WRITE_CONCURRENCY } from "@/lib/concurrency";
 
 /**
  * The article-number stock, and taking numbers out of it.
@@ -403,11 +404,17 @@ export async function allocateBarcodes(
 
   // Attach one number to one order, conditional on the order still having
   // none, so two requests racing over the same parcel cannot both write.
-  let used = 0;
-  for (const orderNumber of needing) {
-    const barcode = minted[used];
-    if (!barcode) break;
+  //
+  // Pairing is fixed up front — the Nth parcel still needing a number gets
+  // the Nth number claimed, exactly as the sequential loop did — so only the
+  // waiting changes: each pair's writes touch its own order and its own
+  // barcode row, and run alongside the others.
+  const pairs = needing
+    .slice(0, minted.length)
+    .map((orderNumber, i) => ({ orderNumber, barcode: minted[i] }));
+  const attached: (AllocatedBarcode | null)[] = pairs.map(() => null);
 
+  await inBatches(pairs, WRITE_CONCURRENCY, async ({ orderNumber, barcode }, i) => {
     const { data: updated, error } = await supabaseAdmin
       .from("orders")
       .update({ postal_barcode: barcode, updated_at: new Date().toISOString() })
@@ -418,15 +425,13 @@ export async function allocateBarcodes(
     if (error) {
       console.error(`[Postal] ${orderNumber} could not take ${barcode}:`, error.message);
       await markSpent(barcode, `Could not attach to ${orderNumber}: ${error.message}`);
-      used++;
-      continue;
+      return;
     }
 
     if (!updated?.length) {
       // Another request got there first. Its number stands; ours is spent.
       await markSpent(barcode, `${orderNumber} already had a number`);
-      used++;
-      continue;
+      return;
     }
 
     await supabaseAdmin
@@ -434,10 +439,16 @@ export async function allocateBarcodes(
       .update({ order_number: orderNumber })
       .eq("barcode", barcode);
 
-    allocated.push({ orderNumber, barcode });
-    used++;
-  }
+    attached[i] = { orderNumber, barcode };
+  });
 
+  // Same order as before: already-held numbers first, then new ones in
+  // parcel order.
+  for (const a of attached) if (a) allocated.push(a);
+
+  // Every pair was attempted, attached or spent — the same count the loop's
+  // `used` reached before it ran out of numbers.
+  const used = pairs.length;
   return { allocated, shortfall: needing.length - used };
 }
 

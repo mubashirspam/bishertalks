@@ -60,6 +60,17 @@ const MAX_LABELS = 300;
 const ROUTE_CHUNK = 5;
 
 /**
+ * Parcels per request for a courier that is NOT sent automatically (India
+ * Post, the Excel channels) — and for clearing a courier.
+ *
+ * Nothing in those requests talks to a courier: they are our own database
+ * writes, so the reason for five above does not apply, and five meant a
+ * separate request (and a separate login check) for every five parcels.
+ * Kept well under the route's MAX_BATCH of 300 so one request stays short.
+ */
+const ROUTE_CHUNK_BULK = 25;
+
+/**
  * One line in the live log — a parcel, and where the run has got to with it.
  *
  * `pending` and `working` are this screen's own: the server never reports them,
@@ -250,8 +261,13 @@ export default function DeliveryTable({
     setResult(null);
 
     const batches: string[][] = [];
-    for (let i = 0; i < ids.length; i += ROUTE_CHUNK) {
-      batches.push(ids.slice(i, i + ROUTE_CHUNK));
+    // Five for a courier we hand parcels to over its API; bigger for one we
+    // don't. A courier this screen can't find is treated as sending — the
+    // safe side, since that's the case five exists for.
+    const target = to ? couriers.find((c) => c.id === to) : null;
+    const chunk = to && (target?.dispatches ?? true) ? ROUTE_CHUNK : ROUTE_CHUNK_BULK;
+    for (let i = 0; i < ids.length; i += chunk) {
+      batches.push(ids.slice(i, i + chunk));
     }
 
     const acc: RunResult = {

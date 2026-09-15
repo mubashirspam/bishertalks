@@ -6,6 +6,7 @@ import {
 } from "@/lib/courier-sheet";
 import { referenceCode, referenceIsPrivate, type Courier } from "@/lib/couriers";
 import { takenReferences } from "@/lib/db/delivery-portal";
+import { inBatches, WRITE_CONCURRENCY } from "@/lib/concurrency";
 
 /**
  * Giving a parcel the number its courier will file it under.
@@ -93,9 +94,17 @@ export async function ensureReferences(
   const seen = new Set(taken);
   let minted = 0;
 
-  for (const parcel of parcels) {
+  // Every number is decided here first, in order, against `seen` — exactly as
+  // the loop used to — so which parcel gets which reference does not change.
+  // Only the writes below run side by side: each is conditional on its own
+  // row, so waiting for one before starting the next was pure latency.
+  const planned = parcels.map((parcel) => {
     const reference = courierReference(parcel, seen, code);
     seen.add(reference);
+    return { parcel, reference };
+  });
+
+  await inBatches(planned, WRITE_CONCURRENCY, async ({ parcel, reference }) => {
 
     // Conditional on the order still being where we read it, so two requests
     // racing over one parcel cannot overwrite each other — the loser writes
@@ -127,10 +136,10 @@ export async function ensureReferences(
         `[Reference] ${parcel.order_number} could not take ${reference}:`,
         writeError.message
       );
-      continue;
+      return;
     }
     if (updated?.length) minted++;
-  }
+  });
 
   return minted;
 }

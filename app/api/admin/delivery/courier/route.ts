@@ -1,4 +1,8 @@
 export const dynamic = "force-dynamic";
+// A 25-parcel India Post request is several waves of database writes; the
+// platform default could cut it off part-way, which is the one thing this
+// route is built never to do.
+export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
@@ -243,7 +247,15 @@ export async function POST(request: NextRequest) {
     // batch, rather than discovered in a rejected upload after someone packed
     // them. Cached per (courier, pincode), so a day of Kozhikode parcels is
     // one question.
-    if (courier) {
+    // The three steps below write different columns of the same rows —
+    // serviceability, the courier reference, the India Post article number —
+    // and none reads what another writes (a reference is the courier code plus
+    // the order number; allotment reads only courier_id). So they are started
+    // together and awaited together, rather than one after another. Each still
+    // catches its own failure, and nothing after the Promise.all runs until
+    // all three have finished.
+    const serviceabilityRun = (async () => {
+      if (!courier) return;
       const rows = (data ?? []) as { order_number: string; pincode: string | null }[];
       try {
         // Already answered above when the courier demanded it. Reused rather
@@ -273,18 +285,21 @@ export async function POST(request: NextRequest) {
         // that cannot deliver.
         console.warn("[Courier] serviceability check skipped:", e);
       }
-    }
+    })();
 
     // Give every routed parcel the number its courier will file it under, so
     // it is identifiable from this moment rather than from whenever a sheet
     // happens to be built. Coded for this courier, so nobody else's tracking
     // can ever answer for it. Harmless to re-run: a number that has left the
     // building is kept.
-    try {
-      minted = await ensureReferences(updated, courier);
-    } catch (e) {
-      console.warn("[Courier] reference minting skipped:", e);
-    }
+    const referencesRun = ensureReferences(updated, courier).then(
+      (n) => {
+        minted = n;
+      },
+      (e) => {
+        console.warn("[Courier] reference minting skipped:", e);
+      }
+    );
 
     // ── India Post: the article number, at the same moment ─────────────────
     //
@@ -304,15 +319,20 @@ export async function POST(request: NextRequest) {
     // Never fails the assignment. A parcel routed to Speed Post with the stock
     // empty is still routed; it simply has no number yet, every screen says
     // so, and the portal's Allot button picks it up once a range is loaded.
-    if (courier?.config.tracking === "india-post") {
-      try {
-        const result = await allocateBarcodes(courier.id, updated);
-        articles = result.allocated.length;
-        articleShortfall = result.shortfall;
-      } catch (e) {
-        console.warn("[Courier] article numbers not allotted:", e);
-      }
-    }
+    const articlesRun =
+      courier?.config.tracking === "india-post"
+        ? allocateBarcodes(courier.id, updated).then(
+            (result) => {
+              articles = result.allocated.length;
+              articleShortfall = result.shortfall;
+            },
+            (e) => {
+              console.warn("[Courier] article numbers not allotted:", e);
+            }
+          )
+        : Promise.resolve();
+
+    await Promise.all([serviceabilityRun, referencesRun, articlesRun]);
   }
 
   for (const n of unserviceable) {

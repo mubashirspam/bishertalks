@@ -29,12 +29,15 @@ export default function CallFilterBar({
   filters,
   counts,
   batches,
+  batchCookie,
   staff,
   canManage,
 }: {
   filters: CallFilters;
   counts: CallCounts;
   batches: CallBatch[];
+  /** Where the last-picked batch is remembered, per login — read by page.tsx. */
+  batchCookie: string;
   staff: { id: string; name: string; email: string }[];
   canManage: boolean;
 }) {
@@ -85,7 +88,15 @@ export default function CallFilterBar({
         </label>
         <select
           value={filters.batch ?? ""}
-          onChange={(e) => push({ batch: e.target.value || null })}
+          onChange={(e) => {
+            // Remembered for a year in this browser, so the portal reopens on
+            // this batch after the tab or browser is closed. "all" is stored
+            // and sent explicitly — an empty value would fall back to the
+            // remembered batch again.
+            const choice = e.target.value || "all";
+            document.cookie = `${batchCookie}=${encodeURIComponent(choice)}; path=/admin; max-age=31536000; samesite=lax`;
+            push({ batch: choice });
+          }}
           className={`${field} w-full cursor-pointer font-medium`}
         >
           <option value="">All batches ({batches.length})</option>
@@ -191,7 +202,9 @@ export default function CallFilterBar({
             <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? "rotate-180" : ""}`} />
           </button>
 
-          {(hasCallNarrowing(filters) || q) && (
+          {/* The batch doesn't count: one is always picked now, and Clear
+              comes back to the remembered batch anyway. */}
+          {(hasCallNarrowing({ ...filters, batch: undefined }) || q) && (
             <button
               onClick={() => {
                 setQ("");

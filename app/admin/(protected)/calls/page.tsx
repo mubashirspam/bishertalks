@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { cookies } from "next/headers";
 import { PhoneCall } from "lucide-react";
 import Link from "@/components/admin/AdminLink";
 import { requirePageAccessAny, type CurrentStaff } from "@/lib/admin-auth";
@@ -52,7 +53,7 @@ export default async function CallsPage({
           </>
         }
       >
-        <Body staff={staff} filters={filters} page={pageNum} />
+        <Body staff={staff} filters={filters} rawBatch={params.batch} page={pageNum} />
       </Suspense>
     </NavigationPending>
   );
@@ -60,21 +61,45 @@ export default async function CallsPage({
 
 async function Body({
   staff,
-  filters,
+  filters: urlFilters,
+  rawBatch,
   page,
 }: {
   staff: CurrentStaff;
   filters: CallFilters;
+  /** `batch` exactly as it came in the URL — "all" is a choice, not a filter. */
+  rawBatch: string | undefined;
   page: number;
 }) {
   const scope = callScope(staff);
   const canManage = scope.seesEveryone;
 
-  const [allStaff, counts, { rows, count }, batches] = await Promise.all([
+  // Which batch to show. The list is worked one batch at a time, so the page
+  // opens on the batch this person last picked (remembered in a cookie by
+  // CallFilters), not on everything:
+  //   URL says "all"             → every batch
+  //   URL names a batch          → that batch (a shared link wins)
+  //   nothing in the URL         → the remembered choice, if it still exists
+  //   nothing remembered / stale → the newest batch
+  const batches = await listBatches(scope, canManage ? urlFilters.assignee : undefined);
+  const batchCookie = `calls_batch_${staff.id ?? "owner"}`;
+  let batch: string | undefined;
+  if (rawBatch === "all") {
+    batch = undefined;
+  } else if (urlFilters.batch) {
+    batch = urlFilters.batch;
+  } else {
+    const saved = (await cookies()).get(batchCookie)?.value;
+    if (saved === "all") batch = undefined;
+    else if (saved && batches.some((b) => b.key === saved)) batch = saved;
+    else batch = batches[0]?.key;
+  }
+  const filters: CallFilters = { ...urlFilters, batch };
+
+  const [allStaff, counts, { rows, count }] = await Promise.all([
     canManage ? listStaff() : Promise.resolve([]),
     callCounts(filters, scope),
     listCalls(filters, scope, page, PER_PAGE),
-    listBatches(scope, canManage ? filters.assignee : undefined),
   ]);
 
   const callStaff = allStaff
@@ -89,6 +114,7 @@ async function Body({
         filters={filters}
         counts={counts}
         batches={batches}
+        batchCookie={`calls_batch_${staff.id ?? "owner"}`}
         staff={callStaff}
         canManage={canManage}
       />
