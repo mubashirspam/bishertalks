@@ -109,6 +109,12 @@ export interface CallFilters {
   due: boolean;
   /** A staff id, or "none". Ignored for a scoped (calls.view-only) login. */
   assignee?: string;
+  /**
+   * One "Assign calls" click. Every call it created shares the exact
+   * assigned_at stamp, so that timestamp is the batch's id — no separate
+   * table needed.
+   */
+  batch?: string;
   /** IST dates, YYYY-MM-DD, on the day the call was assigned. */
   from?: string;
   to?: string;
@@ -130,6 +136,7 @@ export function parseCallFilters(p: Record<string, string | undefined>): CallFil
     flag: isCallFlag(p.flag) ? p.flag : undefined,
     due: p.due === "1",
     assignee: p.assignee || undefined,
+    batch: p.batch && !Number.isNaN(Date.parse(p.batch)) ? p.batch : undefined,
     from: isDate(p.from) ? p.from : undefined,
     to: isDate(p.to) ? p.to : undefined,
     q: p.q || undefined,
@@ -150,6 +157,7 @@ export function callsHref(f: CallFilters, changes: Record<string, string | null>
   if (f.flag) p.set("flag", f.flag);
   if (f.due) p.set("due", "1");
   if (f.assignee) p.set("assignee", f.assignee);
+  if (f.batch) p.set("batch", f.batch);
   if (f.from) p.set("from", f.from);
   if (f.to) p.set("to", f.to);
   if (f.q) p.set("q", f.q);
@@ -166,7 +174,7 @@ export function callsHref(f: CallFilters, changes: Record<string, string | null>
 
 export function hasCallNarrowing(f: CallFilters): boolean {
   return !!(
-    f.view !== "open" || f.status || f.flag || f.due || f.assignee || f.from ||
+    f.view !== "open" || f.status || f.flag || f.due || f.assignee || f.batch || f.from ||
     f.to || f.q || f.remark || f.delivery || f.sort !== "due"
   );
 }

@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { Search, X, Clock, SlidersHorizontal, ChevronDown } from "lucide-react";
+import { Search, X, Clock, SlidersHorizontal, ChevronDown, Layers } from "lucide-react";
 import { useNavigation } from "@/components/admin/Revalidating";
+import { formatISTShort } from "@/lib/format-date";
 import {
   CALL_STATUSES,
   CALL_STATUS_LABELS,
@@ -13,25 +14,28 @@ import {
   hasCallNarrowing,
   type CallFilters,
 } from "@/lib/calls";
-import type { CallCounts } from "@/lib/db/calls";
+import type { CallBatch, CallCounts } from "@/lib/db/calls";
 
 /**
  * The portal's filters. Every control writes the URL and nothing else, so a
  * view survives a reload and a manager can send someone "your call-backs due"
  * as a link.
  *
+ * The batch picker leads, because a list is worked one assignment at a time.
  * Search and the chip rows stay on screen; the rarer selects fold away behind
  * "Filters", so on a phone the first call card isn't pushed below the fold.
  */
 export default function CallFilterBar({
   filters,
   counts,
+  batches,
   staff,
   canManage,
 }: {
   filters: CallFilters;
   counts: CallCounts;
-  staff: { id: string; name: string }[];
+  batches: CallBatch[];
+  staff: { id: string; name: string; email: string }[];
   canManage: boolean;
 }) {
   const { pending, navigate } = useNavigation();
@@ -45,14 +49,22 @@ export default function CallFilterBar({
     filters.view !== "open",
     canManage && !!filters.assignee,
     !!filters.delivery,
-    !!filters.from,
-    !!filters.to,
-    filters.sort !== "due",
     !!filters.remark,
   ].filter(Boolean).length;
   const [expanded, setExpanded] = useState(advancedActive > 0);
 
   const push = (changes: Record<string, string | null>) => navigate(callsHref(filters, changes));
+
+  const staffName = new Map(staff.map((s) => [s.email, s.name]));
+  const batchText = (b: CallBatch) =>
+    [
+      `${b.label || "Calling list"} — ${formatISTShort(b.key)}`,
+      `${b.open} of ${b.total} open`,
+      canManage ? (staffName.get(b.assigned_to_email ?? "") ?? b.assigned_to_email ?? "Unassigned") : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  const selectedBatch = batches.find((b) => b.key === filters.batch);
 
   const chip = (on: boolean) =>
     `px-3 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap border transition-all ${
@@ -66,6 +78,35 @@ export default function CallFilterBar({
 
   return (
     <div className="mb-5 space-y-3">
+      {/* Batch — one "Assign calls" click, with when it was assigned */}
+      <div className="bg-white border border-neutral-200 rounded-2xl p-3 shadow-sm">
+        <label className="text-xs font-medium text-neutral-500 mb-1.5 flex items-center gap-1.5">
+          <Layers className="w-3.5 h-3.5" /> Batch
+        </label>
+        <select
+          value={filters.batch ?? ""}
+          onChange={(e) => push({ batch: e.target.value || null })}
+          className={`${field} w-full cursor-pointer font-medium`}
+        >
+          <option value="">All batches ({batches.length})</option>
+          {/* A batch from a shared link that no longer lists stays selectable. */}
+          {filters.batch && !selectedBatch && (
+            <option value={filters.batch}>Batch of {formatISTShort(filters.batch)}</option>
+          )}
+          {batches.map((b) => (
+            <option key={b.key} value={b.key}>
+              {batchText(b)}
+            </option>
+          ))}
+        </select>
+        {selectedBatch && (
+          <p className="text-[11px] text-neutral-500 mt-1.5">
+            Assigned {formatISTShort(selectedBatch.key)} · {selectedBatch.total} customer
+            {selectedBatch.total === 1 ? "" : "s"}, {selectedBatch.total - selectedBatch.open} done
+          </p>
+        )}
+      </div>
+
       {/* Call status */}
       <div className="flex gap-1.5 overflow-x-auto pb-1">
         <button onClick={() => push({ status: null })} className={chip(!filters.status)}>
@@ -185,7 +226,8 @@ export default function CallFilterBar({
                 <label className={label}>Assigned to</label>
                 <select
                   value={filters.assignee ?? ""}
-                  onChange={(e) => push({ assignee: e.target.value || null })}
+                  // A batch belongs to one person; switching person drops it.
+                  onChange={(e) => push({ assignee: e.target.value || null, batch: null })}
                   className={`${field} cursor-pointer`}
                 >
                   <option value="">Everyone</option>
@@ -210,41 +252,6 @@ export default function CallFilterBar({
                 <option value="undelivered">Not delivered yet</option>
                 <option value="delivered">Delivered</option>
                 <option value="returned">Returned</option>
-              </select>
-            </div>
-
-            <div>
-              <label className={label}>Assigned from</label>
-              <input
-                type="date"
-                value={filters.from ?? ""}
-                max={filters.to || undefined}
-                onChange={(e) => push({ from: e.target.value || null })}
-                className={`${field} cursor-pointer`}
-              />
-            </div>
-            <div>
-              <label className={label}>To</label>
-              <input
-                type="date"
-                value={filters.to ?? ""}
-                min={filters.from || undefined}
-                onChange={(e) => push({ to: e.target.value || null })}
-                className={`${field} cursor-pointer`}
-              />
-            </div>
-
-            <div>
-              <label className={label}>Order</label>
-              <select
-                value={filters.sort}
-                onChange={(e) => push({ sort: e.target.value === "due" ? null : e.target.value })}
-                className={`${field} cursor-pointer`}
-              >
-                <option value="due">Call-backs first</option>
-                <option value="newest">Newest assigned</option>
-                <option value="oldest">Oldest assigned</option>
-                <option value="attempts">Fewest calls</option>
               </select>
             </div>
 

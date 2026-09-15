@@ -6,7 +6,7 @@ import { can } from "@/lib/permissions";
 import { SkeletonHeader, SkeletonTabs, SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
 import { listStaff } from "@/lib/db/staff";
-import { callScope, listCalls, callCounts } from "@/lib/db/calls";
+import { callScope, listCalls, callCounts, listBatches } from "@/lib/db/calls";
 import { parseCallFilters, callsHref, type CallFilters } from "@/lib/calls";
 import CallFilterBar from "./CallFilters";
 import CallList from "./CallList";
@@ -70,10 +70,11 @@ async function Body({
   const scope = callScope(staff);
   const canManage = scope.seesEveryone;
 
-  const [allStaff, counts, { rows, count }] = await Promise.all([
+  const [allStaff, counts, { rows, count }, batches] = await Promise.all([
     canManage ? listStaff() : Promise.resolve([]),
     callCounts(filters, scope),
     listCalls(filters, scope, page, PER_PAGE),
+    listBatches(scope, canManage ? filters.assignee : undefined),
   ]);
 
   const callStaff = allStaff
@@ -87,6 +88,7 @@ async function Body({
       <CallFilterBar
         filters={filters}
         counts={counts}
+        batches={batches}
         staff={callStaff}
         canManage={canManage}
       />

@@ -141,6 +141,8 @@ function scoped(
   else if (f.assignee === "none") q = q.is("assigned_to_id", null);
   else if (f.assignee) q = q.eq("assigned_to_id", f.assignee);
 
+  if (f.batch) q = q.eq("assigned_at", f.batch);
+
   if (f.view === "open") q = q.eq("done", false);
   else if (f.view === "done") q = q.eq("done", true);
 
@@ -256,6 +258,65 @@ export async function callCounts(f: CallFilters, scope: CallScope): Promise<Call
     byFlag: Object.fromEntries(CALL_FLAGS.map((fl, i) => [fl, flags[i]])) as Record<CallFlag, number>,
     due,
   };
+}
+
+/** One "Assign calls" click, as the portal's batch dropdown shows it. */
+export interface CallBatch {
+  /** The shared assigned_at stamp — what the `batch` filter matches on. */
+  key: string;
+  label: string | null;
+  assigned_to_id: string | null;
+  assigned_to_email: string | null;
+  total: number;
+  open: number;
+}
+
+/**
+ * Every batch this login can see, newest first. Ignores the other filters on
+ * purpose: the dropdown is how you pick a list, so it must not empty itself
+ * because a status chip is on.
+ */
+export async function listBatches(scope: CallScope, assignee?: string): Promise<CallBatch[]> {
+  let q = supabaseAdmin
+    .from("call_tasks")
+    .select("assigned_at, batch_label, assigned_to_id, assigned_to_email, done")
+    .order("assigned_at", { ascending: false })
+    .limit(10000);
+
+  if (!scope.seesEveryone) q = q.eq("assigned_to_id", scope.staffId ?? NO_ID);
+  else if (assignee === "none") q = q.is("assigned_to_id", null);
+  else if (assignee) q = q.eq("assigned_to_id", assignee);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error("[Calls] batches failed:", error.message);
+    return [];
+  }
+
+  const batches = new Map<string, CallBatch>();
+  for (const r of (data ?? []) as {
+    assigned_at: string;
+    batch_label: string | null;
+    assigned_to_id: string | null;
+    assigned_to_email: string | null;
+    done: boolean;
+  }[]) {
+    let b = batches.get(r.assigned_at);
+    if (!b) {
+      b = {
+        key: r.assigned_at,
+        label: r.batch_label,
+        assigned_to_id: r.assigned_to_id,
+        assigned_to_email: r.assigned_to_email,
+        total: 0,
+        open: 0,
+      };
+      batches.set(r.assigned_at, b);
+    }
+    b.total += 1;
+    if (!r.done) b.open += 1;
+  }
+  return [...batches.values()];
 }
 
 export async function getCall(id: string): Promise<CallTask | null> {
@@ -504,7 +565,8 @@ export async function updateCall(
   if (patch.assignee !== undefined) {
     row.assigned_to_id = patch.assignee?.id ?? null;
     row.assigned_to_email = patch.assignee?.email ?? null;
-    row.assigned_at = now;
+    // assigned_at deliberately untouched: it identifies the batch this call
+    // came in, and moving one call to a colleague shouldn't pull it out.
     meta.to = patch.assignee?.email ?? null;
   }
 
