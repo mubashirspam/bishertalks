@@ -269,6 +269,21 @@ export default function OrderQuickPanel({
                 </a>
               </div>
             )}
+            {(order as { alt_phone?: string | null }).alt_phone && (
+              <div className="flex items-center gap-2">
+                <span className="text-neutral-500 text-xs">Alt.</span>
+                <span className="text-neutral-700 tabular-nums">
+                  +91 {(order as { alt_phone?: string | null }).alt_phone}
+                </span>
+                <a
+                  href={telLink((order as { alt_phone?: string | null }).alt_phone!)}
+                  title="Call the alternative number"
+                  className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200"
+                >
+                  <Phone className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            )}
             {order.buyer_email && <p className="text-neutral-500 text-xs">{order.buyer_email}</p>}
             <div className="pt-2 border-t border-neutral-100 text-neutral-600 leading-relaxed">
               {order.address_line1 ? (

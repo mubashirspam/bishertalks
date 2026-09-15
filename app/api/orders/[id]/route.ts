@@ -50,10 +50,14 @@ export async function GET(
 
   // Who changed what, and what the customer was actually sent — both alongside
   // so the detail page still needs one request.
-  const [history, notifications] = await Promise.all([
+  const [history, notifications, extra] = await Promise.all([
     getAuditTrail("order", id),
     listNotifications(id),
+    // 0085, read on its own: naming alt_phone in the select above would make
+    // this whole page fail on a database that hasn't run that migration yet.
+    supabaseAdmin.from("orders").select("alt_phone").eq("order_number", id).maybeSingle(),
   ]);
+  const altPhone = (extra.data as { alt_phone?: string | null } | null)?.alt_phone ?? null;
 
-  return NextResponse.json({ ...order, history, notifications });
+  return NextResponse.json({ ...order, alt_phone: altPhone, history, notifications });
 }

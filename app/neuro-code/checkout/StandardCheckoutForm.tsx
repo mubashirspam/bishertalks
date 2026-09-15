@@ -4,13 +4,9 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
-  ArrowLeft, Lock, ShoppingBag, Tag, Check, User, MapPin, Loader2, Truck,
+  ArrowLeft, Lock, ShoppingBag, Tag, Check, User, MapPin, Loader2,
 } from "lucide-react";
-import {
-  ADDRESS_TYPES,
-  ADDRESS_TYPE_LABELS,
-  type AddressType,
-} from "@/lib/address";
+import type { AddressType } from "@/lib/address";
 import type { ProductPricing } from "@/lib/db/courses";
 import { clampQuantity } from "@/lib/quantity";
 import type { CheckoutSettings } from "@/lib/checkout-settings";
@@ -30,12 +26,23 @@ import {
   type AppliedPromo,
 } from "./OrderSummary";
 import type { PreorderFacts } from "@/lib/preorder";
+import {
+  FormCard,
+  Field,
+  inputClass,
+  PhoneInput,
+  AddressTypeToggle,
+  AutoFillNote,
+  usePincodeLookup,
+  areaFor,
+} from "../FormFields";
 
 declare global {
   interface Window { Razorpay: new (options: object) => { open: () => void }; }
 }
 
 const rupees = (paise: number) => Math.round(paise / 100);
+const MOBILE = /^[6-9]\d{9}$/;
 
 /**
  * Checkout — details first, then payment.
@@ -60,24 +67,42 @@ export default function StandardCheckoutForm({
   const router = useRouter();
 
   const [phone, setPhone] = useState("");
+  // 0085. A second number for the courier to try — optional.
+  const [altPhone, setAltPhone] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   // 0064. Home by default — it is what nearly every order is, and a required
   // choice with an obvious answer is a tap taken from the customer.
   const [addressType, setAddressType] = useState<AddressType>("home");
   const [houseName, setHouseName] = useState("");
-  const [doorNo, setDoorNo] = useState("");
+  // "Place" on the form.
   const [address1, setAddress1] = useState("");
+  // "Landmark" on the form.
   const [address2, setAddress2] = useState("");
   const [pincode, setPincode] = useState("");
+  // "Area / locality" on the form — a dropdown when the pincode has several.
   const [city, setCity] = useState("");
   const [district, setDistrict] = useState("");
   const [state, setState] = useState("");
 
-  const [localities, setLocalities] = useState<string[]>([]);
-  const [pinLoading, setPinLoading] = useState(false);
-  const [pinError, setPinError] = useState("");
-  const [manualMode, setManualMode] = useState(false);
+  const {
+    localities,
+    loading: pinLoading,
+    error: pinError,
+    manual: manualMode,
+    lookup: lookupPincode,
+  } = usePincodeLookup({
+    onFound: ({ district: d, state: s, localities: list }) => {
+      setDistrict(d);
+      setState(s);
+      setCity((c) => areaFor(c, list));
+      setErrors((p) => ({ ...p, pincode: "", state: "", city: "" }));
+    },
+    onClear: () => {
+      setDistrict("");
+      setState("");
+    },
+  });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -115,7 +140,7 @@ export default function StandardCheckoutForm({
   const signedOrder = isSignedOrder(isSigned, isGift, gift);
   const totalPaise =
     (promo ? promo.finalPaise : pricing.payablePaise * quantity) + giftPaise;
-  const phoneValid = /^[6-9]\d{9}$/.test(phone);
+  const phoneValid = MOBILE.test(phone);
 
   useEffect(() => {
     const script = document.createElement("script");
@@ -132,7 +157,7 @@ export default function StandardCheckoutForm({
     if (!phoneValid) return;
 
     const snapshot = JSON.stringify({
-      phone, name, email, houseName, doorNo, addressType,
+      phone, name, email, houseName, addressType,
       address1, address2, city, district, state, pincode,
     });
     if (capturedFor.current === snapshot) return;
@@ -155,48 +180,8 @@ export default function StandardCheckoutForm({
     }, 900);
 
     return () => clearTimeout(t);
-  }, [phone, phoneValid, name, email, houseName, doorNo, addressType,
+  }, [phone, phoneValid, name, email, houseName, addressType,
       address1, address2, city, district, state, pincode]);
-
-  // Pincode drives district / state / locality.
-  useEffect(() => {
-    if (!/^\d{6}$/.test(pincode)) { setLocalities([]); return; }
-    let cancelled = false;
-    setPinLoading(true);
-    setPinError("");
-
-    (async () => {
-      try {
-        const res = await fetch(`/api/pincode/${pincode}`);
-        const data = await res.json();
-        if (cancelled) return;
-        if (data.found) {
-          setDistrict(data.district);
-          setState(data.state);
-          setLocalities(data.localities ?? []);
-          setManualMode(false);
-          if (data.localities?.length === 1) setCity(data.localities[0]);
-        } else {
-          setPinError(
-            res.status === 404
-              ? "We couldn't find that pincode — please check it."
-              : "Lookup unavailable — please type your district and state."
-          );
-          setManualMode(true);
-          setLocalities([]);
-        }
-      } catch {
-        if (!cancelled) {
-          setPinError("Lookup unavailable — please type your district and state.");
-          setManualMode(true);
-        }
-      } finally {
-        if (!cancelled) setPinLoading(false);
-      }
-    })();
-
-    return () => { cancelled = true; };
-  }, [pincode]);
 
   const applyPromo = async (code = promoInput, qty = quantity) => {
     if (!code.trim()) return;
@@ -236,25 +221,37 @@ export default function StandardCheckoutForm({
     if (promo) void applyPromo(promo.code, q);
   };
 
+  /** Set a field and clear its error in one go. */
+  const edit = (f: string, set: (v: string) => void) => (v: string) => {
+    set(v);
+    if (errors[f]) setErrors((p) => ({ ...p, [f]: "" }));
+  };
+
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!name.trim()) e.name = "Name is required";
-    if (!phoneValid) e.phone = "Enter a valid 10-digit mobile number";
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Enter a valid email";
-    if (!houseName.trim()) e.house_name = "House or building name is required";
-    if (!address1.trim()) e.address1 = "Area / street is required";
-    if (!/^\d{6}$/.test(pincode)) e.pincode = "Enter a valid 6-digit pincode";
-    if (!city.trim()) e.city = "Select or enter your area";
-    if (!state.trim()) e.state = "State is required";
+    if (!name.trim()) e.name = "Please enter your full name.";
+    if (!phoneValid) e.phone = "Please enter a valid 10-digit mobile number.";
+    if (altPhone && !MOBILE.test(altPhone)) e.alt_phone = "Please enter a valid 10-digit number.";
+    else if (altPhone && altPhone === phone) e.alt_phone = "Use a different number from your contact number.";
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) e.email = "Please enter a valid email.";
+    if (!houseName.trim()) e.house_name = "Please enter your house or building name.";
+    if (!address1.trim()) e.address1 = "Please enter your place.";
+    if (!address2.trim()) e.address2 = "Please enter a landmark.";
+    if (!/^\d{6}$/.test(pincode)) e.pincode = "Please enter a 6-digit pincode.";
+    if (!city.trim()) e.city = "Please select or enter your area / locality.";
+    if (!state.trim()) e.state = "State is required.";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
   const handlePay = async () => {
     if (!validate()) {
-      document.querySelector("[data-error='true']")?.scrollIntoView({
-        behavior: "smooth", block: "center",
-      });
+      // After the error paragraphs render, not before.
+      requestAnimationFrame(() =>
+        document.querySelector("[data-error='true']")?.scrollIntoView({
+          behavior: "smooth", block: "center",
+        })
+      );
       return;
     }
     if (!scriptReady || loading) return;
@@ -267,8 +264,9 @@ export default function StandardCheckoutForm({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name, phone, email,
+          alt_phone: altPhone || null,
           address1, address2, city, district, state, pincode,
-          house_name: houseName, door_no: doorNo, address_type: addressType,
+          house_name: houseName, address_type: addressType,
           order_number: orderNumberRef.current,
           promoCode: promo?.code ?? null,
           quantity,
@@ -334,223 +332,214 @@ export default function StandardCheckoutForm({
     }
   };
 
-  const inputCls = (f: string) =>
-    `w-full bg-neutral-50 dark:bg-neutral-800 border rounded-xl px-4 py-3 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:border-primary-500 transition-colors text-sm ${
-      errors[f] ? "border-red-500" : "border-neutral-300 dark:border-white/10"
-    }`;
-  const readOnlyCls =
-    "w-full bg-neutral-100 dark:bg-neutral-800/60 border border-neutral-200 dark:border-white/5 rounded-xl px-4 py-3 text-neutral-500 dark:text-neutral-400 text-sm cursor-not-allowed";
-
-  const Err = ({ f }: { f: string }) =>
-    errors[f] ? <p data-error="true" className="text-red-500 text-xs mt-1">{errors[f]}</p> : null;
-
   return (
-    <div className="min-h-screen bg-white dark:bg-neutral-950 text-neutral-900 dark:text-white">
-      <nav className="border-b border-neutral-200 dark:border-white/8 px-6 py-4 flex items-center justify-between sticky top-0 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm z-10">
+    <div className="min-h-screen bg-neutral-100 dark:bg-neutral-950 text-neutral-900 dark:text-white">
+      <nav className="border-b border-neutral-200 dark:border-white/8 px-4 sm:px-6 py-3 sm:py-4 flex items-center justify-between sticky top-0 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm z-10">
         <Link href="/neuro-code" className="flex items-center gap-2 text-neutral-500 hover:text-neutral-900 dark:hover:text-white text-sm transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back
         </Link>
         <span className="font-bold text-sm">Neuro <span className="text-primary-500">Code</span></span>
       </nav>
 
-      <div className="max-w-5xl mx-auto px-4 py-10 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-8 items-start">
-        <div className="space-y-5">
-          <h1 className="text-2xl font-black">Complete Your Order</h1>
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-8 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-3 sm:gap-6 items-start">
+        <div className="space-y-3 sm:space-y-4">
+          <h1 className="text-xl sm:text-2xl font-black px-1 sm:px-0">Complete Your Order</h1>
 
-          {/* Contact */}
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-6 space-y-4 shadow-sm dark:shadow-none">
-            <h2 className="font-semibold text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-300">
-              <User className="w-4 h-4 text-primary-500" /> Your Details
-            </h2>
-
-            <div>
+          {/* Your details */}
+          <FormCard icon={<User />} title="Your Details">
+            <Field htmlFor="co-name" label="Full Name" ml="മുഴുവൻ പേര്" required error={errors.name}>
               <input
-                className={inputCls("name")}
-                placeholder="Full name *"
+                id="co-name"
+                autoComplete="name"
+                className={inputClass(errors.name)}
+                placeholder="Enter your full name"
                 value={name}
-                onChange={(e) => { setName(e.target.value); setErrors((p) => ({ ...p, name: "" })); }}
+                onChange={(e) => edit("name", setName)(e.target.value)}
               />
-              <Err f="name" />
-            </div>
+            </Field>
 
-            <div>
-              <div className="flex">
-                <span className="bg-neutral-100 dark:bg-neutral-700 border border-neutral-300 dark:border-white/10 border-r-0 rounded-l-xl px-3 flex items-center text-neutral-500 text-sm select-none">
-                  +91
-                </span>
-                <input
-                  className={`${inputCls("phone")} rounded-l-none`}
-                  placeholder="WhatsApp number *"
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field
+                htmlFor="co-phone"
+                label="Contact Number"
+                ml="കോൺടാക്ട് നമ്പർ"
+                required
+                error={errors.phone}
+              >
+                <PhoneInput
+                  id="co-phone"
                   value={phone}
-                  onChange={(e) => {
-                    setPhone(e.target.value.replace(/\D/g, "").slice(0, 10));
-                    setErrors((p) => ({ ...p, phone: "" }));
-                  }}
-                  maxLength={10}
-                  inputMode="numeric"
+                  onChange={edit("phone", setPhone)}
+                  placeholder="WhatsApp number"
+                  error={errors.phone}
                 />
-              </div>
-              <Err f="phone" />
-              <p className="text-neutral-500 text-xs mt-1.5">
-                Order updates and your free course access are sent here.
-              </p>
+              </Field>
+
+              <Field
+                htmlFor="co-alt-phone"
+                label="Alternative Number"
+                ml="മറ്റൊരു നമ്പർ"
+                error={errors.alt_phone}
+              >
+                {/* "(optional)" lives in the placeholder, not the label: in
+                    the label it wrapped to a second line and pushed this
+                    input below the contact number beside it. */}
+                <PhoneInput
+                  id="co-alt-phone"
+                  autoComplete="off"
+                  value={altPhone}
+                  onChange={edit("alt_phone", setAltPhone)}
+                  placeholder="Alternative number (optional)"
+                  error={errors.alt_phone}
+                />
+              </Field>
             </div>
 
-            <div>
+            <Field htmlFor="co-email" label="Email" ml="ഇമെയിൽ" optional error={errors.email}>
               <input
-                className={inputCls("email")}
-                placeholder="Email (optional)"
-                value={email}
-                onChange={(e) => { setEmail(e.target.value); setErrors((p) => ({ ...p, email: "" })); }}
+                id="co-email"
                 type="email"
+                autoComplete="email"
+                className={inputClass(errors.email)}
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => edit("email", setEmail)(e.target.value)}
               />
-              <Err f="email" />
-            </div>
-          </div>
+            </Field>
+          </FormCard>
 
-          {/* Address */}
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-6 space-y-4 shadow-sm dark:shadow-none">
-            <h2 className="font-semibold text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-300">
-              <MapPin className="w-4 h-4 text-primary-500" /> Delivery Address
-            </h2>
+          {/* Delivery address */}
+          <FormCard icon={<MapPin />} title="Delivery Address">
+            <AddressTypeToggle value={addressType} onChange={setAddressType} />
 
-            {/* Two buttons, not a dropdown. There are two answers, and on a
-                phone — where nearly all of these are filled in — a dropdown
-                for two answers is a tap wasted. */}
-            <div className="flex gap-2">
-              {ADDRESS_TYPES.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  onClick={() => setAddressType(t)}
-                  className={`flex-1 rounded-xl px-4 py-2.5 text-sm font-semibold border transition-colors ${
-                    addressType === t
-                      ? "bg-primary-500 border-primary-500 text-white"
-                      : "bg-white dark:bg-neutral-900 border-neutral-200 dark:border-white/10 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white"
-                  }`}
-                >
-                  {ADDRESS_TYPE_LABELS[t]}
-                </button>
-              ))}
-            </div>
-
-            {/* The field this whole change exists for: a named house is
+            {/* The field this whole shape exists for: a named house is
                 findable when a street name is not. */}
-            <div>
+            <Field
+              htmlFor="co-house"
+              label={addressType === "office" ? "Office / Building Name" : "House / Building Name"}
+              ml="വീടിന്റെ അല്ലെങ്കിൽ കെട്ടിടത്തിന്റെ പേര്"
+              required
+              error={errors.house_name}
+            >
               <input
-                className={inputCls("house_name")}
-                placeholder={
-                  addressType === "office"
-                    ? "Office / building name *"
-                    : "House / building name *"
-                }
+                id="co-house" autoComplete="address-line1"
+                className={inputClass(errors.house_name)}
+                placeholder={addressType === "office" ? "Enter office or building name" : "Enter house or building name"}
                 value={houseName}
-                onChange={(e) => { setHouseName(e.target.value); setErrors((p) => ({ ...p, house_name: "" })); }}
+                onChange={(e) => edit("house_name", setHouseName)(e.target.value)}
               />
-              <Err f="house_name" />
-            </div>
+            </Field>
 
-            <input
-              className={inputCls("door_no")}
-              placeholder="Flat / floor / door no. (optional)"
-              value={doorNo}
-              onChange={(e) => setDoorNo(e.target.value)}
-            />
-
-            <div>
-              <input
-                className={inputCls("address1")}
-                placeholder="Area, street, locality *"
-                value={address1}
-                onChange={(e) => { setAddress1(e.target.value); setErrors((p) => ({ ...p, address1: "" })); }}
-              />
-              <Err f="address1" />
-            </div>
-
-            <input
-              className={inputCls("address2")}
-              placeholder="Landmark (optional)"
-              value={address2}
-              onChange={(e) => setAddress2(e.target.value)}
-            />
-
-            <div>
-              <div className="relative">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field htmlFor="co-place" label="Place" ml="സ്ഥലം" required error={errors.address1}>
                 <input
-                  className={inputCls("pincode")}
-                  placeholder="Pincode *"
-                  value={pincode}
-                  onChange={(e) => {
-                    setPincode(e.target.value.replace(/\D/g, "").slice(0, 6));
-                    setErrors((p) => ({ ...p, pincode: "" }));
-                  }}
-                  maxLength={6}
-                  inputMode="numeric"
+                  id="co-place"
+                  autoComplete="address-line2"
+                  className={inputClass(errors.address1)}
+                  placeholder="Enter place"
+                  value={address1}
+                  onChange={(e) => edit("address1", setAddress1)(e.target.value)}
                 />
-                {pinLoading && (
-                  <Loader2 className="w-4 h-4 text-primary-500 animate-spin absolute right-4 top-1/2 -translate-y-1/2" />
+              </Field>
+
+              <Field htmlFor="co-landmark" label="Landmark / Nearby" ml="ലാൻഡ്മാർക്ക്" required error={errors.address2}>
+                <input
+                  id="co-landmark" autoComplete="off"
+                  className={inputClass(errors.address2)}
+                  placeholder="Enter landmark"
+                  value={address2}
+                  onChange={(e) => edit("address2", setAddress2)(e.target.value)}
+                />
+              </Field>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field
+                htmlFor="co-pincode"
+                label="Pincode"
+                ml="പിൻകോഡ്"
+                required
+                error={errors.pincode || undefined}
+                hint={pinError ? <span className="text-amber-600">{pinError}</span> : undefined}
+              >
+                <div className="relative">
+                  <input
+                    id="co-pincode"
+                    autoComplete="postal-code"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className={inputClass(errors.pincode)}
+                    placeholder="Enter pincode"
+                    value={pincode}
+                    onChange={(e) => {
+                      // District, state and area follow the pincode — looked up
+                      // here, the moment it changes (typed, pasted or autofilled).
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 6);
+                      edit("pincode", setPincode)(v);
+                      if (v !== pincode) void lookupPincode(v);
+                    }}
+                  />
+                  {pinLoading && (
+                    <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 text-primary-500 animate-spin absolute right-3 sm:right-4 top-1/2 -translate-y-1/2" />
+                  )}
+                </div>
+              </Field>
+
+              <Field htmlFor="co-area" label="Area / Locality" ml="പ്രദേശം" required error={errors.city}>
+                {localities.length > 1 ? (
+                  <select
+                    id="co-area"
+                    className={`${inputClass(errors.city)} appearance-none cursor-pointer`}
+                    value={city}
+                    onChange={(e) => edit("city", setCity)(e.target.value)}
+                  >
+                    <option value="">Select your area</option>
+                    {localities.map((l) => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    id="co-area"
+                    className={inputClass(errors.city)}
+                    placeholder="Enter area / locality" autoComplete="address-level3"
+                    value={city}
+                    onChange={(e) => edit("city", setCity)(e.target.value)}
+                  />
                 )}
-              </div>
-              <Err f="pincode" />
-              {pinError && <p className="text-amber-600 text-xs mt-1">{pinError}</p>}
+              </Field>
             </div>
 
-            <div>
-              {localities.length > 1 ? (
-                <select
-                  className={`${inputCls("city")} appearance-none cursor-pointer`}
-                  value={city}
-                  onChange={(e) => { setCity(e.target.value); setErrors((p) => ({ ...p, city: "" })); }}
-                >
-                  <option value="">Select your area *</option>
-                  {localities.map((l) => <option key={l} value={l}>{l}</option>)}
-                </select>
-              ) : (
-                <input
-                  className={inputCls("city")}
-                  placeholder="Area / locality *"
-                  value={city}
-                  onChange={(e) => { setCity(e.target.value); setErrors((p) => ({ ...p, city: "" })); }}
-                />
-              )}
-              <Err f="city" />
-            </div>
-
-            {/* Filled from the pincode — not typed */}
+            {/* Filled from the pincode — not typed, unless the lookup is down */}
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-neutral-500 text-xs mb-1.5 block">District</label>
+              <Field htmlFor="co-district" label="District" ml="ജില്ല">
                 <input
-                  className={manualMode ? inputCls("district") : readOnlyCls}
+                  id="co-district"
+                  className={inputClass(undefined, !manualMode)}
                   value={district}
                   readOnly={!manualMode}
                   placeholder="From pincode"
                   onChange={(e) => setDistrict(e.target.value)}
                 />
-              </div>
-              <div>
-                <label className="text-neutral-500 text-xs mb-1.5 block">State</label>
+              </Field>
+              <Field htmlFor="co-state" label="State" ml="സംസ്ഥാനം" error={errors.state}>
                 <input
-                  className={manualMode ? inputCls("state") : readOnlyCls}
+                  id="co-state"
+                  className={manualMode ? inputClass(errors.state) : inputClass(undefined, true)}
                   value={state}
                   readOnly={!manualMode}
                   placeholder="From pincode"
-                  onChange={(e) => { setState(e.target.value); setErrors((p) => ({ ...p, state: "" })); }}
+                  onChange={(e) => edit("state", setState)(e.target.value)}
                 />
-                <Err f="state" />
-              </div>
+              </Field>
             </div>
-            <p className="text-neutral-500 text-xs flex items-center gap-1.5">
-              <Check className="w-3 h-3 text-green-500" />
-              District and state fill in automatically from your pincode.
-            </p>
-          </div>
+
+            <AutoFillNote />
+          </FormCard>
         </div>
 
         {/* Summary */}
         <div className="lg:sticky lg:top-24">
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-6 shadow-sm dark:shadow-none">
-            <h2 className="font-semibold text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-300 mb-5">
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-white/8 rounded-2xl p-3.5 sm:p-5 shadow-sm dark:shadow-none">
+            <h2 className="font-semibold text-sm flex items-center gap-2 text-neutral-700 dark:text-neutral-300 mb-4">
               <ShoppingBag className="w-4 h-4 text-primary-500" /> Order Summary
             </h2>
 
@@ -589,7 +578,7 @@ export default function StandardCheckoutForm({
                       onChange={(e) => { setPromoInput(e.target.value.toUpperCase().replace(/\s/g, "")); if (promoError) setPromoError(""); }}
                       onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); applyPromo(); } }}
                       placeholder="Enter code"
-                      className="flex-1 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-white/10 rounded-xl px-3 py-2 text-sm font-mono tracking-wider focus:outline-none focus:border-primary-500 transition-colors"
+                      className="flex-1 min-w-0 bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-white/10 rounded-xl px-3 py-2 text-base sm:text-sm font-mono tracking-wider focus:outline-none focus:border-primary-500 transition-colors"
                     />
                     <button
                       onClick={() => applyPromo()}
@@ -628,7 +617,7 @@ export default function StandardCheckoutForm({
             <button
               onClick={handlePay}
               disabled={loading || !scriptReady}
-              className="mt-6 w-full py-4 rounded-full bg-primary-500 hover:bg-primary-600 disabled:opacity-60 disabled:cursor-not-allowed font-bold text-white flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary-500/20"
+              className="mt-6 w-full py-3.5 sm:py-4 rounded-xl bg-primary-500 hover:bg-primary-600 active:scale-[0.99] disabled:opacity-60 disabled:cursor-not-allowed font-bold text-white text-base sm:text-lg flex items-center justify-center gap-2 transition-all shadow-lg shadow-primary-500/20"
             >
               <Lock className="w-4 h-4" />
               {loading ? "Opening payment…" : `Pay ₹${rupees(totalPaise)}`}

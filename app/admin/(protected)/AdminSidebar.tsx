@@ -3,10 +3,17 @@
 import Link from "@/components/admin/AdminLink";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Truck, Menu, X } from "lucide-react";
+import { Truck, Menu, X, ChevronsLeft, ChevronsRight } from "lucide-react";
 import { ROLE_LABELS, ROLE_BADGE, type StaffRole } from "@/lib/permissions";
-import { visibleNav } from "@/lib/admin-nav";
+import { visibleNav, SIDEBAR_COOKIE } from "@/lib/admin-nav";
 import LogoutButton from "@/components/admin/LogoutButton";
+
+/** The saved choice, when this is running in a browser — see the initial state. */
+function savedCollapsed(): boolean | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|; )${SIDEBAR_COOKIE}=([^;]*)`));
+  return match ? match[1] === "collapsed" : false;
+}
 
 /**
  * Left navigation. Client-side so the active item can be highlighted from the
@@ -20,6 +27,11 @@ import LogoutButton from "@/components/admin/LogoutButton";
  *
  * `unassigned` comes from the server layout and is surfaced as a badge, so the
  * parcels nobody is carrying yet are visible from every screen.
+ *
+ * On desktop it folds down to an icon rail, for wide screens like the delivery
+ * queue and the report. The choice is a cookie the layout reads on the server
+ * (`collapsed`), so a page loads already in the right shape instead of
+ * snapping into it after paint.
  */
 export default function AdminSidebar({
   email,
@@ -29,6 +41,7 @@ export default function AdminSidebar({
   unassigned,
   lowStock,
   urgentTasks,
+  collapsed: initialCollapsed = false,
 }: {
   email: string;
   name: string;
@@ -43,9 +56,27 @@ export default function AdminSidebar({
   lowStock: number | null;
   /** Unsolved and flagged urgent — 0 when there's nothing worth flagging. */
   urgentTasks: number;
+  /** Desktop rail state from the cookie, as the server read it. */
+  collapsed?: boolean;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // The server's reading of the cookie for the first paint. In the browser the
+  // cookie itself wins: the layout renders this twice (a fallback, then again
+  // once the badge counts arrive), and the second copy mounts fresh — reading
+  // the cookie keeps a toggle made in between from being undone. During
+  // hydration the two agree, because the server read that same cookie.
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => savedCollapsed() ?? initialCollapsed
+  );
+
+  const toggleCollapsed = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    document.cookie = next
+      ? `${SIDEBAR_COOKIE}=collapsed; path=/admin; max-age=31536000; samesite=lax`
+      : `${SIDEBAR_COOKIE}=; path=/admin; max-age=0; samesite=lax`;
+  };
 
   const items = visibleNav({ role, permissions });
 
@@ -114,34 +145,49 @@ export default function AdminSidebar({
     </>
   );
 
-  const nav = (
-    <nav className="flex flex-col gap-1 px-3">
+  /** `rail` is the collapsed desktop form: icons only, labels on hover. */
+  const renderNav = (rail: boolean) => (
+    <nav className={`flex flex-col gap-1 ${rail ? "px-2" : "px-3"}`}>
       {items.map(({ href, label, icon: Icon, exact }) => {
         const active = isActive(href, exact);
         const badge = badges[href];
+        const showBadge = badge && badge.count > 0;
         return (
           <Link
             key={href}
             href={href}
             onClick={() => setOpen(false)}
-            className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
+            title={rail ? (showBadge ? `${label} — ${badge.count}` : label) : undefined}
+            className={`relative flex items-center rounded-xl text-sm font-medium transition-all ${
+              rail ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5"
+            } ${
               active
                 ? "bg-primary-500 text-white shadow-sm shadow-primary-500/25"
                 : "text-neutral-500 hover:text-neutral-900 hover:bg-neutral-100"
             }`}
           >
             <Icon className="w-4 h-4 flex-shrink-0" />
-            <span className="flex-1">{label}</span>
-            {badge && badge.count > 0 && (
-              <span
-                className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
-                  active ? "bg-white/25 text-white" : badge.tone
-                }`}
-                title={badge.title}
-              >
-                {badge.count}
-              </span>
-            )}
+            {!rail && <span className="flex-1">{label}</span>}
+            {showBadge &&
+              (rail ? (
+                <span
+                  className={`absolute -top-0.5 right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-bold leading-4 text-center ${
+                    active ? "bg-white text-primary-600" : badge.tone
+                  }`}
+                  title={badge.title}
+                >
+                  {badge.count > 99 ? "99+" : badge.count}
+                </span>
+              ) : (
+                <span
+                  className={`text-[11px] font-bold px-1.5 py-0.5 rounded-full ${
+                    active ? "bg-white/25 text-white" : badge.tone
+                  }`}
+                  title={badge.title}
+                >
+                  {badge.count}
+                </span>
+              ))}
           </Link>
         );
       })}
@@ -173,29 +219,67 @@ export default function AdminSidebar({
 
       {open && (
         <div className="lg:hidden border-b border-neutral-200 bg-white py-3">
-          {nav}
+          {renderNav(false)}
           <div className="mt-3 border-t border-neutral-100 px-6 pt-3">{identity}</div>
         </div>
       )}
 
       {/* Desktop sidebar */}
-      <aside className="hidden lg:flex w-60 flex-shrink-0 flex-col border-r border-neutral-200 bg-white h-screen sticky top-0">
-        <div className="px-6 py-5 border-b border-neutral-100">
-          <Link href="/admin" className="font-bold text-sm">
-            Neuro <span className="text-primary-500">Code</span>
-            <span className="block text-neutral-400 font-normal text-xs mt-0.5">
-              Admin panel
-            </span>
+      <aside
+        className={`hidden lg:flex flex-shrink-0 flex-col border-r border-neutral-200 bg-white h-screen sticky top-0 transition-[width] duration-200 ${
+          collapsed ? "w-16" : "w-60"
+        }`}
+      >
+        <div
+          className={`flex items-center border-b border-neutral-100 ${
+            collapsed ? "flex-col gap-2 px-2 py-4" : "justify-between gap-2 pl-6 pr-3 py-5"
+          }`}
+        >
+          <Link href="/admin" className="font-bold text-sm" title="Neuro Code admin">
+            {collapsed ? (
+              <span className="flex items-center justify-center w-9 h-9 rounded-xl bg-primary-50 text-primary-600 text-xs font-black">
+                NC
+              </span>
+            ) : (
+              <>
+                Neuro <span className="text-primary-500">Code</span>
+                <span className="block text-neutral-400 font-normal text-xs mt-0.5">
+                  Admin panel
+                </span>
+              </>
+            )}
           </Link>
+          <button
+            onClick={toggleCollapsed}
+            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-expanded={!collapsed}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100 transition-colors"
+          >
+            {collapsed ? <ChevronsRight className="w-4 h-4" /> : <ChevronsLeft className="w-4 h-4" />}
+          </button>
         </div>
 
-        <div className="py-4 flex-1 overflow-y-auto">{nav}</div>
+        <div className="py-4 flex-1 overflow-y-auto overflow-x-hidden">{renderNav(collapsed)}</div>
 
         {/* Who you're signed in as, and with what. Worth showing once more
             than one person uses the panel — "why can't I see Orders?" is
             answered by looking at the badge. The way out belongs here too:
-            it is where you look for it once your own name is on the screen. */}
-        <div className="px-5 py-4 border-t border-neutral-100">{identity}</div>
+            it is where you look for it once your own name is on the screen.
+            Folded to an initial on the rail; sign-out is still in the header. */}
+        {collapsed ? (
+          <div className="flex justify-center py-4 border-t border-neutral-100">
+            <button
+              onClick={toggleCollapsed}
+              title={`${name} — ${email} · ${ROLE_LABELS[role]}`}
+              className="flex items-center justify-center w-9 h-9 rounded-full bg-neutral-100 text-neutral-700 text-sm font-bold hover:bg-neutral-200"
+            >
+              {(name || email).trim().charAt(0).toUpperCase()}
+            </button>
+          </div>
+        ) : (
+          <div className="px-5 py-4 border-t border-neutral-100">{identity}</div>
+        )}
       </aside>
     </>
   );

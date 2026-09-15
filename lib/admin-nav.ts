@@ -91,6 +91,14 @@ export const NAV: NavItem[] = [
   { href: "/admin/delivery-portal", label: "Delivery portal", icon: ClipboardCheck, permission: "delivery.portal" },
 ];
 
+/**
+ * Cookie holding the desktop sidebar's collapsed state ("collapsed" or
+ * absent). Here rather than in AdminSidebar because the server layout reads
+ * it too, and a constant imported from a client component is not a value on
+ * the server.
+ */
+export const SIDEBAR_COOKIE = "admin_sidebar";
+
 /** The screens this person can open. Presentation only — the API routes enforce. */
 export function visibleNav(holder: PermissionHolder): NavItem[] {
   return NAV.filter((n) =>

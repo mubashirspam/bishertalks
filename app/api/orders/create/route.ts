@@ -37,6 +37,11 @@ function generateOrderNumber(): string {
   return `ORD-${code}`;
 }
 
+/** PostgREST's "no such column" (schema cache) or Postgres's undefined_column. */
+function isMissingColumn(e: { code?: string; message?: string }): boolean {
+  return e.code === "PGRST204" || e.code === "42703" || /column .* does not exist|Could not find the/i.test(e.message ?? "");
+}
+
 /**
  * Create a Magic Checkout order.
  *
@@ -86,6 +91,18 @@ export async function POST(request: NextRequest) {
     if (phone && !/^[6-9]\d{9}$/.test(normalizePhone(phone))) {
       return NextResponse.json({ error: "Invalid phone number" }, { status: 400 });
     }
+
+    // 0085. Optional second number for the courier. Refused if it isn't a
+    // mobile number; dropped quietly if it just repeats the contact number.
+    const altPhoneRaw =
+      typeof body.alt_phone === "string" && body.alt_phone.trim()
+        ? normalizePhone(body.alt_phone)
+        : "";
+    if (altPhoneRaw && !/^[6-9]\d{9}$/.test(altPhoneRaw)) {
+      return NextResponse.json({ error: "Invalid alternative number" }, { status: 400 });
+    }
+    const altPhone =
+      altPhoneRaw && (!phone || altPhoneRaw !== normalizePhone(phone)) ? altPhoneRaw : "";
 
     // How many copies. Clamped here rather than taken as sent: the browser
     // chooses the number of books, never the price of them, and a request
@@ -354,6 +371,7 @@ export async function POST(request: NextRequest) {
         : {}),
       ...(name ? { buyer_name: name } : {}),
       ...(email ? { buyer_email: email } : {}),
+      ...(altPhone ? { alt_phone: altPhone } : {}),
       // Present on the standard flow; null under Magic Checkout, where they're
       // backfilled from Razorpay after payment.
       // 0064. The house by name is what a delivery agent looks for; the door
@@ -370,14 +388,22 @@ export async function POST(request: NextRequest) {
       ...(address1 ? { address_submitted_at: new Date().toISOString() } : {}),
     };
 
-    const { error: dbError } = reusingLead
-      ? await supabaseAdmin
-          .from("orders")
-          .update(row)
-          .eq("order_number", orderNumber)
-      : await supabaseAdmin
-          .from("orders")
-          .insert({ order_number: orderNumber, ...row });
+    const writeRow = (r: Record<string, unknown>) =>
+      reusingLead
+        ? supabaseAdmin.from("orders").update(r).eq("order_number", orderNumber)
+        : supabaseAdmin.from("orders").insert({ order_number: orderNumber, ...r });
+
+    let { error: dbError } = await writeRow(row);
+
+    // alt_phone arrives with migration 0085. If the code is live before that
+    // has been run, save the order without it rather than fail a paying
+    // customer's checkout over an optional field.
+    if (dbError && altPhone && isMissingColumn(dbError)) {
+      console.warn("[Create] alt_phone column missing — run migration 0085. Saving without it.");
+      const withoutAlt: Record<string, unknown> = { ...row };
+      delete withoutAlt.alt_phone;
+      ({ error: dbError } = await writeRow(withoutAlt));
+    }
 
     if (dbError) {
       console.error("DB insert error:", dbError);

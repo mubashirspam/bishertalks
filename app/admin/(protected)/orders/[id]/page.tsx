@@ -659,6 +659,25 @@ export default function AdminOrderDetailPage() {
                 )}
               </div>
 
+              {/* 0085 — the second number the customer gave for the courier. */}
+              {(order as { alt_phone?: string | null }).alt_phone && (
+                <div className="flex justify-between items-center">
+                  <span className="text-neutral-500">Alt. phone</span>
+                  <span className="flex items-center gap-2">
+                    <span className="text-neutral-900">
+                      +91 {(order as { alt_phone?: string | null }).alt_phone}
+                    </span>
+                    <a
+                      href={telLink((order as { alt_phone?: string | null }).alt_phone!)}
+                      title="Call the alternative number"
+                      className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-neutral-100 text-neutral-600 hover:bg-neutral-200 transition-colors"
+                    >
+                      <Phone className="w-4 h-4" />
+                    </a>
+                  </span>
+                </div>
+              )}
+
               {/* Number correction. A wrong digit at checkout strands the
                   course sign-in and sends WhatsApp updates to a stranger, so
                   the save goes through a confirmation, not a blind click. */}

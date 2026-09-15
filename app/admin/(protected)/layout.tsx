@@ -1,12 +1,13 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
+import { cookies } from "next/headers";
 import { getCurrentStaff } from "@/lib/admin-auth";
 import { countUnassignedParcels } from "@/lib/db/delivery-query";
 import { stockWarning } from "@/lib/db/inventory";
 import { urgentTaskCount } from "@/lib/db/tasks";
 import { taskScope } from "@/lib/tasks-scope";
 import { can } from "@/lib/permissions";
-import { hasNavigation } from "@/lib/admin-nav";
+import { hasNavigation, SIDEBAR_COOKIE } from "@/lib/admin-nav";
 import LogoutButton from "@/components/admin/LogoutButton";
 import PageTitle from "@/components/admin/PageTitle";
 import AdminSidebar from "./AdminSidebar";
@@ -36,6 +37,10 @@ export default async function AdminLayout({
    */
   const navigable = hasNavigation(staff);
 
+  // The desktop sidebar's folded state, read here so the first paint is
+  // already the right width — see AdminSidebar.
+  const sidebarCollapsed = (await cookies()).get(SIDEBAR_COOKIE)?.value === "collapsed";
+
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900 lg:flex">
       {/* Counts are streamed, not awaited. They're two more database round
@@ -53,6 +58,7 @@ export default async function AdminLayout({
               unassigned={0}
               lowStock={null}
               urgentTasks={0}
+              collapsed={sidebarCollapsed}
             />
           }
         >
@@ -65,6 +71,7 @@ export default async function AdminLayout({
             canSeeStock={can(staff, "inventory.view")}
             canSeeTasks={can(staff, "tasks.view") || can(staff, "tasks.manage")}
             taskScopeStaffId={taskScope(staff).seesEveryone ? undefined : (staff.id ?? undefined)}
+            collapsed={sidebarCollapsed}
           />
         </Suspense>
       )}
@@ -106,6 +113,7 @@ async function SidebarWithCounts({
   name: string;
   role: Parameters<typeof AdminSidebar>[0]["role"];
   permissions: string[];
+  collapsed: boolean;
   canSeeDelivery: boolean;
   canSeeStock: boolean;
   canSeeTasks: boolean;

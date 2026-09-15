@@ -7,6 +7,11 @@ import { notifyAfterResponse } from "@/lib/notify";
 import { cleanName, isUsableName, NAME_MIN } from "@/lib/clean-name";
 import { addressType } from "@/lib/address";
 
+/** PostgREST's "no such column" (schema cache) or Postgres's undefined_column. */
+function isMissingColumn(e: { code?: string; message?: string }): boolean {
+  return e.code === "PGRST204" || e.code === "42703" || /column .* does not exist|Could not find the/i.test(e.message ?? "");
+}
+
 const str = (v: unknown): string | null => {
   const s = typeof v === "string" ? v.trim() : "";
   return s || null;
@@ -72,22 +77,42 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Order not found" }, { status: 404 });
     }
 
-    const { error } = await supabaseAdmin
+    // 0085. Optional second number — ten digits, a +91 or leading 0 dropped.
+    const altDigits = (str(body.alt_phone) ?? "").replace(/\D/g, "").slice(-10);
+    if (altDigits && !/^[6-9]\d{9}$/.test(altDigits)) {
+      return NextResponse.json({ error: "Invalid alternative number" }, { status: 400 });
+    }
+
+    const patch: Record<string, unknown> = {
+      buyer_name: name,
+      house_name: houseName,
+      door_no: doorNo || null,
+      address_type: type,
+      address_line1: address1,
+      address_line2: str(body.address2),
+      city,
+      district: str(body.district),
+      state,
+      pincode,
+      address_submitted_at: new Date().toISOString(),
+      ...(altDigits ? { alt_phone: altDigits } : {}),
+    };
+
+    let { error } = await supabaseAdmin
       .from("orders")
-      .update({
-        buyer_name: name,
-        house_name: houseName,
-        door_no: doorNo || null,
-        address_type: type,
-        address_line1: address1,
-        address_line2: str(body.address2),
-        city,
-        district: str(body.district),
-        state,
-        pincode,
-        address_submitted_at: new Date().toISOString(),
-      })
+      .update(patch)
       .eq("order_number", orderNumber);
+
+    // Before migration 0085 the column doesn't exist — keep the address,
+    // lose only the optional number.
+    if (error && altDigits && isMissingColumn(error)) {
+      console.warn("[Address] alt_phone column missing — run migration 0085. Saving without it.");
+      delete patch.alt_phone;
+      ({ error } = await supabaseAdmin
+        .from("orders")
+        .update(patch)
+        .eq("order_number", orderNumber));
+    }
 
     if (error) {
       console.error("[Address] update failed:", error.message);
