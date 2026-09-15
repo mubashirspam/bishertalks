@@ -213,7 +213,35 @@ export interface ReportFilters {
   q?: string;
   /** Delivery address state, matched case- and space-insensitively. */
   state?: string;
+  /** The courier's own last word (courier_last_scan), substring — the same
+   *  filter as the delivery portal's "Any remark" (migration 0082). */
+  remark?: string;
+  /** Where the customer stands on calling lists (0084) — see CALL_REPORT_FILTERS. */
+  call?: CallReportFilter;
   sort: "newest" | "oldest" | "age";
+}
+
+// ── Calling lists ────────────────────────────────────────────────────────────
+
+/**
+ * The reports screen's "Calling" filter. Mostly for assigning a list without
+ * handing the same customers out twice: filter to "Not on a calling list",
+ * then Assign calls.
+ */
+export const CALL_REPORT_FILTERS = ["none", "open", "not_called", "called", "done"] as const;
+
+export type CallReportFilter = (typeof CALL_REPORT_FILTERS)[number];
+
+export const CALL_REPORT_FILTER_LABELS: Record<CallReportFilter, string> = {
+  none: "Not on a calling list",
+  open: "On an open calling list",
+  not_called: "Assigned, not called yet",
+  called: "Called at least once",
+  done: "Calls finished",
+};
+
+function isCallReportFilter(v: string | undefined): v is CallReportFilter {
+  return !!v && (CALL_REPORT_FILTERS as readonly string[]).includes(v);
 }
 
 const isDate = (s?: string): s is string => !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
@@ -275,6 +303,8 @@ export function parseReportFilters(
     signed: get("signed") || undefined,
     q: get("q") || undefined,
     state: get("state") || undefined,
+    remark: get("remark") || undefined,
+    call: isCallReportFilter(get("call")) ? (get("call") as CallReportFilter) : undefined,
     sort: sort === "oldest" ? "oldest" : sort === "age" ? "age" : "newest",
   };
 }
@@ -308,6 +338,20 @@ export function reportArgs(f: ReportFilters) {
     p_signed: f.signed ?? null,
     p_q: f.q ?? null,
     p_state: f.state ?? null,
+    ...remarkArg(f),
+  };
+}
+
+/**
+ * p_remark only when there is one. Left out entirely otherwise, so an
+ * unfiltered screen still resolves against the pre-0082 functions — a deploy
+ * that lands before the migration loses the remark filter, not the page.
+ */
+function remarkArg(f: ReportFilters): { p_remark?: string; p_call?: string } {
+  // p_call the same way (0084): only sent when chosen.
+  return {
+    ...(f.remark ? { p_remark: f.remark } : {}),
+    ...(f.call ? { p_call: f.call } : {}),
   };
 }
 
@@ -338,6 +382,9 @@ export function summaryArgs(f: ReportFilters, bucket: "day" | "month") {
     p_q: f.q ?? null,
     p_state: f.state ?? null,
     p_bucket: bucket,
+    // Unlike stages/ageing/late-only this narrows which parcels are counted,
+    // like courier or state, so the tiles follow it.
+    ...remarkArg(f),
   };
 }
 
@@ -371,7 +418,9 @@ export function hasNarrowing(f: ReportFilters): boolean {
     f.gift ||
     f.signed ||
     f.q ||
-    f.state
+    f.state ||
+    f.remark ||
+    f.call
   );
 }
 
@@ -409,6 +458,8 @@ export function toParams(f: ReportFilters): URLSearchParams {
   if (f.signed) p.set("signed", f.signed);
   if (f.q) p.set("q", f.q);
   if (f.state) p.set("state", f.state);
+  if (f.remark) p.set("remark", f.remark);
+  if (f.call) p.set("call", f.call);
   if (f.sort !== "newest") p.set("sort", f.sort);
   return p;
 }

@@ -3,7 +3,8 @@ export const maxDuration = 60;
 
 import { NextRequest, NextResponse } from "next/server";
 import { requirePermission } from "@/lib/admin-auth";
-import { parseReportFilters, DATE_MODE_LABELS } from "@/lib/report-filters";
+import { parseReportFilters, DATE_MODE_LABELS, CALL_REPORT_FILTER_LABELS } from "@/lib/report-filters";
+import { CALL_STATUS_LABELS, isCallStatus } from "@/lib/calls";
 import {
   fetchReportRows,
   reportSummary,
@@ -51,6 +52,12 @@ const HEADERS = [
   "Late",
   "Where it is",
   "Handover state",
+  "Courier last remark",
+  "Courier last scan (IST)",
+  "Call assigned to",
+  "Call status",
+  "Calls made",
+  "Calling lists",
   "Courier",
   "Delivery agent",
   "Waybill",
@@ -114,6 +121,18 @@ export async function GET(request: NextRequest) {
     r.is_late ? "Yes" : "",
     DELIVERY_LABELS[r.delivery_stage as DeliveryStage] ?? r.delivery_stage,
     isHandoverState(r.handover_state) ? HANDOVER_LABELS[r.handover_state] : "",
+    r.courier_last_scan ?? "",
+    r.courier_last_scan_at ? formatIST(r.courier_last_scan_at) : "",
+    r.call_lists
+      ? r.call_assigned_to_id
+        ? (agentNames.get(r.call_assigned_to_id) ?? "Removed staff")
+        : "Unassigned"
+      : "",
+    r.call_lists
+      ? `${isCallStatus(r.call_status) ? CALL_STATUS_LABELS[r.call_status] : (r.call_status ?? "")}${r.call_open ? "" : " (done)"}`
+      : "",
+    r.call_lists ? (r.call_attempts ?? 0) : "",
+    r.call_lists ?? "",
     r.courier_id ? (courierNames.get(r.courier_id) ?? "Unknown courier") : "",
     r.assigned_agent_id ? (agentNames.get(r.assigned_agent_id) ?? "Removed agent") : "",
     r.tracking_number ?? "",
@@ -212,6 +231,8 @@ function summaryRows(
   row("Late threshold", `${filters.late} days since ${filters.lateFrom.replace("_", " ")}`);
   row("Late only", filters.onlyLate ? "Yes" : "No");
   if (filters.state) row("State", filters.state);
+  if (filters.remark) row("Courier remark", filters.remark);
+  if (filters.call) row("Calling", CALL_REPORT_FILTER_LABELS[filters.call]);
   if (filters.q) row("Search", filters.q);
 
   blank();

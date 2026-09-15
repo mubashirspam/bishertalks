@@ -59,6 +59,19 @@ export interface ReportRow {
   /** Shipped to delivered, or shipped to now. Null if it never shipped. */
   days_in_transit: number | null;
   is_late: boolean;
+  /** "Status — Location — Instructions" (0082). Optional: absent until the
+   *  migration has run. */
+  courier_last_scan?: string | null;
+  // 0084 — optional, absent until that migration has run.
+  courier_last_scan_at?: string | null;
+  /** Who the open (or latest) call is with. */
+  call_assigned_to_id?: string | null;
+  call_status?: string | null;
+  /** Calls made, across every list this customer has been on. */
+  call_attempts?: number | null;
+  call_lists?: number | null;
+  call_open?: boolean | null;
+  call_last_at?: string | null;
 }
 
 export interface CourierStat {

@@ -1,10 +1,12 @@
 import Link from "@/components/admin/AdminLink";
-import { formatISTDate } from "@/lib/format-date";
+import { formatISTDate, formatISTShort, timeAgo } from "@/lib/format-date";
+import { CALL_STATUS_LABELS, CALL_STATUS_BADGE, isCallStatus } from "@/lib/calls";
 import { DELIVERY_SHORT, DELIVERY_BADGE } from "@/lib/delivery-stage";
 import { isHandoverState, HANDOVER_LABELS } from "@/lib/delivery/handover";
 import { type ReportFilters } from "@/lib/report-filters";
 import type { ReportRow } from "@/lib/db/parcel-report";
 import ReportDownload from "./ReportDownload";
+import AssignCalls from "./AssignCalls";
 
 /**
  * The parcels themselves.
@@ -34,6 +36,8 @@ export default function ReportTable({
   agentNames,
   filters,
   canExport,
+  canAssignCalls = false,
+  callStaff = [],
 }: {
   rows: ReportRow[];
   count: number;
@@ -41,6 +45,10 @@ export default function ReportTable({
   agentNames: Map<string, string>;
   filters: ReportFilters;
   canExport: boolean;
+  /** calls.manage — puts "Assign calls" beside the download buttons. */
+  canAssignCalls?: boolean;
+  /** Active staff with customer care access, the people a list can go to. */
+  callStaff?: { id: string; name: string }[];
 }) {
   const th =
     "px-3 py-2.5 font-semibold text-neutral-500 uppercase tracking-wider whitespace-nowrap text-left";
@@ -69,7 +77,10 @@ export default function ReportTable({
         {/* Hidden rather than disabled for someone without the permission: a
             control that is only ever going to say no is noise. Same rule the
             delivery breakdown's download follows. */}
-        {canExport && <ReportDownload />}
+        <div className="flex items-start gap-2">
+          {canAssignCalls && <AssignCalls staff={callStaff} count={count} />}
+          {canExport && <ReportDownload />}
+        </div>
       </div>
 
       {!rows.length ? (
@@ -91,6 +102,12 @@ export default function ReportTable({
                 <th className={th}>Delivered</th>
                 <th className={th}>Courier</th>
                 <th className={th}>Where</th>
+                <th className={th} title="The courier's last scan, in full, and the tracking number">
+                  Courier status
+                </th>
+                <th className={th} title="Customer care calling lists — who has it, and how many calls">
+                  Calls
+                </th>
                 <th className={`${th} text-right`} title="Days from the order to delivery, or to now">
                   Days
                 </th>
@@ -184,6 +201,62 @@ export default function ReportTable({
                         <span className="block text-[11px] text-neutral-400 mt-0.5">
                           {HANDOVER_LABELS[r.handover_state]}
                         </span>
+                      )}
+                    </td>
+
+                    {/* Full text, wrapped — the remark alone loses the
+                        status and the hub, which is what "where is it" needs. */}
+                    <td className="px-3 py-2 min-w-[220px] max-w-[320px] align-top">
+                      {r.courier_last_scan ? (
+                        <span className="block text-[11px] leading-snug text-neutral-800 whitespace-normal">
+                          {r.courier_last_scan}
+                        </span>
+                      ) : (
+                        <span className="text-neutral-300">–</span>
+                      )}
+                      {r.courier_last_scan_at && (
+                        <span
+                          className="block text-[10px] text-neutral-400 mt-0.5"
+                          title={formatISTShort(r.courier_last_scan_at)}
+                        >
+                          {timeAgo(r.courier_last_scan_at)}
+                        </span>
+                      )}
+                      {(r.tracking_number || r.postal_barcode) && (
+                        <span className="block font-mono text-[10px] text-neutral-500 mt-0.5">
+                          {r.tracking_number || r.postal_barcode}
+                        </span>
+                      )}
+                    </td>
+
+                    <td className={`${cell} align-top`}>
+                      {r.call_lists ? (
+                        <>
+                          <span className="flex items-center gap-1">
+                            {isCallStatus(r.call_status) && (
+                              <span
+                                className={`inline-flex px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${CALL_STATUS_BADGE[r.call_status]}`}
+                              >
+                                {CALL_STATUS_LABELS[r.call_status]}
+                              </span>
+                            )}
+                            {!r.call_open && (
+                              <span className="text-[10px] text-neutral-400">done</span>
+                            )}
+                          </span>
+                          <span className="block text-[11px] text-neutral-700 mt-0.5">
+                            {r.call_assigned_to_id
+                              ? (agentNames.get(r.call_assigned_to_id) ?? "Removed staff")
+                              : "Unassigned"}
+                          </span>
+                          <span className="block text-[10px] text-neutral-400">
+                            {r.call_attempts ?? 0} call{r.call_attempts === 1 ? "" : "s"}
+                            {(r.call_lists ?? 0) > 1 && ` · ${r.call_lists} lists`}
+                            {r.call_last_at && ` · ${timeAgo(r.call_last_at)}`}
+                          </span>
+                        </>
+                      ) : (
+                        <span className="text-neutral-300">–</span>
                       )}
                     </td>
 

@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, ShoppingBag, Truck, TrendingUp, Users, BookOpen, Tag,
   Shield, Gift, LayoutTemplate, ClipboardCheck, Calculator, PackageCheck,
-  MessageSquare, Inbox, Boxes, BarChart3, Receipt, ListChecks,
+  MessageSquare, Inbox, Boxes, BarChart3, Receipt, ListChecks, PhoneCall,
 } from "lucide-react";
 import { can, canAny, type Permission, type PermissionHolder } from "@/lib/permissions";
 
@@ -79,6 +79,12 @@ export const NAV: NavItem[] = [
     href: "/admin/tasks", label: "Tasks", icon: ListChecks,
     permission: null,
     anyPermission: ["tasks.view", "tasks.manage"],
+  },
+  // Calling lists assigned from Reports (0083).
+  {
+    href: "/admin/calls", label: "Customer care", icon: PhoneCall,
+    permission: null,
+    anyPermission: ["calls.view", "calls.manage"],
   },
   // Last on purpose: for an agent it's the only item, and for everyone else
   // it's the screen someone else works in, not part of the owner's daily run.

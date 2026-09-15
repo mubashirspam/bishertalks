@@ -7,6 +7,7 @@ import { parseReportFilters, type ReportFilters } from "@/lib/report-filters";
 import { reportSummary, fetchReportPage } from "@/lib/db/parcel-report";
 import { deliverySla } from "@/lib/db/delivery-sla";
 import { listCouriers } from "@/lib/db/couriers";
+import { topScanRemarks } from "@/lib/db/delivery-portal";
 import { listDeliveryAgents, listStaff } from "@/lib/db/staff";
 import { SkeletonStats, SkeletonTable } from "@/components/admin/Skeleton";
 import {
@@ -107,6 +108,7 @@ export default async function AnalyticsPage({
             params={params}
             pageNum={pageNum}
             canExport={can(staff, "orders.export")}
+            canAssignCalls={can(staff, "calls.manage")}
           />
         </Suspense>
       </StaleWhileRevalidating>
@@ -114,15 +116,22 @@ export default async function AnalyticsPage({
   );
 }
 
-/** The controls. Needs the two pickers' contents and nothing else. */
+/** The controls. Needs the pickers' contents and nothing else. */
 async function Filters({ filters }: { filters: ReportFilters }) {
-  const [couriers, agents] = await Promise.all([listCouriers(), listDeliveryAgents()]);
+  const [couriers, agents, remarks] = await Promise.all([
+    listCouriers(),
+    listDeliveryAgents(),
+    // The portal's own survey of what couriers are actually saying, narrowed
+    // to the chosen courier — so the two screens offer the same choices.
+    topScanRemarks(filters.courier && filters.courier !== "none" ? filters.courier : null),
+  ]);
 
   return (
     <ReportFilterBar
       filters={filters}
       couriers={couriers.map((c) => ({ id: c.id, name: c.name, active: c.is_active }))}
       agents={agents.map((a) => ({ id: a.id, name: a.name }))}
+      remarkOptions={remarks}
     />
   );
 }
@@ -183,11 +192,13 @@ async function Rows({
   params,
   pageNum,
   canExport,
+  canAssignCalls,
 }: {
   filters: ReportFilters;
   params: Record<string, string | undefined>;
   pageNum: number;
   canExport: boolean;
+  canAssignCalls: boolean;
 }) {
   const [{ rows, count }, couriers, staff] = await Promise.all([
     fetchReportPage(filters, pageNum, PER_PAGE),
@@ -217,6 +228,14 @@ async function Rows({
         agentNames={agentNames}
         filters={filters}
         canExport={canExport}
+        canAssignCalls={canAssignCalls}
+        callStaff={
+          canAssignCalls
+            ? staff
+                .filter((s) => s.is_active && (can(s, "calls.view") || can(s, "calls.manage")))
+                .map((s) => ({ id: s.id, name: s.name }))
+            : []
+        }
       />
 
       {totalPages > 1 && (

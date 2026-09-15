@@ -3,6 +3,7 @@ import { ListChecks } from "lucide-react";
 import Link from "@/components/admin/AdminLink";
 import { requirePageAccessAny } from "@/lib/admin-auth";
 import { taskScope } from "@/lib/tasks-scope";
+import { can } from "@/lib/permissions";
 import { SkeletonHeader, SkeletonTabs, SkeletonTable } from "@/components/admin/Skeleton";
 import { NavigationPending, StaleWhileRevalidating } from "@/components/admin/Revalidating";
 import { listTasks, taskCounts } from "@/lib/db/tasks";
@@ -61,6 +62,8 @@ export default async function TasksPage({
           page={pageNum}
           canManage={scope.seesEveryone}
           ownStaffId={scope.staffId}
+          canViewOrders={can(staff, "orders.view")}
+          canEditOrders={can(staff, "orders.edit")}
         />
       </Suspense>
     </NavigationPending>
@@ -76,7 +79,11 @@ async function Body({
   page,
   canManage,
   ownStaffId,
+  canViewOrders,
+  canEditOrders,
 }: {
+  canViewOrders: boolean;
+  canEditOrders: boolean;
   status?: string;
   priority?: string;
   category?: string;
@@ -118,7 +125,13 @@ async function Body({
       <TasksFilters counts={counts} staff={staff} canManage={canManage} />
 
       <StaleWhileRevalidating>
-        <TaskTable tasks={rows} staff={staff} canManage={canManage} />
+        <TaskTable
+          tasks={rows}
+          staff={staff}
+          canManage={canManage}
+          canViewOrders={canViewOrders}
+          canEditOrders={canEditOrders}
+        />
       </StaleWhileRevalidating>
 
       {totalPages > 1 && (

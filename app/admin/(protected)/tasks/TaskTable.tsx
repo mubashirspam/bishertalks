@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "@/components/admin/AdminLink";
+import TaskSheet from "./TaskSheet";
 import {
   TASK_STATUSES,
   TASK_STATUS_LABELS,
@@ -25,6 +26,8 @@ export default function TaskTable({
   tasks,
   staff,
   canManage,
+  canViewOrders,
+  canEditOrders,
 }: {
   tasks: Task[];
   staff: Staff[];
@@ -32,9 +35,28 @@ export default function TaskTable({
    *  every row a tasks.view-only login sees is already their own, and
    *  reassigning somebody else's work is not theirs to do. */
   canManage: boolean;
+  /** orders.view / orders.edit — whether the sheet can open the task's order. */
+  canViewOrders: boolean;
+  canEditOrders: boolean;
 }) {
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
+  // The task open in the desktop side sheet. On a phone the row still links
+  // to the full page — a 36rem sheet is the whole screen there anyway.
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [, startRefresh] = useTransition();
+  const refreshList = useCallback(() => startRefresh(() => router.refresh()), [router]);
+  const closeSheet = useCallback(() => setOpenId(null), []);
+
+  const openRow = (e: React.MouseEvent, id: string) => {
+    if (!window.matchMedia("(min-width: 768px)").matches) return;
+    // Let modified clicks (new tab) and the row's own controls behave normally.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("select, input, button, textarea")) return;
+    e.preventDefault();
+    setOpenId(id);
+  };
   // The one row (if any) mid-change, and which status it's changing to —
   // every status change asks for a short note before it takes, not just a
   // solve, so whoever asked for it in the task has something to see beyond
@@ -122,10 +144,20 @@ export default function TaskTable({
           </thead>
           <tbody>
             {tasks.map((t) => (
-              <tr key={t.id} className="border-b border-neutral-100 last:border-0 align-top">
+              <tr
+                key={t.id}
+                onClick={(e) => openRow(e, t.id)}
+                className={`border-b border-neutral-100 last:border-0 align-top md:cursor-pointer transition-colors ${
+                  openId === t.id ? "bg-primary-50/60" : "md:hover:bg-neutral-50"
+                }`}
+              >
                 <td className="px-4 py-3 max-w-[260px]">
                   <Link
                     href={`/admin/tasks/${t.id}`}
+                    onClick={(e) => {
+                      openRow(e, t.id);
+                      e.stopPropagation();
+                    }}
                     className="font-medium text-neutral-900 hover:text-primary-600 flex items-center gap-1.5"
                   >
                     {t.priority === "urgent" && (
@@ -260,6 +292,16 @@ export default function TaskTable({
           </tbody>
         </table>
       </div>
+      {openId && (
+        <TaskSheet
+          key={openId}
+          taskId={openId}
+          canViewOrders={canViewOrders}
+          canEditOrders={canEditOrders}
+          onClose={closeSheet}
+          onChanged={refreshList}
+        />
+      )}
     </div>
   );
 }

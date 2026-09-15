@@ -26,6 +26,8 @@ import {
   datePresets,
   reportPresets,
   hasNarrowing,
+  CALL_REPORT_FILTERS,
+  CALL_REPORT_FILTER_LABELS,
   type ReportFilters,
 } from "@/lib/report-filters";
 
@@ -61,12 +63,21 @@ export default function ReportFilterBar({
   filters,
   couriers,
   agents,
+  remarkOptions,
 }: {
   filters: ReportFilters;
   /** Every courier, switched-off ones included — old parcels still name them. */
   couriers: { id: string; name: string; active: boolean }[];
   agents: { id: string; name: string }[];
+  /** What couriers are saying right now, with counts — topScanRemarks. */
+  remarkOptions: { remark: string; count: number }[];
 }) {
+  // A remark from a shared link may no longer be in the live top list; keep
+  // it selectable rather than showing a select that silently reads "Any".
+  const remarks =
+    filters.remark && !remarkOptions.some((r) => r.remark === filters.remark)
+      ? [{ remark: filters.remark, count: 0 }, ...remarkOptions]
+      : remarkOptions;
   const params = useSearchParams();
   const { pending, navigate } = useNavigation();
 
@@ -256,6 +267,46 @@ export default function ReportFilterBar({
               {HANDOVER_CHIPS.map((h) => (
                 <option key={h} value={h} title={HANDOVER_HINTS[h]}>
                   {HANDOVER_LABELS[h]}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* The courier's own wording — same list and same matching as the
+              delivery portal's "Any remark". */}
+          {remarks.length > 0 && (
+            <div>
+              <label className={label}>Courier remark</label>
+              <select
+                value={filters.remark ?? ""}
+                onChange={(e) => push({ remark: e.target.value || null })}
+                title="The courier's own last word on the parcel"
+                className={`${field} cursor-pointer max-w-[240px]`}
+              >
+                <option value="">Any remark</option>
+                {remarks.map((r) => (
+                  <option key={r.remark} value={r.remark}>
+                    {r.remark}
+                    {r.count ? ` (${r.count})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* Pick "Not on a calling list" before Assign calls, and a list
+              never hands out a customer somebody is already ringing. */}
+          <div>
+            <label className={label}>Calling</label>
+            <select
+              value={filters.call ?? ""}
+              onChange={(e) => push({ call: e.target.value || null })}
+              className={`${field} cursor-pointer`}
+            >
+              <option value="">Any</option>
+              {CALL_REPORT_FILTERS.map((c) => (
+                <option key={c} value={c}>
+                  {CALL_REPORT_FILTER_LABELS[c]}
                 </option>
               ))}
             </select>

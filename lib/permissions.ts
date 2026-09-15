@@ -103,6 +103,14 @@ export const PERMISSIONS = {
   // grants whichever one fits the person.
   "tasks.view": "See and update your own assigned tasks",
   "tasks.manage": "Create tasks, assign them, and see everyone's",
+
+  // ── Customer care calling (0083) ──
+  // Same two tiers as tasks: working your own list, and running everyone's.
+  // Marking delivered is split out again, for the reason delivery.complete
+  // is: it approves a commission and messages the customer.
+  "calls.view": "Work your own calling list — call customers and log how it went",
+  "calls.manage": "Assign calling lists from Reports and see everyone's calls",
+  "calls.deliver": "Mark a parcel delivered when the customer confirms it on a call",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -124,6 +132,7 @@ export const PERMISSION_GROUPS: { label: string; permissions: Permission[] }[] =
   { label: "Reference", permissions: ["templates.view"] },
   { label: "WhatsApp CRM", permissions: ["crm.view", "crm.reply", "crm.consent", "crm.campaign"] },
   { label: "Tasks", permissions: ["tasks.view", "tasks.manage"] },
+  { label: "Customer care", permissions: ["calls.view", "calls.manage", "calls.deliver"] },
 ];
 
 // ── Roles ───────────────────────────────────────────────────────────────────
@@ -183,6 +192,7 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     // campaigns have run to know what the opt-out rate looks like.
     "crm.view", "crm.reply", "crm.consent",
     "tasks.manage",
+    "calls.manage", "calls.deliver",
   ],
 
   // Not delivery.complete: a partner ships and hands over, and the parcel is
@@ -204,6 +214,8 @@ export const ROLE_PRESETS: Record<StaffRole, Permission[]> = {
     // Support answer customers; they do not decide who may be messaged.
     "crm.view", "crm.reply",
     "tasks.manage",
+    // Support are who make the calls.
+    "calls.view",
   ],
 };
 
@@ -246,6 +258,7 @@ export function landingPage(holder: PermissionHolder): string {
   if (can(holder, "orders.view")) return "/admin/orders";
   if (can(holder, "delivery.portal")) return "/admin/delivery-portal";
   if (can(holder, "delivery.view")) return "/admin/delivery";
+  if (can(holder, "calls.view") || can(holder, "calls.manage")) return "/admin/calls";
   if (can(holder, "insights.view")) return "/admin/insights";
   if (can(holder, "reports.view")) return "/admin/reports";
   if (can(holder, "referrals.view")) return "/admin/referrals";
